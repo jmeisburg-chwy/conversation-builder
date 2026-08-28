@@ -44,6 +44,10 @@ interface GeneratedContent {
 interface GenerateHandlerOptions {
   apiKey?: string;
   model?: string;
+  runtimeEnv?: {
+    OPENAI_API_KEY?: string;
+    OPENAI_AUTHORING_MODEL?: string;
+  };
   fetchImpl?: typeof fetch;
 }
 
@@ -52,8 +56,8 @@ const MAX_PROVIDER_BYTES = 200_000;
 const DEFAULT_MODEL = "gpt-5.4-mini";
 
 export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
-  const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY ?? "";
-  const model = options.model ?? process.env.OPENAI_AUTHORING_MODEL ?? DEFAULT_MODEL;
+  const apiKey = options.apiKey ?? options.runtimeEnv?.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
+  const model = options.model ?? options.runtimeEnv?.OPENAI_AUTHORING_MODEL ?? process.env.OPENAI_AUTHORING_MODEL ?? DEFAULT_MODEL;
   const fetchImpl = options.fetchImpl ?? fetch;
 
   return async function generate(request: Request): Promise<Response> {

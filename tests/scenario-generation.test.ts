@@ -220,6 +220,25 @@ test("returns a configuration error without exposing or calling an absent key", 
   assert.equal(called, false);
 });
 
+test("uses the Worker runtime binding for provider configuration", async () => {
+  let authorization = "";
+  const handler = createGenerateHandler({
+    runtimeEnv: {
+      OPENAI_API_KEY: "worker-binding-test-key",
+      OPENAI_AUTHORING_MODEL: "worker-binding-test-model",
+    },
+    fetchImpl: async (_input, init) => {
+      authorization = new Headers(init?.headers).get("authorization") || "";
+      return providerResponse(generated);
+    },
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 200);
+  assert.equal(authorization, "Bearer worker-binding-test-key");
+});
+
 test("sends one strict, tool-free, non-stored request and returns a normalized draft", async () => {
   let providerRequest: RequestInit | undefined;
   const handler = createGenerateHandler({
