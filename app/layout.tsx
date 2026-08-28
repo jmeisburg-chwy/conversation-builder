@@ -13,7 +13,20 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Untitled site',
+  title: 'Chewy Conversation Builder',
+  description: 'Build, review, and download conversation JSON files for Articulate Rise practice.',
+  icons: { icon: '/favicon.svg' },
+  openGraph: {
+    title: 'Chewy Conversation Builder',
+    description: 'Build. Review. Test in Rise.',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Conversation Builder — Build. Review. Test in Rise.' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Chewy Conversation Builder',
+    description: 'Build. Review. Test in Rise.',
+    images: ['/og.png'],
+  },
 };
 
 export default function RootLayout({
