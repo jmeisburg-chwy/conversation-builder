@@ -139,7 +139,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
             },
           },
         }),
-        signal: AbortSignal.timeout(75_000),
+        signal: AbortSignal.timeout(120_000),
       });
 
       failureStage = "provider_response_body";

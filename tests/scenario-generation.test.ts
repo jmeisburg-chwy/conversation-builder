@@ -393,7 +393,7 @@ test("replaces sensitive-looking details invented by the provider before returni
   );
 });
 
-test("gives the provider more than the previous 45-second generation window", async () => {
+test("gives hosted structured generation a two-minute provider window", async () => {
   let requestedTimeout = 0;
   const originalTimeout = AbortSignal.timeout;
   AbortSignal.timeout = ((milliseconds: number) => {
@@ -410,7 +410,7 @@ test("gives the provider more than the previous 45-second generation window", as
     const response = await handler(request(validBody));
 
     assert.equal(response.status, 200);
-    assert.equal(requestedTimeout >= 60_000, true);
+    assert.equal(requestedTimeout, 120_000);
   } finally {
     AbortSignal.timeout = originalTimeout;
   }
