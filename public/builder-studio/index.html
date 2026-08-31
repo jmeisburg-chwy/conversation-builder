@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Conversation Builder</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/builder-studio/styles.css?revision=2026-08-31-standalone-direct-port" />
+    <link rel="stylesheet" href="/shared/action-tooltips.css?revision=2026-08-31-standalone-direct-port" />
+  </head>
+  <body data-builder-view="workflow">
+    <a class="skip-link" href="#studioContent">Skip to Studio content</a>
+
+    <header class="studio-header">
+      <div class="studio-brand">
+        <h1>Conversation Builder</h1>
+        <p>Create and manage conversations for realistic learner practice.</p>
+      </div>
+    </header>
+
+    <nav id="stageNavigation" class="stage-navigation" aria-label="Conversation creation stages">
+      <ol>
+        <li>
+          <button type="button" class="stage-button active" data-stage="create" aria-current="step">
+            <span>Step 1</span>
+            Build
+          </button>
+        </li>
+        <li>
+          <button type="button" class="stage-button" data-stage="review">
+            <span>Step 2</span>
+            Review/Edit
+          </button>
+        </li>
+        <li>
+          <button type="button" class="stage-button" data-stage="validate">
+            <span>Step 3</span>
+            Download
+          </button>
+        </li>
+      </ol>
+    </nav>
+
+    <main id="studioContent" class="studio-main">
+      <div id="globalStatus" class="global-status" role="status" aria-live="polite" hidden></div>
+
+      <section id="createStage" class="stage-panel active" data-stage-panel="create">
+        <div class="page-card create-card">
+          <div class="page-heading">
+            <h2>Build</h2>
+          </div>
+
+          <div id="buildConversationStep" class="build-intake-step">
+            <div class="build-intake-question">
+              <p class="build-intake-speaker">Question 1 of 2</p>
+              <h3>What is this conversation about?</h3>
+            </div>
+            <div id="buildConversationCoach" class="build-intake-coach" data-coach-state="question">
+              <div class="build-coach-mascot" aria-hidden="true">
+                <span class="build-coach-sprite"></span>
+              </div>
+              <div class="build-coach-speech">
+                <strong>Coach Chewy</strong>
+                <p id="buildConversationCoachMessage" data-build-coach-message aria-live="polite" aria-atomic="true">Tell me about the Conversation Partner, the situation, and any important context.</p>
+              </div>
+            </div>
+            <div class="build-intake-body">
+              <label class="field full" for="customerSituationInput">
+                <span class="visually-hidden">What is this conversation about?</span>
+                <textarea id="customerSituationInput" rows="6" autocomplete="off" required></textarea>
+              </label>
+              <div class="page-actions">
+                <button id="buildConversationContinueButton" class="button primary" type="button">
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="buildHandlingStep" class="build-intake-step" hidden>
+            <div class="build-intake-recap" aria-label="Question 1 complete">
+              <div class="build-intake-recap-copy">
+                <span class="build-intake-recap-label">Question 1 complete</span>
+                <span id="buildConversationRecap"></span>
+              </div>
+              <button id="editBuildConversationButton" class="button secondary compact-button" type="button">Edit</button>
+            </div>
+            <div class="build-intake-question">
+              <p class="build-intake-speaker">Question 2 of 2</p>
+              <h3>How should the Learner handle the conversation?</h3>
+            </div>
+            <div id="buildHandlingCoach" class="build-intake-coach" data-coach-state="question">
+              <div class="build-coach-mascot" aria-hidden="true">
+                <span class="build-coach-sprite"></span>
+              </div>
+              <div class="build-coach-speech">
+                <strong>Coach Chewy</strong>
+                <p id="buildHandlingCoachMessage" data-build-coach-message aria-live="polite" aria-atomic="true">Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid.</p>
+              </div>
+            </div>
+            <div class="build-intake-body">
+              <label class="field full" for="learnerApproachInput">
+                <span class="visually-hidden">How should the Learner handle the conversation?</span>
+                <textarea id="learnerApproachInput" rows="6" autocomplete="off" required></textarea>
+              </label>
+              <div class="page-actions">
+                <button id="createDraftButton" class="button primary" type="button">
+                  Create draft
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="buildCreatingStep" class="build-intake-creating" role="status" aria-live="polite" aria-atomic="true" hidden>
+            <div id="buildCreatingCoach" class="build-intake-coach" data-coach-state="answer">
+              <div class="build-coach-mascot" aria-hidden="true">
+                <span class="build-coach-sprite"></span>
+              </div>
+              <div class="build-coach-speech">
+                <strong>Coach Chewy</strong>
+                <p id="buildCreatingCoachMessage" data-build-coach-message>Perfect—I’m building your draft now.</p>
+              </div>
+            </div>
+            <div class="build-intake-body">
+              <div class="build-intake-question">
+                <p class="build-intake-speaker">Preparing</p>
+                <h3>Creating your conversation…</h3>
+                <p>This will open in Review/Edit when it’s ready.</p>
+              </div>
+            </div>
+          </div>
+
+          <p id="buildIntakeStatus" class="build-intake-status" role="alert" hidden></p>
+        </div>
+      </section>
+
+      <section id="reviewStage" class="stage-panel" data-stage-panel="review" hidden>
+        <div class="page-card review-card">
+          <div class="page-heading">
+            <p class="step-label">Step 2 of 3</p>
+            <h2>Review/Edit</h2>
+            <div class="coach-line stage-coach-line">
+              <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+              <p><span class="visually-hidden">Coach Chewy says: </span>Review the generated draft. Edit what needs attention, then approve the objectives and criteria.</p>
+            </div>
+          </div>
+
+          <section id="reviewConversationSetup" class="review-panel active" data-review-section="setup" tabindex="-1" aria-labelledby="reviewConversationSetupHeading">
+            <div class="review-heading">
+              <h3 id="reviewConversationSetupHeading">Conversation Setup</h3>
+              <div class="coach-helper section-coach-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p class="section-helper"><span class="visually-hidden">Coach Chewy says: </span>Confirm who is contacting the Learner, what the conversation covers, and what the Learner should accomplish.</p>
+              </div>
+            </div>
+
+            <div class="setup-metadata form-grid three">
+              <div class="field taxonomy-field">
+                <label id="teamComboboxLabel" for="teamCombobox">Team</label>
+                <div class="taxonomy-control-shell">
+                  <input id="teamCombobox" type="text" maxlength="240" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="teamListbox" aria-expanded="false" />
+                  <button id="teamRemoveValueButton" class="taxonomy-remove-button" type="button" aria-label="Remove custom Team" data-tooltip="Remove custom Team" hidden><img src="/builder-studio/assets/icons/trash.svg" alt="" aria-hidden="true" /></button>
+                  <div id="teamListbox" class="taxonomy-listbox" role="listbox" aria-labelledby="teamComboboxLabel" hidden></div>
+                </div>
+                <div id="teamComboboxStatus" class="visually-hidden" role="status" aria-live="polite"></div>
+              </div>
+              <div class="field taxonomy-field">
+                <label id="topicComboboxLabel" for="topicCombobox">Topic</label>
+                <div class="taxonomy-control-shell">
+                  <input id="topicCombobox" type="text" maxlength="240" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="topicListbox" aria-expanded="false" />
+                  <button id="topicRemoveValueButton" class="taxonomy-remove-button" type="button" aria-label="Remove custom Topic" data-tooltip="Remove custom Topic" hidden><img src="/builder-studio/assets/icons/trash.svg" alt="" aria-hidden="true" /></button>
+                  <div id="topicListbox" class="taxonomy-listbox" role="listbox" aria-labelledby="topicComboboxLabel" hidden></div>
+                </div>
+                <div id="topicComboboxStatus" class="visually-hidden" role="status" aria-live="polite"></div>
+              </div>
+              <div class="field taxonomy-field">
+                <label id="subtopicComboboxLabel" for="subtopicCombobox">Subtopic</label>
+                <div class="taxonomy-control-shell">
+                  <input id="subtopicCombobox" type="text" maxlength="240" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="subtopicListbox" aria-expanded="false" />
+                  <button id="subtopicRemoveValueButton" class="taxonomy-remove-button" type="button" aria-label="Remove custom Subtopic" data-tooltip="Remove custom Subtopic" hidden><img src="/builder-studio/assets/icons/trash.svg" alt="" aria-hidden="true" /></button>
+                  <div id="subtopicListbox" class="taxonomy-listbox" role="listbox" aria-labelledby="subtopicComboboxLabel" hidden></div>
+                </div>
+                <div id="subtopicComboboxStatus" class="visually-hidden" role="status" aria-live="polite"></div>
+              </div>
+            </div>
+            <div class="form-grid setup-details">
+              <label class="field full">
+                <span>Conversation title</span>
+                <input data-draft-field="scenario.title" />
+              </label>
+              <label class="field">
+                <span>Customer name</span>
+                <input data-draft-field="partner.name" />
+              </label>
+              <label class="field">
+                <span>Mood</span>
+                <input data-draft-field="partner.mood" />
+              </label>
+              <label class="field">
+                <span>Pet name</span>
+                <input data-draft-field="scenario.petName" />
+              </label>
+              <label class="field full">
+                <span>What this conversation’s about</span>
+                <textarea data-draft-field="scenario.description" rows="4"></textarea>
+              </label>
+              <label class="field full">
+                <span>What the Learner should accomplish</span>
+                <textarea data-draft-field="scenario.learnerGoal" rows="3"></textarea>
+              </label>
+            </div>
+            <section class="setup-objectives" aria-labelledby="setupObjectivesHeading">
+              <div class="setup-objectives-heading">
+                <h4 id="setupObjectivesHeading" tabindex="-1">Learning objectives</h4>
+              </div>
+              <div id="setupObjectiveList" class="setup-objective-list"></div>
+              <button id="addSetupObjectiveButton" class="button secondary compact-button" type="button" aria-label="Add objective to Learning objectives">Add Objective</button>
+            </section>
+          </section>
+
+          <section id="reviewConversationFlow" class="review-panel" data-review-section="flow" tabindex="-1" aria-labelledby="reviewConversationFlowHeading">
+            <div class="review-heading">
+              <h3 id="reviewConversationFlowHeading">Conversation Flow</h3>
+              <div class="coach-helper section-coach-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p class="section-helper"><span class="visually-hidden">Coach Chewy says: </span>Review each phase in the order the conversation should unfold.</p>
+              </div>
+            </div>
+            <div id="reviewBlockingSummary" class="review-blocking-summary" tabindex="-1" hidden></div>
+            <div class="list-editor-card phase-editor-card">
+              <div id="phaseList" class="phase-list"></div>
+              <button id="addPhaseButton" class="button secondary compact-button phase-list-add" type="button">Add phase</button>
+            </div>
+          </section>
+
+          <section id="reviewPractice" class="review-panel practice-settings" data-review-section="practice" tabindex="-1" aria-labelledby="reviewPracticeHeading">
+            <div class="review-heading">
+              <h3 id="reviewPracticeHeading">Practice settings</h3>
+              <div class="coach-helper section-coach-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p class="section-helper"><span class="visually-hidden">Coach Chewy says: </span>Choose how Learners practice and what tools they can use.</p>
+              </div>
+            </div>
+          <section class="advanced-subsection">
+            <div class="field passing-score-field">
+              <div class="field-label-row">
+                <label for="passingScoreInput">Score needed to pass</label>
+              </div>
+              <div class="coach-helper score-coach-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p id="passingScoreHelp"><span class="visually-hidden">Coach Chewy says: </span>Each objective is scored by its observed criteria. The Learner passes when the average meets this percentage.</p>
+              </div>
+              <div class="percentage-stepper">
+                <input id="passingScoreInput" type="number" min="1" max="100" step="1" aria-describedby="passingScoreHelp" data-draft-field="evaluation.passingScore" />
+                <span class="percentage-suffix" aria-hidden="true">%</span>
+                <span class="percentage-stepper-buttons">
+                  <button id="passingScoreIncrementButton" class="phase-icon-button" type="button" aria-label="Increase score needed to pass" data-tooltip="Increase score needed to pass"><img src="/builder-studio/assets/icons/arrow-up.svg" alt="" aria-hidden="true" /></button>
+                  <button id="passingScoreDecrementButton" class="phase-icon-button" type="button" aria-label="Decrease score needed to pass" data-tooltip="Decrease score needed to pass"><img src="/builder-studio/assets/icons/arrow-down.svg" alt="" aria-hidden="true" /></button>
+                </span>
+              </div>
+            </div>
+          </section>
+          <section class="advanced-subsection">
+            <div class="review-heading">
+              <h3>Practice formats</h3>
+              <div class="coach-helper section-coach-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p class="section-helper"><span class="visually-hidden">Coach Chewy says: </span>New conversations include both formats. Turn one off only when the conversation should use one format.</p>
+              </div>
+            </div>
+            <div class="create-channel-options review-channel-options">
+              <label>
+                <input id="reviewChatChannel" type="checkbox" value="chat" data-review-channel="chat" checked />
+                <span><strong>Chat</strong><small>Written conversation practice</small></span>
+              </label>
+              <label>
+                <input id="reviewVoiceChannel" type="checkbox" value="voice" data-review-channel="voice" checked />
+                <span><strong>Voice</strong><small>Spoken conversation practice</small></span>
+              </label>
+            </div>
+          </section>
+          <section class="advanced-subsection" data-channel-section="voice">
+            <div class="review-heading">
+              <h3>Voice</h3>
+              <div class="coach-helper section-coach-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p class="section-helper"><span class="visually-hidden">Coach Chewy says: </span>Choose a voice here, then hear it when you test the conversation.</p>
+              </div>
+            </div>
+            <div class="experience-channel-section">
+              <div class="voice-setup-card">
+              <label class="field full">
+                <span>Conversation Partner voice</span>
+                <select id="reviewVoiceSelect" data-draft-field="voice.selectedVoice"></select>
+                <small><a href="https://openai.fm/" target="_blank" rel="noopener noreferrer">Listen to voice samples on OpenAI.fm</a></small>
+              </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="advanced-subsection" data-channel-section="chat">
+            <div class="review-heading">
+              <h3>Chat</h3>
+              <div class="coach-helper section-coach-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p class="section-helper"><span class="visually-hidden">Coach Chewy says: </span>Choose any approved responses the Learner can insert while chatting.</p>
+              </div>
+            </div>
+            <div class="experience-channel-section">
+              <div class="channel-section-heading">
+                <div>
+                  <p class="step-label">Chat practice</p>
+                  <h4>Chat tools</h4>
+                </div>
+                <span class="channel-badge">Chat</span>
+              </div>
+            <fieldset class="standard-text-mode">
+              <legend>Should learners have approved responses available?</legend>
+              <label><input type="radio" name="standardTextMode" value="recommended" /> Use suggested responses</label>
+              <label><input type="radio" name="standardTextMode" value="library" /> Browse available responses</label>
+              <label><input type="radio" name="standardTextMode" value="manual" /> Add a response</label>
+              <label><input type="radio" name="standardTextMode" value="none" checked /> No approved responses</label>
+            </fieldset>
+
+            <label class="field short-field">
+              <span>Response library</span>
+              <select data-draft-field="chat.hotkeyProfile">
+                <option value="core">Customer Care</option>
+                <option value="rx">Pharmacy</option>
+              </select>
+            </label>
+
+            <div class="standard-text-panel" data-standard-text-panel="recommended">
+              <div class="list-heading">
+                <div>
+                  <h4>Suggested approved responses</h4>
+                  <p>Suggestions are based on what the learner should do.</p>
+                </div>
+              </div>
+              <div id="recommendedHotkeys" class="hotkey-list"></div>
+            </div>
+
+            <div class="standard-text-panel" data-standard-text-panel="library" hidden>
+              <label class="field full">
+                <span>Search approved responses</span>
+                <input id="hotkeySearchInput" type="search" placeholder="Search by shortcut, category, or response text" />
+              </label>
+              <div id="hotkeyLibrary" class="hotkey-list"></div>
+            </div>
+
+            <div class="standard-text-panel" data-standard-text-panel="manual" hidden>
+              <p><a href="https://chewykb.custhelp.com/app/home" target="_blank" rel="noopener noreferrer" aria-describedby="knowledgeBaseHelper">Browse the Chewy Knowledge Base</a></p>
+              <div class="coach-helper knowledge-base-helper">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p id="knowledgeBaseHelper">Browse the Chewy Knowledge Base for up-to-date templated responses.</p>
+              </div>
+              <div class="manual-hotkey-grid">
+                <label class="field">
+                  <span>Shortcut</span>
+                  <input id="manualHotkeyInput" placeholder="Example: G1" />
+                </label>
+                <label class="field">
+                  <span>Category</span>
+                  <input id="manualHotkeyCategoryInput" placeholder="Example: Greeting" />
+                </label>
+                <label class="field full">
+                  <span>Templated response</span>
+                  <textarea id="manualHotkeyTemplateInput" rows="4"></textarea>
+                </label>
+                <button id="addManualHotkeyButton" class="button secondary" type="button">Add approved response</button>
+              </div>
+            </div>
+
+            <div class="standard-text-panel no-standard-text" data-standard-text-panel="none" hidden>
+              <strong>No approved responses selected</strong>
+              <div class="coach-helper no-standard-text-coach">
+                <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                <p><span class="visually-hidden">Coach Chewy says: </span>Learners will write every chat response themselves.</p>
+              </div>
+            </div>
+            <section id="selectedHotkeysSection" class="selected-hotkeys-section" aria-labelledby="selectedHotkeysHeading" hidden>
+              <h4 id="selectedHotkeysHeading">Selected approved responses</h4>
+              <div id="selectedHotkeys" class="hotkey-list"></div>
+            </section>
+            </div>
+          </section>
+
+          <div id="sourceGroundingMount"></div>
+          </section>
+
+          <section id="reviewFinalCheck" class="review-panel review-final-check" aria-label="Final check" tabindex="-1">
+            <div class="validation-toolbar">
+              <section id="finalCheckResult" aria-live="polite">
+                <h3 id="validationHeadline">Ready to validate</h3>
+                <div class="coach-helper validation-coach-helper">
+                  <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+                  <p id="validationDescription"><span class="visually-hidden">Coach Chewy says: </span>Validate this conversation before downloading.</p>
+                </div>
+                <div id="validationIssues" class="validation-issues"></div>
+              </section>
+              <button id="validateButton" class="button primary" type="button">Validate</button>
+            </div>
+
+            <section class="publish-checks" aria-labelledby="publishChecksHeading">
+              <div>
+                <h3 id="publishChecksHeading">Validation checks</h3>
+                <p>Validate again after changing the conversation.</p>
+              </div>
+              <ul id="publishChecksList"></ul>
+            </section>
+          </section>
+
+          <div class="page-actions">
+            <button id="reviewBackButton" class="button secondary" type="button">Back to Build</button>
+            <button id="reviewContinueButton" class="button primary" type="button" disabled>Continue to Download</button>
+          </div>
+
+        </div>
+      </section>
+
+      <section id="validateStage" class="stage-panel" data-stage-panel="validate" hidden>
+        <div class="page-card validate-card">
+          <div class="page-heading">
+            <p class="step-label">Step 3 of 3</p>
+            <h2>Download</h2>
+            <div class="coach-line stage-coach-line">
+              <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
+              <p><span class="visually-hidden">Coach Chewy says: </span>Save your draft, download the JSON, and test it in your external simulator. Return to Review/Edit to make changes, then download the final version for Articulate Rise.</p>
+            </div>
+          </div>
+
+          <section class="publish-section" aria-labelledby="publishHeading">
+            <h3 id="publishHeading">Save and download conversation JSON</h3>
+            <div class="publish-secondary-actions">
+              <button id="savePersistentDraftButton" class="button secondary" type="button">Save Draft</button>
+              <details id="downloadJsonMenu" class="download-json-menu">
+                <summary class="button secondary">Download JSON</summary>
+                <div class="download-json-options" aria-label="Validated JSON downloads">
+                  <button id="downloadChatJsonButton" type="button" disabled>Chat JSON</button>
+                  <button id="downloadVoiceJsonButton" type="button" disabled>Voice JSON</button>
+                </div>
+              </details>
+            </div>
+            <div id="downloadResult" class="download-result" role="status" aria-live="polite" hidden>
+              <p id="downloadResultMessage"></p>
+              <p class="download-fallback">If no file appears, open Conversation Builder in your browser and try again.</p>
+              <div class="download-result-actions">
+                <button id="copyJsonButton" class="button secondary compact-button" type="button">Copy JSON</button>
+                <span id="copyJsonStatus"></span>
+              </div>
+            </div>
+            <div id="draftConflictNotice" class="draft-conflict-notice" role="alert" hidden>
+              <p id="draftConflictMessage">This draft changed in another tab. Reload it before saving.</p>
+              <button id="reloadPersistentDraftButton" class="button secondary" type="button">Reload saved draft</button>
+            </div>
+            <div id="nothingToPublish" class="nothing-to-publish" hidden>
+              <div role="status" aria-live="polite">
+                <h3>Nothing new to download</h3>
+                <p>This draft matches the last validated version.</p>
+              </div>
+              <button id="nothingToPublishLibraryButton" class="button secondary" type="button" hidden>Back</button>
+            </div>
+            <div id="releaseNoteExperience" hidden>
+              <label class="field release-note-field" for="releaseNoteInput">
+                <span>What changed in this revision?</span>
+                <small>Required. Write a short note that will stay with this version.</small>
+                <textarea id="releaseNoteInput" rows="3" maxlength="240" placeholder="Example: Clarified the delivery timeline and updated the recovery guidance."></textarea>
+              </label>
+              <p id="releaseNoteCount" class="character-count">0 of 240 characters</p>
+            </div>
+            <button id="publishButton" class="button primary" type="button" hidden disabled>Finish</button>
+            <p id="publishStatus" role="status" aria-live="polite"></p>
+            <button class="button primary download-return-button" type="button" data-go-stage="review">Return to Review/Edit</button>
+          </section>
+
+          <section id="publicationContext" class="publication-context" aria-labelledby="revisionExperienceHeading" hidden>
+            <div id="revisionExperience" hidden>
+              <div class="revision-heading">
+                <div>
+                  <div class="field-label-row">
+                    <h3 id="revisionExperienceHeading">Changes from the published version</h3>
+                    <span id="revisionStatusBadge" class="status-badge" hidden></span>
+                  </div>
+                  <p id="revisionComparisonStatus" role="status">Comparing this draft with the published version you opened.</p>
+                </div>
+                <strong id="revisionChangeCount">0 changes</strong>
+              </div>
+              <div id="revisionDiff" class="revision-diff"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="guidanceImageDialog" class="studio-dialog guidance-image-dialog">
+      <form method="dialog" class="dialog-shell">
+        <div class="dialog-heading">
+          <div>
+            <p class="step-label">Coach Chewy reference</p>
+            <h2>Training sample</h2>
+          </div>
+          <button class="text-button" value="close" aria-label="Close image preview">Close</button>
+        </div>
+        <img id="guidanceImageDialogImage" alt="" />
+        <p id="guidanceImageDialogCaption"></p>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="/builder-studio/app.js?revision=2026-08-31-standalone-direct-port-7"></script>
+  </body>
+</html>

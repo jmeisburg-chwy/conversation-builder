@@ -1,0 +1,242 @@
+{
+  "sourceLabel": "scenarios-customer-simulator filesystem snapshot",
+  "sourceRoot": "scenarios-customer-simulator/",
+  "capturedAt": "2026-08-14T00:00:00-07:00",
+  "integrationUpdatedAt": "2026-08-28T08:44:18-07:00",
+  "builderRevision": "2026-08-28-global-archive-team-sort",
+  "builderSourceCommit": "4a7a69580ccb512dc2de0dd8d894d15f4ee6cd9b",
+  "integration": "V6 Thin ChatGPT Sites Builder adapter with a guided Coach Chewy two-question intake, reviewed objective and approved-response placement with an honest manual fallback, stable Chat-only response assignments, deterministic fictional pet names, icon-only removal actions, stationary reversible phase disclosures, a connected passing-score control, Knowledge Base guidance, validation recovery, and JSON download recovery; source repositories were not modified.",
+  "uiAuthority": "cs-platform/ManagerDashboard.html role-play creation and Review/Edit workflow",
+  "optionalConversationTestingRelease": {
+    "baseCommit": "38626d65156b8970f0343a2fec8cdd048057ca73",
+    "integratedThroughCommit": "6ca18a3113c46b5924acd7e34167dddcdd3a4632",
+    "commitAncestry": [
+      "38626d65156b8970f0343a2fec8cdd048057ca73",
+      "213a8f28873c4af4ce6bd9e1138746a003caa3a6",
+      "923096d71ec6a1d8e2e3d5e2f20133f637c8bd02",
+      "67f9b05a679d11d4ade13a5eef0281461be8d3b6",
+      "330d5ef4920bbd148e0dff7bd36ce4e12a52c473",
+      "f6c0ef2f797797919be806e3eadbb9077d6a9673",
+      "16651bd942ecde89d358be7204bb2dfc36014306",
+      "e381ec28b1b9fbd9b0e689181edcb9f6b48f71b1",
+      "47898c91f079745dd4122a1638d222d3a34c7529",
+      "6afc36b7fb7f302d53d92f89cfd3e1b2e9bf501c",
+      "af85a56f6253ae9930c2b782ae1bd8c4ccf32f79",
+      "07e3403739801969ca8209fc52fadd99c2e2dfa0",
+      "9a0369fe6229d434d5b83fea2623da64693d9256",
+      "3b07e5e9cca4ef289ffe6a3a346646dda466a938",
+      "eccd27d6fbabfd583974f12307d99290b0c8aca1",
+      "00a5d7c2bfab51478c3113b1b5860d42b5f048de",
+      "e8b40a87c9a018f70a0ca0d25568c12fe1870c96",
+      "0b2d0502a62c8f5e97ed0778f61a4d151b88872e",
+      "5e054bb9da8d1bdc3ffbe762f0c5e3fe0a5a77a4",
+      "a39c9911fb3981c316ffce46dfaa722c3fca6670",
+      "8bfed5a65ee960cae8b183f5202ec76bd860bdb9",
+      "e9c28cae786cfda58de815de3ae6ba32867aed33",
+      "2c094c37dde8ca6c204696f1e84fcd6ad29ef715",
+      "92c386447fec19ef6e0e27f6f6cf6f1316f8a66a",
+      "24f4475fe3f45e9775bdf493000e50194f4bb843",
+      "4fae44091c1b521e23a1fc3e823235ece4f2470f",
+      "0a712e6b57f9fe37a980086af8025ac234e1e54a",
+      "1702d87e544e211b5fc9778e6c948f6dbdff47ca",
+      "cba45c582a91913618d8fec30fc50b9177087971",
+      "5acc92a46ab988628f9bf53673658e416b0004f9",
+      "213c31cb3b7da2d355debd046eb43b8b7459ebdf",
+      "5dd64e0ec80f3024ad0a343eafcc15871d29edf7",
+      "a7ec8fa5fc1bded12ad80a450728fe2e38915ec4",
+      "7506eecdb869b4617b780ba5e31eaf0af5576d48",
+      "b46f912c6716adf37fa00046e7a4a9f991206351",
+      "5189523d3a5fdcc35cc45243bf20ff0afe9cd361",
+      "619ad841910054a36c7d1bd6f0610792dc0e3637",
+      "fa7ec6ea3011b87a26b4b437eed49cfb180be289",
+      "66dc242990796ecc05bf3b5ba6b24f6a1a4b6d43",
+      "e8ee90039871806ca70c794b82e2b01a44484f67",
+      "a0748626454b33da9f4ba6139c2ef245da2646f1",
+      "0c64d4726aceadcd51d78b8c75832620e25cc67a",
+      "55fb0ea6df5242638c1cdbbc3d8cf05cdd984d47",
+      "31d5f6a522905da9059106fb431febe19b2e9e13",
+      "e070d0220a1ded3b6cdbb2b422b8c402a11f14b1",
+      "6aa9896ddfd56c3b1aa15cfc72663c5949ae2edb",
+      "f0b564678a3bf2273cc5ebf5df8ddaf8db7706b2",
+      "83c9928c08f14b699b571ae74ee36dac8c40c4a1",
+      "58ed81f3bc6d9a7acff31ee577f12f23eb61f8a6",
+      "efbc1c6b2330615ba12f445c7ffadf95c2564b1e",
+      "e10f362757f3f29bc99023efbb018c68776407aa",
+      "b18ee1e49ddac219b3befc9536e2a4235ce78e88",
+      "539db446aa0cd774528b957ef40f17fa7e21dcf5",
+      "6ca18a3113c46b5924acd7e34167dddcdd3a4632"
+    ],
+    "artifacts": [
+      {
+        "path": "app/api/builder/preview-complete/route.ts",
+        "sha256": "1f1d73c8980d7b1c30e8e5c6f28a10c20ce702e8b6cfc43602af371217801650"
+      },
+      {
+        "path": "app/api/builder/preview-evaluate/route.ts",
+        "sha256": "163804e9b9ec2d494c04fee0df5fb68558d85e276d76afd59af7409150de6daf"
+      },
+      {
+        "path": "app/api/builder/publish/route.ts",
+        "sha256": "562d407123fbe6082bbac76f97d135046e95f901842b2f25bed60116f2408213"
+      },
+      {
+        "path": "app/builder/page.tsx",
+        "sha256": "eb9c1907a469991f77a1639d4ccede96ecab70b656333450b044263169269a83"
+      },
+      {
+        "path": "lib/scenario-authoring-client.ts",
+        "sha256": "9349bc0c7748c7c03dbce874f8c7a03791d633eb472fb069ba7ceb13017e63fe"
+      },
+      {
+        "path": "lib/scenario-builder-test-review.ts",
+        "sha256": "5b2d6e65a9890f772c936bd6c7de3036dcd96f8f42fec9e8dae51260cb457ded"
+      },
+      {
+        "path": "public/builder-studio/app.js",
+        "sha256": "6eaa69e60c7dccd5adf42db918cb26944c7a6a1515b623247f5389a19c4ee5c4"
+      },
+      {
+        "path": "public/builder-studio/index.html",
+        "sha256": "8fcbefc430424528ce98ac5785999c9550bd229deea53009ed1034bb9a0ca941"
+      },
+      {
+        "path": "public/builder-studio/src/scenarioStudio.js",
+        "sha256": "cb5939faf430e1987a54dd382ef60dd3d6eb6e5b0ad8a28747798fc909ed0a8e"
+      },
+      {
+        "path": "public/builder-studio/src/scenarioTuning.js",
+        "sha256": "ed5cfa59b7e1cd28ed42069adcedde74a595b111fe23708c0756ce3b91a7d1ef"
+      },
+      {
+        "path": "public/builder-studio/src/simulatorPreviewBridge.js",
+        "sha256": "81fab0c33b448f09104e424196dfc7a90c7a0dde53a674592dca492776eae27a"
+      },
+      {
+        "path": "public/builder-studio/styles.css",
+        "sha256": "540386f878ecf9fb5ab268a1754b1b00207947814099c0282fa935558916ff83"
+      },
+      {
+        "path": "public/chat-engine.html",
+        "sha256": "c2c88f247218eb2c66a411b7f3f8d0793f20e0e8650b48d5fb3ff6b5e75c0816"
+      },
+      {
+        "path": "public/voice-engine.html",
+        "sha256": "5e8e758dd970b52d54bece7767f4957b21fdfd35161b0011fac089c980fd586c"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/ArticulateRise-ChatExperience_Core.html",
+        "sha256": "6acddb3fc3c3ef2b0c6f5fae05f199dc46ed8a0b31400bdd3a09f802c019efc7"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/ArticulateRise-ChatExperience_Rx.html",
+        "sha256": "a661e98898d9c5055b5f5ef12f66ebe3a7475af489ba5011e14e846469771a29"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/ArticulateRise-VoiceExperience_core.html",
+        "sha256": "9847a3744de26f33bb273fe8da436e0808166bdece7383fb7e17f295cbe0f716"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/ArticulateRise-VoiceExperience_rx.html",
+        "sha256": "406f5b0bb4a21aeaac1089ef6c1711b96d667ab8b2c20ba7147d56269b67373f"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/Lambda.js",
+        "sha256": "c48cc0ef324b88032d05712370882d44728c8c794cc1faa30bdcde7c3cd1ba89"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/infrastructure/sites-template.yaml",
+        "sha256": "7cf0bb5448f564d21d236d3afe569d917586c837ef5386b73f03bea168429a24"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/infrastructure/template.yaml",
+        "sha256": "d35292d1cd9ee55700a12b5042f39f7a448b582b572d2d0d9561472749863df6"
+      },
+      {
+        "path": "runtime-source/chewy-conversation-simulator-main/scripts/build-cloudformation-template.js",
+        "sha256": "07c74bf0ce3b90937dbfd9c823b0177c3e2bcd327bc183c243ab03e36bea1f5d"
+      }
+    ]
+  },
+  "files": [
+    {
+      "source": "conversation-simulator-studio/index.html",
+      "sourceModifiedAt": "2026-07-30T10:00:39-07:00",
+      "sha256": "0022d69c294d2b2f18116ba78941369cb0c70e38fef2fc65978afacc5040d063"
+    },
+    {
+      "source": "conversation-simulator-studio/app.js",
+      "sourceModifiedAt": "2026-07-30T10:07:21-07:00",
+      "sha256": "dd14fbd97e2d6161ca57c9f8a4bcef4df6986fd793c27c5f987e48966fe50824"
+    },
+    {
+      "source": "conversation-simulator-studio/styles.css",
+      "sourceModifiedAt": "2026-07-30T09:52:00-07:00",
+      "sha256": "9ce7a305822bd86f01684c80a44947e64ed24dde12d8a17fb254b6c10784ff68"
+    },
+    {
+      "source": "src/scenarioStudio.js",
+      "sourceModifiedAt": "2026-08-13T08:10:26-07:00",
+      "sha256": "9be25d08b645a10f20f28037ff1bfb84b14026fc66e542a684e955bb8b945aef"
+    },
+    {
+      "source": "src/scenarioTuning.js",
+      "sourceModifiedAt": "2026-07-23T11:05:48-07:00",
+      "sha256": "07054025e5f226e008f3f8a55ccb5810d9a559a0fbd1f6eea8257344123c07d0"
+    },
+    {
+      "source": "src/scenarioContract.js",
+      "sourceModifiedAt": "2026-07-24T09:11:21-07:00",
+      "sha256": "69ac150827b4c145c02df1f08ece956e3cfa9df434ec3e600de40a8bfaafbadb"
+    },
+    {
+      "source": "ChatGPT Sites adapter/src/scenarioQuality.js",
+      "sourceModifiedAt": "2026-08-19T12:23:01-07:00",
+      "sha256": "60c062875658a79a58001abf53a28ddbfa31a5c9cf0824d397f95be061fc93d3"
+    },
+    {
+      "source": "ChatGPT Sites adapter/src/sourceGrounding.js",
+      "sourceModifiedAt": "2026-08-19T12:23:01-07:00",
+      "sha256": "52d72824ea3aef879db4b3d611cb32c5bbc52a1ec4650961f571be96cb383883"
+    },
+    {
+      "source": "ChatGPT Sites adapter/src/reusableComponents.js",
+      "sourceModifiedAt": "2026-08-19T12:23:01-07:00",
+      "sha256": "93f6ddd6d0c4078bfff9e96a459f3ad55a532a280b916f6f569763600827f1ef"
+    },
+    {
+      "source": "ChatGPT Sites adapter/src/localSourceFiles.js",
+      "sourceModifiedAt": "2026-08-19T12:23:01-07:00",
+      "sha256": "286602682679287a4cad7143b854c283b3658dbd6f2b4bc1574aa25bc8b6fe49"
+    },
+    {
+      "source": "ChatGPT Sites adapter/src/conversationLibrary.js",
+      "sourceModifiedAt": "2026-08-20T10:16:10-07:00",
+      "sha256": "9f62b10cb2dfcd79fba25c9155cc3961eb7c5c8c4b5c92a18ea9d591daec2c07"
+    },
+    {
+      "source": "npm:pdfjs-dist@6.2.108/build/pdf.min.mjs",
+      "sourceModifiedAt": "2026-08-19T12:23:01-07:00",
+      "sha256": "e0be3863c23c8af2305b16548febd58e7f8874a460253317d7771cddbc1c0f6d"
+    },
+    {
+      "source": "npm:pdfjs-dist@6.2.108/build/pdf.worker.min.mjs",
+      "sourceModifiedAt": "2026-08-19T12:23:01-07:00",
+      "sha256": "0613f41490dd6aaceed7a93fbbd38c85e6d6aa60474b6588c6e7709cfbe18cb3"
+    },
+    {
+      "source": "npm:pdfjs-dist@6.2.108/LICENSE",
+      "sourceModifiedAt": "2026-08-19T12:23:01-07:00",
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+    },
+    {
+      "source": ".agents/skills/customer-simulator-scenario-factory/references/hotkey-library.json",
+      "sourceModifiedAt": "2026-07-20T12:00:49-07:00",
+      "sha256": "0a2626be3b00186ccee35385eb76f5aedde5ac799cbe9abd697672903531b54d"
+    },
+    {
+      "source": "conversation-simulator-studio/assets/coach-chewy.png",
+      "sourceModifiedAt": "2026-07-24T08:51:02-07:00",
+      "sha256": "9a07378342094232b9424fb6983574cb81c03cf56562ab890b0dee1e42486afd"
+    }
+  ]
+}

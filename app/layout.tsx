@@ -18,13 +18,13 @@ export const metadata: Metadata = {
   icons: { icon: '/favicon.svg' },
   openGraph: {
     title: 'Chewy Conversation Builder',
-    description: 'Build. Review. Test in Rise.',
-    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Conversation Builder — Build. Review. Test in Rise.' }],
+    description: 'Build. Review. Download.',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Conversation Builder — Build. Review. Download.' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Chewy Conversation Builder',
-    description: 'Build. Review. Test in Rise.',
+    description: 'Build. Review. Download.',
     images: ['/og.png'],
   },
 };

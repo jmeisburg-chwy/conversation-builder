@@ -1,0 +1,25 @@
+.action-tooltip-overlay {
+  position: fixed;
+  z-index: 11000;
+  box-sizing: border-box;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #071b38;
+  font: 600 0.8125rem/1.35 system-ui, sans-serif;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.action-tooltip-overlay[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action-tooltip-overlay {
+    transition: none;
+  }
+}

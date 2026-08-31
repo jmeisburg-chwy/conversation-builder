@@ -1,0 +1,1536 @@
+{
+  "source_file": "hotkey_library.xlsx",
+  "source_sheet": "Hotkeys",
+  "record_count": 161,
+  "usage": "Use for chat scenario Standard Text recommendations. Match by agent_role, scenario topic, category, canned_text, and placeholders. Confirm manager approval before final JSON.",
+  "records": [
+    {
+      "agent_role": "core",
+      "category": "Greeting",
+      "hotkey": "g1",
+      "canned_text": "I'm happy to help you with that $contacts.name.first! Just a moment please, while I pull up your account.",
+      "placeholders": [
+        "$contacts.name.first"
+      ],
+      "search_text": "core greeting g1 i'm happy to help you with that $contacts.name.first! just a moment please, while i pull up your account."
+    },
+    {
+      "agent_role": "core",
+      "category": "Greeting",
+      "hotkey": "g2",
+      "canned_text": "I’m so sorry about that $contacts.name.first! Just a moment please, while I pull up your account.",
+      "placeholders": [
+        "$contacts.name.first"
+      ],
+      "search_text": "core greeting g2 i’m so sorry about that $contacts.name.first! just a moment please, while i pull up your account."
+    },
+    {
+      "agent_role": "core",
+      "category": "Ending",
+      "hotkey": "e1",
+      "canned_text": "It's my pleasure! Is there anything else I can help you out with today?",
+      "placeholders": [],
+      "search_text": "core ending e1 it's my pleasure! is there anything else i can help you out with today?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Ending",
+      "hotkey": "e2",
+      "canned_text": "I hope you and PET NAME have a great day!",
+      "placeholders": [
+        "PET NAME"
+      ],
+      "search_text": "core ending e2 i hope you and pet name have a great day!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Ending",
+      "hotkey": "e3",
+      "canned_text": "Just checking in to see if you're still with me! I'm here and happy to help whenever you're ready.",
+      "placeholders": [],
+      "search_text": "core ending e3 just checking in to see if you're still with me! i'm here and happy to help whenever you're ready."
+    },
+    {
+      "agent_role": "core",
+      "category": "Ending",
+      "hotkey": "e4",
+      "canned_text": "If there's nothing else you need, I'll wrap up our chat. It’s been a pleasure supporting you and remember we’re always here. Thanks for being the best part of Chewy!",
+      "placeholders": [],
+      "search_text": "core ending e4 if there's nothing else you need, i'll wrap up our chat. it’s been a pleasure supporting you and remember we’re always here. thanks for being the best part of chewy!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Conversational",
+      "hotkey": "c1",
+      "canned_text": "Thank you! While I'm working on this, what's the name of your pet at home?",
+      "placeholders": [],
+      "search_text": "core conversational c1 thank you! while i'm working on this, what's the name of your pet at home?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Conversational",
+      "hotkey": "c2",
+      "canned_text": "Thank you! While I’m working on this, how are you and PET NAME doing today?",
+      "placeholders": [
+        "PET NAME"
+      ],
+      "search_text": "core conversational c2 thank you! while i’m working on this, how are you and pet name doing today?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Conversational",
+      "hotkey": "c3",
+      "canned_text": "While I’m still working on SITUATION for you, how is PETNAME doing today?",
+      "placeholders": [
+        "SITUATION",
+        "PETNAME"
+      ],
+      "search_text": "core conversational c3 while i’m still working on situation for you, how is petname doing today?"
+    },
+    {
+      "agent_role": "core",
+      "category": "General Transfer",
+      "hotkey": "gt",
+      "canned_text": "I’m going to connect you with a team member that specializes in this and will be better equipped to help. Before I transfer you, is there anything else I can help with? Thanks for confirming. I will go ahead and get you connected now. Please stay on the chat, and the representative will be right with you. Thanks for being the best part of Chewy!",
+      "placeholders": [],
+      "search_text": "core general transfer gt i’m going to connect you with a team member that specializes in this and will be better equipped to help. before i transfer you, is there anything else i can help with? thanks for confirming. i will go ahead and get you connected now. please stay on the chat, and the representative will be right with you. thanks for being the best part of chewy!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Pet Passing",
+      "hotkey": "mem",
+      "canned_text": "I am so sorry to hear about the loss of PETNAME. I know how hard it is to say goodbye, and I want to make things as easy as possible for you today. I’ve memorialized PETNAME’s profile on your account, and I want to share a few resources in case they’re helpful: Chewy’s Pet Loss & Memorial Resources Join our Chewy Family Facebook group to share memories or receive support When you’re ready, our Give Back tab on Chewy.com offers ways to honor your pet through rescue and donations If there’s ever anything else we can do for you, please let us know. And more than anything, take care of yourself.",
+      "placeholders": [
+        "PETNAME"
+      ],
+      "search_text": "core pet passing mem i am so sorry to hear about the loss of petname. i know how hard it is to say goodbye, and i want to make things as easy as possible for you today. i’ve memorialized petname’s profile on your account, and i want to share a few resources in case they’re helpful: chewy’s pet loss & memorial resources join our chewy family facebook group to share memories or receive support when you’re ready, our give back tab on chewy.com offers ways to honor your pet through rescue and donations if there’s ever anything else we can do for you, please let us know. and more than anything, take care of yourself."
+    },
+    {
+      "agent_role": "core",
+      "category": "Address Change - Order in C-status",
+      "hotkey": "ac",
+      "canned_text": "I'm happy to update the address on this order for you! Could you please confirm the correct address? I can also get this address set as the primary on your account and linked to any Autoships if you'd like?",
+      "placeholders": [],
+      "search_text": "core address change - order in c-status ac i'm happy to update the address on this order for you! could you please confirm the correct address? i can also get this address set as the primary on your account and linked to any autoships if you'd like?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Autoship",
+      "hotkey": "a1",
+      "canned_text": "I see that you order ITEM frequently, would you like to learn more about our Autoship & Save program?",
+      "placeholders": [
+        "ITEM"
+      ],
+      "search_text": "core autoship a1 i see that you order item frequently, would you like to learn more about our autoship & save program?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Autoship Assistance - Editing",
+      "hotkey": "ae",
+      "canned_text": "To make changes to your Autoship, go to your “Manage Autoship” page here, where you can update your order frequency, change your next order date, skip individual items, entire shipments or completely cancel. If you'd like me to assist with any of these changes, just let me know what you'd like to update, and I’ll take care of it for you on my end!",
+      "placeholders": [],
+      "search_text": "core autoship assistance - editing ae to make changes to your autoship, go to your “manage autoship” page here, where you can update your order frequency, change your next order date, skip individual items, entire shipments or completely cancel. if you'd like me to assist with any of these changes, just let me know what you'd like to update, and i’ll take care of it for you on my end!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Order in R-status/general",
+      "hotkey": "pb",
+      "canned_text": "I am so sorry, your order has already been sent to the warehouse for processing, so I’m unable to cancel it at this time. I’ve sent a request to the shipper to have the order returned to us, but we won’t know for certain if this can be processed until the package is in transit. If our request doesn’t reach FedEx in time, they may still attempt delivery. If you’re home, you can refuse the package so they can return it to us. If the package still gets delivered, please reach back out to us, and we’ll guide you through the return process.",
+      "placeholders": [],
+      "search_text": "core order in r-status/general pb i am so sorry, your order has already been sent to the warehouse for processing, so i’m unable to cancel it at this time. i’ve sent a request to the shipper to have the order returned to us, but we won’t know for certain if this can be processed until the package is in transit. if our request doesn’t reach fedex in time, they may still attempt delivery. if you’re home, you can refuse the package so they can return it to us. if the package still gets delivered, please reach back out to us, and we’ll guide you through the return process."
+    },
+    {
+      "agent_role": "core",
+      "category": "Security Interview Questions",
+      "hotkey": "siq",
+      "canned_text": "There are a few more details we need to confirm before we're able to fully process your order. At Chewy, we’re committed to protecting the security of your account. As a precaution to help make sure your account remains secure, could you kindly confirm some information below so we can send order XXXXXXXXXX to you as soon as possible? Please provide answers to all 6 questions below. First & Last Name Shipping Address Billing Address Payment Method/Last four digits of Card used on order Confirm the items on the order Name of Pet(s) (if applicable) Once we have this information in hand it will be sent to our Protection and Wellness team for review within the next 24 hours. When your order details are confirmed and processed, you will receive an email containing tracking information. Please extend our sincerest apologies to (Pet Name) for the delay.",
+      "placeholders": [
+        "XXXXXXXXXX"
+      ],
+      "search_text": "core security interview questions siq there are a few more details we need to confirm before we're able to fully process your order. at chewy, we’re committed to protecting the security of your account. as a precaution to help make sure your account remains secure, could you kindly confirm some information below so we can send order xxxxxxxxxx to you as soon as possible? please provide answers to all 6 questions below. first & last name shipping address billing address payment method/last four digits of card used on order confirm the items on the order name of pet(s) (if applicable) once we have this information in hand it will be sent to our protection and wellness team for review within the next 24 hours. when your order details are confirmed and processed, you will receive an email containing tracking information. please extend our sincerest apologies to (pet name) for the delay."
+    },
+    {
+      "agent_role": "core",
+      "category": "Security Answers Disposition",
+      "hotkey": "sid",
+      "canned_text": "Thank you for providing that information! I have submitted this over to our Protection and Wellness team for review. While this typically only takes 24-48 hours, it may take a bit longer depending on volume. You'll receive an email confirmation once the order has shipped.",
+      "placeholders": [],
+      "search_text": "core security answers disposition sid thank you for providing that information! i have submitted this over to our protection and wellness team for review. while this typically only takes 24-48 hours, it may take a bit longer depending on volume. you'll receive an email confirmation once the order has shipped."
+    },
+    {
+      "agent_role": "core",
+      "category": "Pricing",
+      "hotkey": "p1",
+      "canned_text": "I'd be happy to honor the price from your previous order for you today as a one-time adjustment! While we’re not able to price match other retailers, we do aim to keep our prices competitive by following online market trends, which can fluctuate daily. To help save going forward, you might consider setting up an Autoship for extra savings. You can save up to 35% on your first order (max $20) and 5% on select brands for future orders. You can also check out our Today's Deals section here: https://www.chewy.com/deals/todays-deals-2723 to view current deals/promotions. We also happily accept manufacturer's coupons.",
+      "placeholders": [
+        "$20"
+      ],
+      "search_text": "core pricing p1 i'd be happy to honor the price from your previous order for you today as a one-time adjustment! while we’re not able to price match other retailers, we do aim to keep our prices competitive by following online market trends, which can fluctuate daily. to help save going forward, you might consider setting up an autoship for extra savings. you can save up to 35% on your first order (max $20) and 5% on select brands for future orders. you can also check out our today's deals section here: https://www.chewy.com/deals/todays-deals-2723 to view current deals/promotions. we also happily accept manufacturer's coupons."
+    },
+    {
+      "agent_role": "core",
+      "category": "Price Adjustment",
+      "hotkey": "pa",
+      "canned_text": "I can absolutely help with that. To apply the adjustment, please go ahead and place the order on your side. Once it comes through on my end, I will manually apply the $XX discount and email you a confirmation with the updated invoice. The full amount may show as a pending hold for now, but once the order ships, the adjusted charge will go through and the original hold will drop off—usually within 24–48 business hours.",
+      "placeholders": [
+        "$XX"
+      ],
+      "search_text": "core price adjustment pa i can absolutely help with that. to apply the adjustment, please go ahead and place the order on your side. once it comes through on my end, i will manually apply the $xx discount and email you a confirmation with the updated invoice. the full amount may show as a pending hold for now, but once the order ships, the adjusted charge will go through and the original hold will drop off—usually within 24–48 business hours."
+    },
+    {
+      "agent_role": "core",
+      "category": "Promotional eGC",
+      "hotkey": "egc",
+      "canned_text": "Promo eGift Cards apply to select items and will show a red tag on the item’s page with the details—like “Spend $100, Get $30 eGift Card with code: BLANK. These aren't applied to the current order total. Instead, once everything in your order ships, the eGift Card will be automatically added to your account balance within about 90 minutes and can be used on any orders after this one. If the promo code for the eGift Card is applied to your cart correctly, you’ll see it listed as a line item at checkout. The price will show as $XX, but a discount will also appear directly underneath it, reducing the cost to $0—this just confirms it was successfully added to your order.",
+      "placeholders": [
+        "$100",
+        "$30",
+        "BLANK",
+        "$XX",
+        "$0"
+      ],
+      "search_text": "core promotional egc egc promo egift cards apply to select items and will show a red tag on the item’s page with the details—like “spend $100, get $30 egift card with code: blank. these aren't applied to the current order total. instead, once everything in your order ships, the egift card will be automatically added to your account balance within about 90 minutes and can be used on any orders after this one. if the promo code for the egift card is applied to your cart correctly, you’ll see it listed as a line item at checkout. the price will show as $xx, but a discount will also appear directly underneath it, reducing the cost to $0—this just confirms it was successfully added to your order."
+    },
+    {
+      "agent_role": "core",
+      "category": "Pharmacy",
+      "hotkey": "rx1",
+      "canned_text": "Prescription medication requires approval from your vet before we can ship it. If you happen to have an original copy of the prescription, I’d be happy to get you in touch with one of our licensed healthcare team members so they can provide the correct address to mail it in. They’ll also be able to answer any questions about the approval process and delivery timeframes.",
+      "placeholders": [],
+      "search_text": "core pharmacy rx1 prescription medication requires approval from your vet before we can ship it. if you happen to have an original copy of the prescription, i’d be happy to get you in touch with one of our licensed healthcare team members so they can provide the correct address to mail it in. they’ll also be able to answer any questions about the approval process and delivery timeframes."
+    },
+    {
+      "agent_role": "core",
+      "category": "Vet Diet",
+      "hotkey": "v1",
+      "canned_text": "Veterinary diet food requires approval from your veterinarian before it can ship. If you have an active order and original copy of the authorization, you can upload it directly through your order details page on our website. I’m happy to help you navigate to that section of the site if you need! Once received, our team will review and apply the authorization within 24 hours and will reach out to you if any action is needed. After approval, please note that the order may take an additional 1–3 shipping days to reach you.",
+      "placeholders": [],
+      "search_text": "core vet diet v1 veterinary diet food requires approval from your veterinarian before it can ship. if you have an active order and original copy of the authorization, you can upload it directly through your order details page on our website. i’m happy to help you navigate to that section of the site if you need! once received, our team will review and apply the authorization within 24 hours and will reach out to you if any action is needed. after approval, please note that the order may take an additional 1–3 shipping days to reach you."
+    },
+    {
+      "agent_role": "core",
+      "category": "Adding Payment Method",
+      "hotkey": "ap1",
+      "canned_text": "You can easily add a new payment method by visiting your Payment Methods page under your account settings. From there, you will be able to enter your card details and choose to link it to any active Autoship orders. You can also add a card during checkout or directly through your Autoship settings under the “Your Account” tab. While we’re not able to accept payment details through chat for your security, once you add the new card, just let me know and I’ll be happy to handle the rest for you. I will be happy to confirm it is all set and properly linked to your Autoship orders.",
+      "placeholders": [],
+      "search_text": "core adding payment method ap1 you can easily add a new payment method by visiting your payment methods page under your account settings. from there, you will be able to enter your card details and choose to link it to any active autoship orders. you can also add a card during checkout or directly through your autoship settings under the “your account” tab. while we’re not able to accept payment details through chat for your security, once you add the new card, just let me know and i’ll be happy to handle the rest for you. i will be happy to confirm it is all set and properly linked to your autoship orders."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Intro: Apology",
+      "hotkey": "o12",
+      "canned_text": "I’m sorry that was frustrating. It looks like the return just needed a little extra help on our end, and I can take care of it for you here. While I pull up the order, how are you, and how is [PET NAME] doing today?",
+      "placeholders": [
+        "PET NAME"
+      ],
+      "search_text": "core orc - intro: apology o12 i’m sorry that was frustrating. it looks like the return just needed a little extra help on our end, and i can take care of it for you here. while i pull up the order, how are you, and how is [pet name] doing today?"
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Frustration: What Changed",
+      "hotkey": "o2",
+      "canned_text": "I’m sorry you could not finish the return on your end. Sometimes the return steps change based on the item or details on the order. This one needs to be handled by our team so we can make sure everything is taken care of correctly.",
+      "placeholders": [],
+      "search_text": "core orc - frustration: what changed o2 i’m sorry you could not finish the return on your end. sometimes the return steps change based on the item or details on the order. this one needs to be handled by our team so we can make sure everything is taken care of correctly."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: Ineligible Item - General",
+      "hotkey": "o3",
+      "canned_text": "This item has a few special return rules, which is why the app did not let you start it. No worries though, I can help get it taken care of.",
+      "placeholders": [],
+      "search_text": "core orc - confusion: ineligible item - general o3 this item has a few special return rules, which is why the app did not let you start it. no worries though, i can help get it taken care of."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: Prescription Items",
+      "hotkey": "o4",
+      "canned_text": "Prescription items cannot be returned through self-service, which is why you were sent our way. I will get you connected with our Pharmacy team so they can help.",
+      "placeholders": [],
+      "search_text": "core orc - confusion: prescription items o4 prescription items cannot be returned through self-service, which is why you were sent our way. i will get you connected with our pharmacy team so they can help."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: Not Delivered Yet",
+      "hotkey": "o5",
+      "canned_text": "It looks like [ITEM] has not been marked as delivered yet, which is why the return could not start in the app. I can still help with the next steps.",
+      "placeholders": [
+        "ITEM"
+      ],
+      "search_text": "core orc - confusion: not delivered yet o5 it looks like [item] has not been marked as delivered yet, which is why the return could not start in the app. i can still help with the next steps."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: Address Verification Needed",
+      "hotkey": "o6",
+      "canned_text": "It looks like the app could not fully confirm the shipping address for the replacement. I can help with that. Can you please confirm the address for me?",
+      "placeholders": [],
+      "search_text": "core orc - confusion: address verification needed o6 it looks like the app could not fully confirm the shipping address for the replacement. i can help with that. can you please confirm the address for me?"
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: QR Code What To Do",
+      "hotkey": "o7",
+      "canned_text": "You can take the QR code to a participating FedEx drop-off location and have them scan it. They will print the label for you, so there is nothing you need to print ahead of time.",
+      "placeholders": [
+        "QR"
+      ],
+      "search_text": "core orc - confusion: qr code what to do o7 you can take the qr code to a participating fedex drop-off location and have them scan it. they will print the label for you, so there is nothing you need to print ahead of time."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: Box Needed",
+      "hotkey": "o8",
+      "canned_text": "Yes, you will still need a box for the return. You can reuse the original Chewy box, or I can send one if needed. Boxes typically arrive in about 7 to 10 business days.",
+      "placeholders": [],
+      "search_text": "core orc - confusion: box needed o8 yes, you will still need a box for the return. you can reuse the original chewy box, or i can send one if needed. boxes typically arrive in about 7 to 10 business days."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: Why a QR Code",
+      "hotkey": "o9",
+      "canned_text": "QR codes are part of self-service returns. You will receive one anytime an item needs to be shipped back after starting a return in the Chewy app.",
+      "placeholders": [
+        "QR"
+      ],
+      "search_text": "core orc - confusion: why a qr code o9 qr codes are part of self-service returns. you will receive one anytime an item needs to be shipped back after starting a return in the chewy app."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: Print Label Option",
+      "hotkey": "o10",
+      "canned_text": "If you prefer to print a return label, you can do that by going to Order History, selecting View return details, and choosing Get return instructions.",
+      "placeholders": [],
+      "search_text": "core orc - confusion: print label option o10 if you prefer to print a return label, you can do that by going to order history, selecting view return details, and choosing get return instructions."
+    },
+    {
+      "agent_role": "core",
+      "category": "ORC - Confusion: View Return Details Page",
+      "hotkey": "o11",
+      "canned_text": "You can check your return details anytime in the Chewy app. Just sign in, tap Account, then Order History. Find the order and select View return details under the item. Once a return is submitted, this replaces the Start a return option and shows your status updates and return details",
+      "placeholders": [],
+      "search_text": "core orc - confusion: view return details page o11 you can check your return details anytime in the chewy app. just sign in, tap account, then order history. find the order and select view return details under the item. once a return is submitted, this replaces the start a return option and shows your status updates and return details"
+    },
+    {
+      "agent_role": "core",
+      "category": "Refund/Replacement",
+      "hotkey": "ex",
+      "canned_text": "I'm so sorry this item didn't work out! Our system doesn't currently allow us to process even exchanges directly. However, I'd be more than happy to set up a return for this item and place a new order for the correct item with the shipping waived. Does that work for you?",
+      "placeholders": [],
+      "search_text": "core refund/replacement ex i'm so sorry this item didn't work out! our system doesn't currently allow us to process even exchanges directly. however, i'd be more than happy to set up a return for this item and place a new order for the correct item with the shipping waived. does that work for you?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Refund/Replacement",
+      "hotkey": "r1",
+      "canned_text": "I’ve taken care of your refund. Your refund of AMOUNT processed to the CARDTYPE on file ending in XXXX, and that will post back to your account in the next 3-6 business days. Since our returns are on a case-by-case basis, you don’t have to send anything back to us at this time. Please feel free to donate the SHORTENEDITEM to a local shelter or rescue.",
+      "placeholders": [
+        "AMOUNT",
+        "CARDTYPE",
+        "XXXX",
+        "SHORTENEDITEM"
+      ],
+      "search_text": "core refund/replacement r1 i’ve taken care of your refund. your refund of amount processed to the cardtype on file ending in xxxx, and that will post back to your account in the next 3-6 business days. since our returns are on a case-by-case basis, you don’t have to send anything back to us at this time. please feel free to donate the shorteneditem to a local shelter or rescue."
+    },
+    {
+      "agent_role": "core",
+      "category": "Refund/Replacement",
+      "hotkey": "r2",
+      "canned_text": "I've processed replacement order XXXXXXXX for you and you will receive a shipment confirmation email within 24-48 business hours which will include your expected delivery date!",
+      "placeholders": [
+        "XXXXXXXX"
+      ],
+      "search_text": "core refund/replacement r2 i've processed replacement order xxxxxxxx for you and you will receive a shipment confirmation email within 24-48 business hours which will include your expected delivery date!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Refund/Replacement",
+      "hotkey": "r3",
+      "canned_text": "I’ve emailed you a pre-paid return label and instructions to send the item(s) back at no cost. The file may not open on a mobile device, so please use a desktop or laptop to access it. Once the return is received and processed at our warehouse, your refund of [AMOUNT] will be issued back to the [CARD] ending in -XXXX and should appear within 3-6 business days of that date.",
+      "placeholders": [
+        "AMOUNT",
+        "CARD",
+        "XXXX"
+      ],
+      "search_text": "core refund/replacement r3 i’ve emailed you a pre-paid return label and instructions to send the item(s) back at no cost. the file may not open on a mobile device, so please use a desktop or laptop to access it. once the return is received and processed at our warehouse, your refund of [amount] will be issued back to the [card] ending in -xxxx and should appear within 3-6 business days of that date."
+    },
+    {
+      "agent_role": "core",
+      "category": "Refund/Replacement",
+      "hotkey": "s1",
+      "canned_text": "Since your order has already started its journey to you, I’m unable to cancel it right now. What I can do instead is request our shipping partner to have the package returned to us. Once the order is delivered back to our warehouse, we’ll process a refund to your preferred payment method. If you do end up receiving the order, please let us know and we’ll send you a pre-paid return label and help you get it sent back.",
+      "placeholders": [],
+      "search_text": "core refund/replacement s1 since your order has already started its journey to you, i’m unable to cancel it right now. what i can do instead is request our shipping partner to have the package returned to us. once the order is delivered back to our warehouse, we’ll process a refund to your preferred payment method. if you do end up receiving the order, please let us know and we’ll send you a pre-paid return label and help you get it sent back."
+    },
+    {
+      "agent_role": "core",
+      "category": "Refund/Replacement",
+      "hotkey": "s2",
+      "canned_text": "We ship using FedEx Home Delivery and other premium carriers to provide you with the fastest and most reliable service and most customers receive their orders in 1-3 days. We offer free shipping on orders of $49 or more. For orders under $49, there’s a flat-rate shipping fee of $4.95.",
+      "placeholders": [
+        "$49",
+        "$4.95."
+      ],
+      "search_text": "core refund/replacement s2 we ship using fedex home delivery and other premium carriers to provide you with the fastest and most reliable service and most customers receive their orders in 1-3 days. we offer free shipping on orders of $49 or more. for orders under $49, there’s a flat-rate shipping fee of $4.95."
+    },
+    {
+      "agent_role": "core",
+      "category": "RRC Escalation",
+      "hotkey": "rrc",
+      "canned_text": "To move forward with your return, I’ve sent this over to our Specialized Care team. They’ll be reaching out to you directly and will be happy to assist further. You can expect to hear back within 24 hours. In the meantime, is there anything else I can help you with today?",
+      "placeholders": [],
+      "search_text": "core rrc escalation rrc to move forward with your return, i’ve sent this over to our specialized care team. they’ll be reaching out to you directly and will be happy to assist further. you can expect to hear back within 24 hours. in the meantime, is there anything else i can help you with today?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Recommendations - Pet Profiles",
+      "hotkey": "f2",
+      "canned_text": "What a cute name! I’d be happy to set up a Pet Profile for PET NAME and add their birthday if you'd like. We can also save helpful details about your little one and any other pets you have, so we can better support their needs and make things a little easier for you at home. Plus, we’ll send a special coupon during their birthday month! You can update their profile or add more pets anytime at https://www.chewy.com/pets . `",
+      "placeholders": [
+        "PET NAME"
+      ],
+      "search_text": "core recommendations - pet profiles f2 what a cute name! i’d be happy to set up a pet profile for pet name and add their birthday if you'd like. we can also save helpful details about your little one and any other pets you have, so we can better support their needs and make things a little easier for you at home. plus, we’ll send a special coupon during their birthday month! you can update their profile or add more pets anytime at https://www.chewy.com/pets . `"
+    },
+    {
+      "agent_role": "core",
+      "category": "Recommendations - Pet Profiles",
+      "hotkey": "f3",
+      "canned_text": "I would love to set up a profile for PET NAME, they sound adorable! I can set up a pet profile for them now to save important details and keep track of special events like birthdays or adoption days. This also lets us send a birthday card with a 20% off coupon for birthday shop items. Could you please confirm their birthday or adoption date? You can also update info and add a photo of them here: https://www.chewy.com/pets",
+      "placeholders": [
+        "PET NAME"
+      ],
+      "search_text": "core recommendations - pet profiles f3 i would love to set up a profile for pet name, they sound adorable! i can set up a pet profile for them now to save important details and keep track of special events like birthdays or adoption days. this also lets us send a birthday card with a 20% off coupon for birthday shop items. could you please confirm their birthday or adoption date? you can also update info and add a photo of them here: https://www.chewy.com/pets"
+    },
+    {
+      "agent_role": "core",
+      "category": "Recommendations - Autoship",
+      "hotkey": "d6",
+      "canned_text": "By the way, I noticed you place individual orders for your ITEM. I'm always looking for ways for our pet parents to save money, and our Autoship option would help you save 35% up to $20 on your first order, and 5% off on every order after that with eligible items. It’s also easy to edit, skip, add, and remove items as your needs change. Would you be interested in trying it out?",
+      "placeholders": [
+        "ITEM",
+        "$20"
+      ],
+      "search_text": "core recommendations - autoship d6 by the way, i noticed you place individual orders for your item. i'm always looking for ways for our pet parents to save money, and our autoship option would help you save 35% up to $20 on your first order, and 5% off on every order after that with eligible items. it’s also easy to edit, skip, add, and remove items as your needs change. would you be interested in trying it out?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Recommendations - Autoship",
+      "hotkey": "d7",
+      "canned_text": "I see that you order ITEM frequently! Did you know that you can set up an Autoship for these items to make your life easier? It’s free, you can change the subscription at any time, you’ll be notified before orders are placed, and you can save on your pet’s favorite things! If you are interested, I would be happy to set it up for you!",
+      "placeholders": [
+        "ITEM"
+      ],
+      "search_text": "core recommendations - autoship d7 i see that you order item frequently! did you know that you can set up an autoship for these items to make your life easier? it’s free, you can change the subscription at any time, you’ll be notified before orders are placed, and you can save on your pet’s favorite things! if you are interested, i would be happy to set it up for you!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Recommendations - Autoship",
+      "hotkey": "d9",
+      "canned_text": "I saw that you have an Autoship set up for PETNAMES food and treats. Did you know you can also set up an Autoship for any medications you regularly order?",
+      "placeholders": [
+        "PETNAMES"
+      ],
+      "search_text": "core recommendations - autoship d9 i saw that you have an autoship set up for petnames food and treats. did you know you can also set up an autoship for any medications you regularly order?"
+    },
+    {
+      "agent_role": "core",
+      "category": "Reroute - Order in R-status",
+      "hotkey": "rr",
+      "canned_text": "I am so sorry, but this order has already been processed and I’m unable to update the address in our system. Could you please confirm the updated shipping address? I’ll be more than happy to send a request to FedEx asking them to redirect the package. Please note that this is only a request and may not always be successful. If the package is still delivered to the wrong address, please reach back out, and we'll assist you further.",
+      "placeholders": [],
+      "search_text": "core reroute - order in r-status rr i am so sorry, but this order has already been processed and i’m unable to update the address in our system. could you please confirm the updated shipping address? i’ll be more than happy to send a request to fedex asking them to redirect the package. please note that this is only a request and may not always be successful. if the package is still delivered to the wrong address, please reach back out, and we'll assist you further."
+    },
+    {
+      "agent_role": "core",
+      "category": "Healthcare",
+      "hotkey": "h1",
+      "canned_text": "To better help with this, I'm more than happy to transfer you over to a Healthcare Team member who specializes in handling these types of situations. Please stay on the chat while I connect you, it will take just a few moments. I hope you have a wonderful rest of your day!",
+      "placeholders": [],
+      "search_text": "core healthcare h1 to better help with this, i'm more than happy to transfer you over to a healthcare team member who specializes in handling these types of situations. please stay on the chat while i connect you, it will take just a few moments. i hope you have a wonderful rest of your day!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Dropshipped",
+      "hotkey": "ds",
+      "canned_text": "I’m so sorry that your order is taking longer than expected to arrive! This item has a slightly extended processing time, as noted on the product page before placing an order. The estimated delivery window is between DATE and DATE. I suggest keeping an eye on the tracking information for any updates, and please feel free to reach back out if it hasn’t arrived by the end of the day on DATE. Thank you so much for your patience and understanding as we work to get your item to you as quickly as possible!",
+      "placeholders": [
+        "DATE"
+      ],
+      "search_text": "core dropshipped ds i’m so sorry that your order is taking longer than expected to arrive! this item has a slightly extended processing time, as noted on the product page before placing an order. the estimated delivery window is between date and date. i suggest keeping an eye on the tracking information for any updates, and please feel free to reach back out if it hasn’t arrived by the end of the day on date. thank you so much for your patience and understanding as we work to get your item to you as quickly as possible!"
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de1",
+      "canned_text": "I'm so sorry your order is taking longer to process, that’s definitely not the Chewy norm. It looks like there's a delay at the warehouse your items are shipping from, but we’ll get it out to you as quickly as possible. To help with a small local purchase while you wait, I’ve refunded $XX to your PAYMENT ending in -XXXX, and you'll see it in your account within 3-6 days.",
+      "placeholders": [
+        "$XX",
+        "PAYMENT",
+        "XXXX"
+      ],
+      "search_text": "core shipping de1 i'm so sorry your order is taking longer to process, that’s definitely not the chewy norm. it looks like there's a delay at the warehouse your items are shipping from, but we’ll get it out to you as quickly as possible. to help with a small local purchase while you wait, i’ve refunded $xx to your payment ending in -xxxx, and you'll see it in your account within 3-6 days."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de2",
+      "canned_text": "I'm so sorry, but I’m not able to add delivery instructions directly to the shipping label. Good news, you can provide those instructions directly to FedEx through their free Delivery Manager! It lets you add instructions or require a signature for any package, including Chewy orders. You can sign up here: https://www.fedex.com/en-us/delivery-manager.html",
+      "placeholders": [],
+      "search_text": "core shipping de2 i'm so sorry, but i’m not able to add delivery instructions directly to the shipping label. good news, you can provide those instructions directly to fedex through their free delivery manager! it lets you add instructions or require a signature for any package, including chewy orders. you can sign up here: https://www.fedex.com/en-us/delivery-manager.html"
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de3",
+      "canned_text": "I'm truly sorry for the delay with your order. I completely understand how frustrating it can be to wait, especially when you're counting on something to arrive on time. Severe weather has caused unexpected disruptions, and shipping is taking a bit longer than usual. This definitely isn’t the experience we want for you, and we’re working closely with our shipping partners to move things along as quickly and safely as possible. In the meantime, I’ve issued a refund of $XX back to your original payment method to help with a small local purchase while you wait. It should appear in your account within 3–6 days.",
+      "placeholders": [
+        "$XX"
+      ],
+      "search_text": "core shipping de3 i'm truly sorry for the delay with your order. i completely understand how frustrating it can be to wait, especially when you're counting on something to arrive on time. severe weather has caused unexpected disruptions, and shipping is taking a bit longer than usual. this definitely isn’t the experience we want for you, and we’re working closely with our shipping partners to move things along as quickly and safely as possible. in the meantime, i’ve issued a refund of $xx back to your original payment method to help with a small local purchase while you wait. it should appear in your account within 3–6 days."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de4",
+      "canned_text": "I’m so sorry the tracking for your package has stopped updating, but I’ve got you and PETNAME/your furry family covered! I’ve processed replacement order XXXX and once shipped it should arrive within 1–3 days. You’ll also get an email with tracking once it’s on the way. To help with a small local purchase while you wait, I’ve refunded $XX to your PAYMENT ending in -XXXX, and you'll see it in your account within 3-6 days.",
+      "placeholders": [
+        "PETNAME",
+        "XXXX",
+        "$XX",
+        "PAYMENT"
+      ],
+      "search_text": "core shipping de4 i’m so sorry the tracking for your package has stopped updating, but i’ve got you and petname/your furry family covered! i’ve processed replacement order xxxx and once shipped it should arrive within 1–3 days. you’ll also get an email with tracking once it’s on the way. to help with a small local purchase while you wait, i’ve refunded $xx to your payment ending in -xxxx, and you'll see it in your account within 3-6 days."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de5",
+      "canned_text": "I'm sorry for the delay of your order . I know how important timely deliveries are and we want to ensure you and PETNAME are taken care of. I’ve refunded $XX to your PAYMENT ending in -XXXX to help with a local purchase in the meantime, and it should appear in your account within 3–6 days.",
+      "placeholders": [
+        "PETNAME",
+        "$XX",
+        "PAYMENT",
+        "XXXX"
+      ],
+      "search_text": "core shipping de5 i'm sorry for the delay of your order . i know how important timely deliveries are and we want to ensure you and petname are taken care of. i’ve refunded $xx to your payment ending in -xxxx to help with a local purchase in the meantime, and it should appear in your account within 3–6 days."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de6",
+      "canned_text": "I understand how important it is to receive your order on time, and I want to make sure you feel fully supported while we sort this out. I have checked the tracking details, and it looks like your package is still moving as expected and remains within the estimated delivery window. If you follow the tracking link here [INSERT TRACKING], you can track it more closely. To give you a clearer picture, orders typically ship within 48 hours, and once they do, they usually arrive within 1–3 days. If your order doesn't arrive within this expected timeframe, please reach back out to us and we'll be more than happy to provide additional support.",
+      "placeholders": [
+        "INSERT TRACKING"
+      ],
+      "search_text": "core shipping de6 i understand how important it is to receive your order on time, and i want to make sure you feel fully supported while we sort this out. i have checked the tracking details, and it looks like your package is still moving as expected and remains within the estimated delivery window. if you follow the tracking link here [insert tracking], you can track it more closely. to give you a clearer picture, orders typically ship within 48 hours, and once they do, they usually arrive within 1–3 days. if your order doesn't arrive within this expected timeframe, please reach back out to us and we'll be more than happy to provide additional support."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de7",
+      "canned_text": "I'm so sorry your order didn't arrive/arrived in this condition—this definitely isn’t the Chewy experience we want for you. I’ve already shared the details with our team and started an investigation with the carrier. These usually take up to 2 weeks, but we’ll keep an eye on it and update you as soon as we hear back. We’re here if you need anything else in the meantime.",
+      "placeholders": [],
+      "search_text": "core shipping de7 i'm so sorry your order didn't arrive/arrived in this condition—this definitely isn’t the chewy experience we want for you. i’ve already shared the details with our team and started an investigation with the carrier. these usually take up to 2 weeks, but we’ll keep an eye on it and update you as soon as we hear back. we’re here if you need anything else in the meantime."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de8",
+      "canned_text": "I’m really sorry for the delay and the confusion with tracking updates. FedEx is currently experiencing some disruptions that are slowing things down in certain areas. We’re keeping a close watch and appreciate your patience. To help with a small local purchase while you wait, I’ve refunded $XX to your PAYMENT ending in -XXXX, and you'll see it in your account within 3-6 days.",
+      "placeholders": [
+        "$XX",
+        "PAYMENT",
+        "XXXX"
+      ],
+      "search_text": "core shipping de8 i’m really sorry for the delay and the confusion with tracking updates. fedex is currently experiencing some disruptions that are slowing things down in certain areas. we’re keeping a close watch and appreciate your patience. to help with a small local purchase while you wait, i’ve refunded $xx to your payment ending in -xxxx, and you'll see it in your account within 3-6 days."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping",
+      "hotkey": "de9",
+      "canned_text": "I understand how important this order is, and I am so sorry the tracking has not updated yet. Sometimes tracking can take 24 to 48 hours to show movement after shipping, but once it scans, regular updates should follow. I recommend keeping an eye on it for now. If there is still no update after that timeframe, please reach back out and we will make sure it is fully looked into.",
+      "placeholders": [],
+      "search_text": "core shipping de9 i understand how important this order is, and i am so sorry the tracking has not updated yet. sometimes tracking can take 24 to 48 hours to show movement after shipping, but once it scans, regular updates should follow. i recommend keeping an eye on it for now. if there is still no update after that timeframe, please reach back out and we will make sure it is fully looked into."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipping - Fresh/Frozen",
+      "hotkey": "ff",
+      "canned_text": "I’m so sorry that your order is taking longer than expected to arrive! We ship fresh, refrigerated, and frozen items separately from the rest of your order to ensure the fastest delivery. These items are packed in insulated packaging with dry ice to maintain safe temperatures during transit. Orders placed Monday to Wednesday should ship the same day, while Thursday orders may ship Thursday, Friday, or the following Monday. Orders placed Friday through Sunday should ship on Monday. These items typically remain at a safe temperature for up to 72 hours in transit. Note : JustFoodForDogs' frozen recipes may take 5-7 days to ship, and an estimated delivery timeframe is provided on the website before placing an order.",
+      "placeholders": [],
+      "search_text": "core shipping - fresh/frozen ff i’m so sorry that your order is taking longer than expected to arrive! we ship fresh, refrigerated, and frozen items separately from the rest of your order to ensure the fastest delivery. these items are packed in insulated packaging with dry ice to maintain safe temperatures during transit. orders placed monday to wednesday should ship the same day, while thursday orders may ship thursday, friday, or the following monday. orders placed friday through sunday should ship on monday. these items typically remain at a safe temperature for up to 72 hours in transit. note : justfoodfordogs' frozen recipes may take 5-7 days to ship, and an estimated delivery timeframe is provided on the website before placing an order."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipped, no send back",
+      "hotkey": "nsb",
+      "canned_text": "I'm so sorry, your order has already been shipped, so I’m unable to cancel it at this time. Rest assured, I’ve processed a full refund of [AMOUNT], which will be issued back to your [CARD] ending in -XXXX. You should see this reflected on your account within 3–6 days. I’ve also sent a request to the shipper to have the order returned to us. If our request doesn’t reach FedEx in time, they may still attempt delivery. If you’re home, you can refuse the package so they can return it to us. If the package is delivered, you’re welcome to donate it to a local shelter or rescue instead.",
+      "placeholders": [
+        "AMOUNT",
+        "CARD",
+        "XXXX"
+      ],
+      "search_text": "core shipped, no send back nsb i'm so sorry, your order has already been shipped, so i’m unable to cancel it at this time. rest assured, i’ve processed a full refund of [amount], which will be issued back to your [card] ending in -xxxx. you should see this reflected on your account within 3–6 days. i’ve also sent a request to the shipper to have the order returned to us. if our request doesn’t reach fedex in time, they may still attempt delivery. if you’re home, you can refuse the package so they can return it to us. if the package is delivered, you’re welcome to donate it to a local shelter or rescue instead."
+    },
+    {
+      "agent_role": "core",
+      "category": "Shipped, send back",
+      "hotkey": "ssb",
+      "canned_text": "I'm so sorry, your order has already been shipped, so I’m unable to cancel it at this time. I’ve sent a request to the shipper to have the order returned to us. If our request doesn’t reach FedEx in time, they may still attempt delivery. If you’re home, you can refuse the package so it can be returned to us. If the order still gets delivered, I've sent a prepaid return label with instructions to your email to have these items shipped back to us at no cost to you. Once the return is received and processed at our warehouse, your refund of [AMOUNT] will be issued back to the [CARD] ending in -XXXX and should appear within 3-6 days of that date.",
+      "placeholders": [
+        "AMOUNT",
+        "CARD",
+        "XXXX"
+      ],
+      "search_text": "core shipped, send back ssb i'm so sorry, your order has already been shipped, so i’m unable to cancel it at this time. i’ve sent a request to the shipper to have the order returned to us. if our request doesn’t reach fedex in time, they may still attempt delivery. if you’re home, you can refuse the package so it can be returned to us. if the order still gets delivered, i've sent a prepaid return label with instructions to your email to have these items shipped back to us at no cost to you. once the return is received and processed at our warehouse, your refund of [amount] will be issued back to the [card] ending in -xxxx and should appear within 3-6 days of that date."
+    },
+    {
+      "agent_role": "core",
+      "category": "Failed Esco Chat Transfer Follow-Up",
+      "hotkey": "ct1",
+      "canned_text": "US Core Chat Incident Number: Message: Failed Esco Chat Transfer Follow-Up Requested. Customer disconnected my chat before I was able to transfer.",
+      "placeholders": [
+        "US"
+      ],
+      "search_text": "core failed esco chat transfer follow-up ct1 us core chat incident number: message: failed esco chat transfer follow-up requested. customer disconnected my chat before i was able to transfer."
+    },
+    {
+      "agent_role": "core",
+      "category": "Failed Esco Chat Transfer Follow-Up",
+      "hotkey": "ct2",
+      "canned_text": "CA Core Chat Incident Number: Message: Failed Esco Chat Transfer Follow-Up Requested. Customer disconnected my chat before I was able to transfer.",
+      "placeholders": [
+        "CA"
+      ],
+      "search_text": "core failed esco chat transfer follow-up ct2 ca core chat incident number: message: failed esco chat transfer follow-up requested. customer disconnected my chat before i was able to transfer."
+    },
+    {
+      "agent_role": "core",
+      "category": "Failed Esco Chat Transfer Follow-Up",
+      "hotkey": "ct4",
+      "canned_text": "Vet Diet Chat Incident Number: Message: Failed Esco Chat Transfer Follow-Up Requested. Customer disconnected my chat before I was able to transfer.",
+      "placeholders": [],
+      "search_text": "core failed esco chat transfer follow-up ct4 vet diet chat incident number: message: failed esco chat transfer follow-up requested. customer disconnected my chat before i was able to transfer."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Account Validation",
+      "hotkey": "v0",
+      "canned_text": "I'm happy to help you with that $contacts.name.first. While I pull up your account would you mind confirming the following information associated with your Chewy account:\n- Full name\n- Email\n- Phone number\n- Shipping address",
+      "placeholders": [
+        "$contacts.name.first."
+      ],
+      "search_text": "rx account validation v0 i'm happy to help you with that $contacts.name.first. while i pull up your account would you mind confirming the following information associated with your chewy account: - full name - email - phone number - shipping address"
+    },
+    {
+      "agent_role": "rx",
+      "category": "On Hand Question",
+      "hotkey": "mr1",
+      "canned_text": "How many days of MEDICATIONNAME does PETNAME have left?",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME"
+      ],
+      "search_text": "rx on hand question mr1 how many days of medicationname does petname have left?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Med, Clinic, Pet Confirmation",
+      "hotkey": "s4",
+      "canned_text": "Just to confirm, is this the MEDICATIONNAME(s) for PETNAME with CLINICANDLOCATION?",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME",
+        "CLINICANDLOCATION"
+      ],
+      "search_text": "rx med, clinic, pet confirmation s4 just to confirm, is this the medicationname(s) for petname with clinicandlocation?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Transfer Chat Greeting",
+      "hotkey": "x2",
+      "canned_text": "Thanks for your patience! I’ve reviewed the earlier messages and see that you need help with REASON. I’m working on this for you now!",
+      "placeholders": [
+        "REASON"
+      ],
+      "search_text": "rx transfer chat greeting x2 thanks for your patience! i’ve reviewed the earlier messages and see that you need help with reason. i’m working on this for you now!"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Greeting - How can I help",
+      "hotkey": "gh1",
+      "canned_text": "Hi there! I’m so glad you reached out, how can I help you today?",
+      "placeholders": [],
+      "search_text": "rx greeting - how can i help gh1 hi there! i’m so glad you reached out, how can i help you today?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Sorry",
+      "hotkey": "es2",
+      "canned_text": "I’m sorry to hear that SITUATION.",
+      "placeholders": [
+        "SITUATION"
+      ],
+      "search_text": "rx empathy - sorry es2 i’m sorry to hear that situation."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Concern",
+      "hotkey": "ec1",
+      "canned_text": "I can understand your concern about SITUATION.",
+      "placeholders": [
+        "SITUATION"
+      ],
+      "search_text": "rx empathy - concern ec1 i can understand your concern about situation."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Confusion",
+      "hotkey": "ec2",
+      "canned_text": "I can understand the confusion around SITUATION.",
+      "placeholders": [
+        "SITUATION"
+      ],
+      "search_text": "rx empathy - confusion ec2 i can understand the confusion around situation."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Frustrations",
+      "hotkey": "ef1",
+      "canned_text": "I can certainly understand your frustrations around SITUATION.",
+      "placeholders": [
+        "SITUATION"
+      ],
+      "search_text": "rx empathy - frustrations ef1 i can certainly understand your frustrations around situation."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Positive",
+      "hotkey": "ep1",
+      "canned_text": "I’m glad to hear that!",
+      "placeholders": [],
+      "search_text": "rx empathy - positive ep1 i’m glad to hear that!"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Positive 2",
+      "hotkey": "ep2",
+      "canned_text": "I’m happy to hear that!",
+      "placeholders": [],
+      "search_text": "rx empathy - positive 2 ep2 i’m happy to hear that!"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Neutral",
+      "hotkey": "en1",
+      "canned_text": "Thank you for your patience.",
+      "placeholders": [],
+      "search_text": "rx empathy - neutral en1 thank you for your patience."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy - Relative",
+      "hotkey": "er1",
+      "canned_text": "I would feel that way too.",
+      "placeholders": [],
+      "search_text": "rx empathy - relative er1 i would feel that way too."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Personalization - Day",
+      "hotkey": "pw1",
+      "canned_text": "While I’m looking into this, how’s your day going?",
+      "placeholders": [],
+      "search_text": "rx personalization - day pw1 while i’m looking into this, how’s your day going?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Personalization - Well being",
+      "hotkey": "pw3",
+      "canned_text": "While I’m looking into this, how are you and PETNAME doing today?",
+      "placeholders": [
+        "PETNAME"
+      ],
+      "search_text": "rx personalization - well being pw3 while i’m looking into this, how are you and petname doing today?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Approval Received",
+      "hotkey": "ar1",
+      "canned_text": "I reviewed your order, and I’m happy to report we received an approval of MEDICATIONNAME for PETNAME. Our pharmacists will review the prescription, and you’ll receive an email with the tracking number. Our shipping typically takes 1 – 3 days to deliver.",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME"
+      ],
+      "search_text": "rx approval received ar1 i reviewed your order, and i’m happy to report we received an approval of medicationname for petname. our pharmacists will review the prescription, and you’ll receive an email with the tracking number. our shipping typically takes 1 – 3 days to deliver."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Approval Shipped",
+      "hotkey": "a2",
+      "canned_text": "I’m happy to report we received an approval of MEDICATIONNAME for PETNAME and the order has shipped! You can track your package here: TRACKINGHYPERLINK. It’s scheduled to arrive by DATE.",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME",
+        "TRACKINGHYPERLINK",
+        "DATE"
+      ],
+      "search_text": "rx approval shipped a2 i’m happy to report we received an approval of medicationname for petname and the order has shipped! you can track your package here: trackinghyperlink. it’s scheduled to arrive by date."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Expedited Shipping - Priority item",
+      "hotkey": "es4",
+      "canned_text": "To try and move your order along more quickly, I’ve submitted a request to expedite the shipping on your order. Expedited shipping typically takes 1 – 2 days to deliver.",
+      "placeholders": [],
+      "search_text": "rx expedited shipping - priority item es4 to try and move your order along more quickly, i’ve submitted a request to expedite the shipping on your order. expedited shipping typically takes 1 – 2 days to deliver."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Expedited Shipping - Not priority",
+      "hotkey": "es5",
+      "canned_text": "At this time, we do not offer expedited shipping on all medications. I know this medication is important and I want to make sure your pet doesn’t go without it while it's in transit.",
+      "placeholders": [],
+      "search_text": "rx expedited shipping - not priority es5 at this time, we do not offer expedited shipping on all medications. i know this medication is important and i want to make sure your pet doesn’t go without it while it's in transit."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Invoice",
+      "hotkey": "i1",
+      "canned_text": "I emailed your invoice to the email address on file. If you ever need it again, you can access your invoices anytime through your Chewy account.",
+      "placeholders": [],
+      "search_text": "rx invoice i1 i emailed your invoice to the email address on file. if you ever need it again, you can access your invoices anytime through your chewy account."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Invoice - Education",
+      "hotkey": "i2",
+      "canned_text": "To access your invoices, you can go to our website via laptop/computer and hover over your account then click orders/order history. Select “Order Details”. Click “View Invoice” and you will be able to download it from there!",
+      "placeholders": [],
+      "search_text": "rx invoice - education i2 to access your invoices, you can go to our website via laptop/computer and hover over your account then click orders/order history. select “order details”. click “view invoice” and you will be able to download it from there!"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Denial",
+      "hotkey": "d1",
+      "canned_text": "It looks as though your order for PETNAME’s MEDICATIONNAME was denied due to DENIALREASON.",
+      "placeholders": [
+        "PETNAME",
+        "MEDICATIONNAME",
+        "DENIALREASON"
+      ],
+      "search_text": "rx denial d1 it looks as though your order for petname’s medicationname was denied due to denialreason."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Order Timed out",
+      "hotkey": "d2",
+      "canned_text": "It looks as though, your order was canceled because we didn’t receive an approval from your clinic within our 22-day window. This process ensures that all pending charges are released back to you in an appropriate time frame.",
+      "placeholders": [],
+      "search_text": "rx order timed out d2 it looks as though, your order was canceled because we didn’t receive an approval from your clinic within our 22-day window. this process ensures that all pending charges are released back to you in an appropriate time frame."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Small Quantity",
+      "hotkey": "d3",
+      "canned_text": "It looks as though, your order was canceled due to only ordering 1 tablet of MEDICATIONNAME.",
+      "placeholders": [
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx small quantity d3 it looks as though, your order was canceled due to only ordering 1 tablet of medicationname."
+    },
+    {
+      "agent_role": "rx",
+      "category": "CMM",
+      "hotkey": "m1",
+      "canned_text": "After reviewing, I see that CLINICNAME works with us by providing a physical prescription. We can only accept original physical prescriptions sent by mail because pharmacy laws require the veterinarian’s actual signed prescription on file; photos or scans aren’t considered valid. This is to protect your pet’s safety and make sure every medication we dispense meets federal and state regulations.",
+      "placeholders": [
+        "CLINICNAME"
+      ],
+      "search_text": "rx cmm m1 after reviewing, i see that clinicname works with us by providing a physical prescription. we can only accept original physical prescriptions sent by mail because pharmacy laws require the veterinarian’s actual signed prescription on file; photos or scans aren’t considered valid. this is to protect your pet’s safety and make sure every medication we dispense meets federal and state regulations."
+    },
+    {
+      "agent_role": "rx",
+      "category": "SDF Address",
+      "hotkey": "ad1",
+      "canned_text": "Here’s the mailing address you can put on your envelope:\nChewy Pharmacy\nATTN: ORDERNUMBER\n3621 Fern Valley Rd\nLouisville, KY 40219",
+      "placeholders": [
+        "ATTN",
+        "ORDERNUMBER",
+        "KY"
+      ],
+      "search_text": "rx sdf address ad1 here’s the mailing address you can put on your envelope: chewy pharmacy attn: ordernumber 3621 fern valley rd louisville, ky 40219"
+    },
+    {
+      "agent_role": "rx",
+      "category": "AVP Address",
+      "hotkey": "ad2",
+      "canned_text": "Here’s the mailing address you can put on your envelope:\nChewy Pharmacy\nATTN: ORDERNUMBER\n360 Research Drive\nPittston, PA 18640",
+      "placeholders": [
+        "ATTN",
+        "ORDERNUMBER",
+        "PA"
+      ],
+      "search_text": "rx avp address ad2 here’s the mailing address you can put on your envelope: chewy pharmacy attn: ordernumber 360 research drive pittston, pa 18640"
+    },
+    {
+      "agent_role": "rx",
+      "category": "CMM Education",
+      "hotkey": "m2",
+      "canned_text": "Mail typically arrives in 5–7 business days, but we can reimburse the cost of priority mail for faster delivery, up to the total order amount. How many days of medication does PETNAME have left?",
+      "placeholders": [
+        "PETNAME"
+      ],
+      "search_text": "rx cmm education m2 mail typically arrives in 5–7 business days, but we can reimburse the cost of priority mail for faster delivery, up to the total order amount. how many days of medication does petname have left?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Emailed Rx",
+      "hotkey": "m3",
+      "canned_text": "Thanks for letting us know. Unfortunately, we can only accept original, physical prescriptions sent by mail—due to Pharmacy regulations, we're unable to dispense medication based on a photocopy or email attachment.",
+      "placeholders": [],
+      "search_text": "rx emailed rx m3 thanks for letting us know. unfortunately, we can only accept original, physical prescriptions sent by mail—due to pharmacy regulations, we're unable to dispense medication based on a photocopy or email attachment."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Informed they Mailed",
+      "hotkey": "m4",
+      "canned_text": "I’ve updated your account to reflect that you’ve mailed in your prescription, we will be keeping an eye out for its arrival. Once we receive it, we’ll get started on filling the prescription right away. Mail typically arrives in 5–7 business days. If you're running low or out, let me know how much you have left so we can look into potential solutions.",
+      "placeholders": [],
+      "search_text": "rx informed they mailed m4 i’ve updated your account to reflect that you’ve mailed in your prescription, we will be keeping an eye out for its arrival. once we receive it, we’ll get started on filling the prescription right away. mail typically arrives in 5–7 business days. if you're running low or out, let me know how much you have left so we can look into potential solutions."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Rx not Found",
+      "hotkey": "m5",
+      "canned_text": "I can’t seem to find your prescription for MEDICATIONNAME, could you answer these questions to help us locate it:\n- When did you mail your prescription?\n- Did you mail priority?\n- If yes, what’s the tracking number?\n- Is your name on the envelope?",
+      "placeholders": [
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx rx not found m5 i can’t seem to find your prescription for medicationname, could you answer these questions to help us locate it: - when did you mail your prescription? - did you mail priority? - if yes, what’s the tracking number? - is your name on the envelope?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Mail Help Form",
+      "hotkey": "m6",
+      "canned_text": "I wasn’t able to find your prescription in our database. Considering it’s been a few days since you mailed it to us, I submitted a request for our partners to physically search our mail. After they’ve searched, you should receive an email notifying you with an update on the status of your prescription.",
+      "placeholders": [],
+      "search_text": "rx mail help form m6 i wasn’t able to find your prescription in our database. considering it’s been a few days since you mailed it to us, i submitted a request for our partners to physically search our mail. after they’ve searched, you should receive an email notifying you with an update on the status of your prescription."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Order Timing out",
+      "hotkey": "m7",
+      "canned_text": "Once we receive the prescription, we’ll notify you via email. If we do not receive the prescription within 40 days of the order being placed, our system will automatically cancel the order. This helps ensure that any pending charges are released back to you.",
+      "placeholders": [],
+      "search_text": "rx order timing out m7 once we receive the prescription, we’ll notify you via email. if we do not receive the prescription within 40 days of the order being placed, our system will automatically cancel the order. this helps ensure that any pending charges are released back to you."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Order Timed out",
+      "hotkey": "m8",
+      "canned_text": "After reviewing, your order timed out because we did not receive the prescription within the 40-day time frame. This auto-cancelation process ensures that all pending charges are released back to you in a timely manner.",
+      "placeholders": [],
+      "search_text": "rx order timed out m8 after reviewing, your order timed out because we did not receive the prescription within the 40-day time frame. this auto-cancelation process ensures that all pending charges are released back to you in a timely manner."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Confirm Cancelation",
+      "hotkey": "cx1",
+      "canned_text": "Before moving forward, can you confirm if you’d like to cancel your MEDICATIONNAME?",
+      "placeholders": [
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx confirm cancelation cx1 before moving forward, can you confirm if you’d like to cancel your medicationname?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Customer requested Cancelation",
+      "hotkey": "cx2",
+      "canned_text": "I’ve successfully canceled the MEDICATIONNAME for PETNAME before it shipped.",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME"
+      ],
+      "search_text": "rx customer requested cancelation cx2 i’ve successfully canceled the medicationname for petname before it shipped."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Successful Cancelation Education (Card)",
+      "hotkey": "cx3",
+      "canned_text": "Since we were able to cancel before the order shipped, no charge was completed, only a pending hold. You should see the hold released within 24 – 48 business hours. If you experience any delays, please reach out to your bank associated with the card.",
+      "placeholders": [],
+      "search_text": "rx successful cancelation education (card) cx3 since we were able to cancel before the order shipped, no charge was completed, only a pending hold. you should see the hold released within 24 – 48 business hours. if you experience any delays, please reach out to your bank associated with the card."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Cancelation Education (PayPal/Chime)",
+      "hotkey": "cx4",
+      "canned_text": "Since we were able to cancel before the order shipped, no charge was completed, only a pending hold. You should see the hold released within the next 30 days. If you experience any delays, please reach out to your bank associated with your account.",
+      "placeholders": [],
+      "search_text": "rx cancelation education (paypal/chime) cx4 since we were able to cancel before the order shipped, no charge was completed, only a pending hold. you should see the hold released within the next 30 days. if you experience any delays, please reach out to your bank associated with your account."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Too late to Cancel",
+      "hotkey": "cx5",
+      "canned_text": "I see the MEDICATIONNAME for PETNAME has already been approved and progressed to the shipping stage. I’d be happy to refund this order if you’d like?",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME"
+      ],
+      "search_text": "rx too late to cancel cx5 i see the medicationname for petname has already been approved and progressed to the shipping stage. i’d be happy to refund this order if you’d like?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Cancelation Form",
+      "hotkey": "cx6",
+      "canned_text": "I see the MEDICATIONNAME for PETNAME has already been approved, so I am submitting a cancelation request on your behalf.",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME"
+      ],
+      "search_text": "rx cancelation form cx6 i see the medicationname for petname has already been approved, so i am submitting a cancelation request on your behalf."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Different State Education",
+      "hotkey": "cx7",
+      "canned_text": "Due to your address update being in a different state, we’re not able to change your current order so we will need to cancel this order and place a new one to get PETNAME’s prescription shipped to the correct location.",
+      "placeholders": [
+        "PETNAME"
+      ],
+      "search_text": "rx different state education cx7 due to your address update being in a different state, we’re not able to change your current order so we will need to cancel this order and place a new one to get petname’s prescription shipped to the correct location."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Waiting for approval",
+      "hotkey": "p2",
+      "canned_text": "I reviewed your account and I don’t see we have received an approval quite yet. I did submit another approval request via CONTACTMETHOD. We’ll be sure to email you as we continue to correspond with your clinic.",
+      "placeholders": [
+        "CONTACTMETHOD"
+      ],
+      "search_text": "rx waiting for approval p2 i reviewed your account and i don’t see we have received an approval quite yet. i did submit another approval request via contactmethod. we’ll be sure to email you as we continue to correspond with your clinic."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Refills",
+      "hotkey": "p3",
+      "canned_text": "Looking further into your order, it looks that we actually had refills on file! I did successfully add those refills to your order and this should ship out in 1 – 3 days.",
+      "placeholders": [],
+      "search_text": "rx refills p3 looking further into your order, it looks that we actually had refills on file! i did successfully add those refills to your order and this should ship out in 1 – 3 days."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Why do you Need Approval?",
+      "hotkey": "p4",
+      "canned_text": "As a pet pharmacy, we’re required to have veterinarian approval for this medication. This ensures [PETNAME] receives the correct dose based on their weight, health needs, and other medications.",
+      "placeholders": [
+        "PETNAME"
+      ],
+      "search_text": "rx why do you need approval? p4 as a pet pharmacy, we’re required to have veterinarian approval for this medication. this ensures [petname] receives the correct dose based on their weight, health needs, and other medications."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Order Timing out",
+      "hotkey": "p5",
+      "canned_text": "I reviewed your account and I don’t see that we’ve received an approval quite yet. Since we haven’t heard from your clinic our system automatically cancels unapproved orders after 22 days. This process helps ensure any pending charges are released back to you.",
+      "placeholders": [],
+      "search_text": "rx order timing out p5 i reviewed your account and i don’t see that we’ve received an approval quite yet. since we haven’t heard from your clinic our system automatically cancels unapproved orders after 22 days. this process helps ensure any pending charges are released back to you."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Reduce Quantity",
+      "hotkey": "p6",
+      "canned_text": "I adjusted your order for MEDICATIONNAME from OLDQUANTITY PILLTYPE to NEWQUANTITY PILLTYPE. The total for your order has been updated to $NEWTOTAL. You’ll see this final charge reflected once the order has shipped.",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "OLDQUANTITY PILLTYPE",
+        "NEWQUANTITY PILLTYPE",
+        "$NEWTOTAL."
+      ],
+      "search_text": "rx reduce quantity p6 i adjusted your order for medicationname from oldquantity pilltype to newquantity pilltype. the total for your order has been updated to $newtotal. you’ll see this final charge reflected once the order has shipped."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Update Pet",
+      "hotkey": "p7",
+      "canned_text": "I successfully updated your order to reflect PETNAME as the pet for MEDICATIONNAME.",
+      "placeholders": [
+        "PETNAME",
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx update pet p7 i successfully updated your order to reflect petname as the pet for medicationname."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Update Vet",
+      "hotkey": "p8",
+      "canned_text": "I successfully updated your order to reflect that we’re reaching out to CLINICNAME.",
+      "placeholders": [
+        "CLINICNAME"
+      ],
+      "search_text": "rx update vet p8 i successfully updated your order to reflect that we’re reaching out to clinicname."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Normal Education",
+      "hotkey": "p9",
+      "canned_text": "Our pharmacy items typically arrive within 1-3 days.",
+      "placeholders": [],
+      "search_text": "rx normal education p9 our pharmacy items typically arrive within 1-3 days."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Expedited Education",
+      "hotkey": "ea1",
+      "canned_text": "I understand how urgent this request is, if needed I am more than happy to look into how we could speed our normal process along.",
+      "placeholders": [],
+      "search_text": "rx expedited education ea1 i understand how urgent this request is, if needed i am more than happy to look into how we could speed our normal process along."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Online Platform",
+      "hotkey": "op2",
+      "canned_text": "After looking into your account, I found that your clinic, CLINICNAME, works directly with us through our online platform, and we've already notified them of your pending request. We typically allow up to 4 days for the clinic to review the request before we follow up with them.",
+      "placeholders": [
+        "CLINICNAME"
+      ],
+      "search_text": "rx online platform op2 after looking into your account, i found that your clinic, clinicname, works directly with us through our online platform, and we've already notified them of your pending request. we typically allow up to 4 days for the clinic to review the request before we follow up with them."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Confirming Order Placement",
+      "hotkey": "po1",
+      "canned_text": "I’d be more than happy to start that order for you! The total of this new order would be $ORDERTOTAL. Could you please verify the following information so I can place it for you:\n- Your shipping address\n- The last 4 digits of the card number or full email address of the PayPal/Apple/Google pay you would like to use",
+      "placeholders": [
+        "$ORDERTOTAL."
+      ],
+      "search_text": "rx confirming order placement po1 i’d be more than happy to start that order for you! the total of this new order would be $ordertotal. could you please verify the following information so i can place it for you: - your shipping address - the last 4 digits of the card number or full email address of the paypal/apple/google pay you would like to use"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Confirmed Placed Order",
+      "hotkey": "po2",
+      "canned_text": "I successfully got an order of MEDICATIONNAME for PETNAME placed for you! The order number is ORDERNUMBER totaling $ORDERTOTAL.",
+      "placeholders": [
+        "MEDICATIONNAME",
+        "PETNAME",
+        "ORDERNUMBER",
+        "$ORDERTOTAL."
+      ],
+      "search_text": "rx confirmed placed order po2 i successfully got an order of medicationname for petname placed for you! the order number is ordernumber totaling $ordertotal."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Education (refills)",
+      "hotkey": "po3",
+      "canned_text": "Looking at your account I see REFILLNUMBER refills on file. With those refills, our pharmacists will review to make sure everything looks good, and after that, you can expect your delivery in 1 – 3 days.",
+      "placeholders": [
+        "REFILLNUMBER"
+      ],
+      "search_text": "rx education (refills) po3 looking at your account i see refillnumber refills on file. with those refills, our pharmacists will review to make sure everything looks good, and after that, you can expect your delivery in 1 – 3 days."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Education - no refills (clinic works w/ us)",
+      "hotkey": "po4",
+      "canned_text": "I just reviewed your account and I don't see any refills currently on file for this medication. We will reach out to your clinic, CLINICNAME, via CONTACTMETHOD to request the necessary approval. Once received, our pharmacy items typically arrive within 1 – 3 days.",
+      "placeholders": [
+        "CLINICNAME",
+        "CONTACTMETHOD"
+      ],
+      "search_text": "rx education - no refills (clinic works w/ us) po4 i just reviewed your account and i don't see any refills currently on file for this medication. we will reach out to your clinic, clinicname, via contactmethod to request the necessary approval. once received, our pharmacy items typically arrive within 1 – 3 days."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Education - no refills (doesn’t work with us)",
+      "hotkey": "po5",
+      "canned_text": "I just reviewed your account and, I don't see any refills currently on file for this medication. Your clinic does not work directly with online third-party pharmacies, so in order for us to fulfill your prescription, we’ll need the original written prescription to be mailed to us. Once received, our pharmacy items typically arrive within 1- 3 days.",
+      "placeholders": [],
+      "search_text": "rx education - no refills (doesn’t work with us) po5 i just reviewed your account and, i don't see any refills currently on file for this medication. your clinic does not work directly with online third-party pharmacies, so in order for us to fulfill your prescription, we’ll need the original written prescription to be mailed to us. once received, our pharmacy items typically arrive within 1- 3 days."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Greeting",
+      "hotkey": "g3",
+      "canned_text": "I’m happy to check on your Autoship. Just one moment while I look into your account.",
+      "placeholders": [],
+      "search_text": "rx greeting g3 i’m happy to check on your autoship. just one moment while i look into your account."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Review",
+      "hotkey": "as1",
+      "canned_text": "Allow me a moment to review your current Autoship to make sure everything is good to go.",
+      "placeholders": [],
+      "search_text": "rx review as1 allow me a moment to review your current autoship to make sure everything is good to go."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Update Vet",
+      "hotkey": "as2",
+      "canned_text": "I successfully updated your Autoship to reflect that we’re reaching out to CLINICNAME.",
+      "placeholders": [
+        "CLINICNAME"
+      ],
+      "search_text": "rx update vet as2 i successfully updated your autoship to reflect that we’re reaching out to clinicname."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Update Pet",
+      "hotkey": "as3",
+      "canned_text": "I successfully updated your Autoship which now shows PETNAME as the pet for MEDICATIONNAME.",
+      "placeholders": [
+        "PETNAME",
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx update pet as3 i successfully updated your autoship which now shows petname as the pet for medicationname."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Update Frequency",
+      "hotkey": "as4",
+      "canned_text": "I updated the frequency of your Autoship to reflect every FREQUENCY weeks/months.",
+      "placeholders": [
+        "FREQUENCY"
+      ],
+      "search_text": "rx update frequency as4 i updated the frequency of your autoship to reflect every frequency weeks/months."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Wrong Frequency",
+      "hotkey": "as5",
+      "canned_text": "I noticed your Autoship is set to every FREQUENCY weeks/months, it could be beneficial to update it to every FREQUENCY weeks/months instead. Would you like me to update your Autoship accordingly?",
+      "placeholders": [
+        "FREQUENCY"
+      ],
+      "search_text": "rx wrong frequency as5 i noticed your autoship is set to every frequency weeks/months, it could be beneficial to update it to every frequency weeks/months instead. would you like me to update your autoship accordingly?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Trigger",
+      "hotkey": "as6",
+      "canned_text": "I just placed your Autoship order for you! The order number is ORDERNUMBER. You should receive an email here shortly confirming this order.",
+      "placeholders": [
+        "ORDERNUMBER"
+      ],
+      "search_text": "rx trigger as6 i just placed your autoship order for you! the order number is ordernumber. you should receive an email here shortly confirming this order."
+    },
+    {
+      "agent_role": "rx",
+      "category": "NFD",
+      "hotkey": "as7",
+      "canned_text": "After looking, I see your Autoship is set to be placed again on DATE. If we need to adjust that date, just let me know!",
+      "placeholders": [
+        "DATE"
+      ],
+      "search_text": "rx nfd as7 after looking, i see your autoship is set to be placed again on date. if we need to adjust that date, just let me know!"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Adjusted NFD",
+      "hotkey": "as8",
+      "canned_text": "I updated your next Autoship to now be placed on DATE.",
+      "placeholders": [
+        "DATE"
+      ],
+      "search_text": "rx adjusted nfd as8 i updated your next autoship to now be placed on date."
+    },
+    {
+      "agent_role": "rx",
+      "category": "AS Placement Education",
+      "hotkey": "as9",
+      "canned_text": "In order to give us enough time to reach out to your clinic, receive a response from them, and deliver your order by the promised date provided we place the order approximately 3 days in advance. This ensures your Autoship arrives on schedule.",
+      "placeholders": [],
+      "search_text": "rx as placement education as9 in order to give us enough time to reach out to your clinic, receive a response from them, and deliver your order by the promised date provided we place the order approximately 3 days in advance. this ensures your autoship arrives on schedule."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Fixed AS Education",
+      "hotkey": "as10",
+      "canned_text": "If you’d like, I’d be more than happy to adjust your Autoship so the order is always placed on the exact same date, instead of being scheduled to arrive by that date.",
+      "placeholders": [],
+      "search_text": "rx fixed as education as10 if you’d like, i’d be more than happy to adjust your autoship so the order is always placed on the exact same date, instead of being scheduled to arrive by that date."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Expedited Approval",
+      "hotkey": "t1",
+      "canned_text": "I will forward this information to our partners who will reach out directly to CLINICNAME to move things along quickly for PETNAME. Once we’ve attempted to contact your clinic, we will call you back with next steps.",
+      "placeholders": [
+        "CLINICNAME",
+        "PETNAME"
+      ],
+      "search_text": "rx expedited approval t1 i will forward this information to our partners who will reach out directly to clinicname to move things along quickly for petname. once we’ve attempted to contact your clinic, we will call you back with next steps."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Pharmacist",
+      "hotkey": "t2",
+      "canned_text": "To make sure everything is handled appropriately for you, I will be transferring you to one of our pharmacists who will gladly look into this further for you.",
+      "placeholders": [],
+      "search_text": "rx pharmacist t2 to make sure everything is handled appropriately for you, i will be transferring you to one of our pharmacists who will gladly look into this further for you."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Tiger team",
+      "hotkey": "t4",
+      "canned_text": "I completely understand. Please allow me a moment to get you transferred to one of our supervisors to make sure everything is appropriately taken care of.",
+      "placeholders": [],
+      "search_text": "rx tiger team t4 i completely understand. please allow me a moment to get you transferred to one of our supervisors to make sure everything is appropriately taken care of."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Customer care rep",
+      "hotkey": "t5",
+      "canned_text": "It looks like this order is a non-medication item. To ensure everything is handled properly, I’ll transfer you over to one of our team members who can further assist.",
+      "placeholders": [],
+      "search_text": "rx customer care rep t5 it looks like this order is a non-medication item. to ensure everything is handled properly, i’ll transfer you over to one of our team members who can further assist."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Vet diet",
+      "hotkey": "t6",
+      "canned_text": "It looks like this order is a food diet item. To ensure everything is handled properly, I’ll transfer you over to one of our team members who can further assist.",
+      "placeholders": [],
+      "search_text": "rx vet diet t6 it looks like this order is a food diet item. to ensure everything is handled properly, i’ll transfer you over to one of our team members who can further assist."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Get Real",
+      "hotkey": "t7",
+      "canned_text": "I see this is related to our Get Real subscription. To ensure everything is handled properly I’ll transfer you over to one of our team members who can further assist.",
+      "placeholders": [],
+      "search_text": "rx get real t7 i see this is related to our get real subscription. to ensure everything is handled properly i’ll transfer you over to one of our team members who can further assist."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Added",
+      "hotkey": "pr1",
+      "canned_text": "I was successfully able to get that promo added to your ORDER/AUTOSHIP.",
+      "placeholders": [
+        "ORDER",
+        "AUTOSHIP"
+      ],
+      "search_text": "rx added pr1 i was successfully able to get that promo added to your order/autoship."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Issues",
+      "hotkey": "pr2",
+      "canned_text": "I’m so sorry to hear there were issues with adding the promo to your order. After looking into it, it seems the issue was REASON.",
+      "placeholders": [
+        "REASON"
+      ],
+      "search_text": "rx issues pr2 i’m so sorry to hear there were issues with adding the promo to your order. after looking into it, it seems the issue was reason."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Can Honor",
+      "hotkey": "pr3",
+      "canned_text": "I want to make sure that you are taken care of. I went ahead and applied the promotion as a one-time courtesy. Once the order ships, you’ll see the new total of $NEWTOTAL.",
+      "placeholders": [
+        "$NEWTOTAL."
+      ],
+      "search_text": "rx can honor pr3 i want to make sure that you are taken care of. i went ahead and applied the promotion as a one-time courtesy. once the order ships, you’ll see the new total of $newtotal."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Education",
+      "hotkey": "pr4",
+      "canned_text": "For future orders, this promotion applies when the following requirements are met.\nAPPROPRIATEREQUIREMENTS",
+      "placeholders": [
+        "APPROPRIATEREQUIREMENTS"
+      ],
+      "search_text": "rx education pr4 for future orders, this promotion applies when the following requirements are met. appropriaterequirements"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Can't Honor",
+      "hotkey": "pr5",
+      "canned_text": "I noticed we previously made a one-time courtesy to honor the offer. While I’m unable to apply the same promotion again, I’d still like to help out. I’ve applied a 10%/15% discount to your current order. Once the order ships, you’ll see the new total of $NEWTOTAL.",
+      "placeholders": [
+        "$NEWTOTAL."
+      ],
+      "search_text": "rx can't honor pr5 i noticed we previously made a one-time courtesy to honor the offer. while i’m unable to apply the same promotion again, i’d still like to help out. i’ve applied a 10%/15% discount to your current order. once the order ships, you’ll see the new total of $newtotal."
+    },
+    {
+      "agent_role": "rx",
+      "category": "CCR Discount",
+      "hotkey": "pr6",
+      "canned_text": "I completely understand and I'd like to help out in this situation. I’ve applied a 10%/15% discount to your current order. Once the order ships, you’ll see the new total of $NEWTOTAL.",
+      "placeholders": [
+        "$NEWTOTAL."
+      ],
+      "search_text": "rx ccr discount pr6 i completely understand and i'd like to help out in this situation. i’ve applied a 10%/15% discount to your current order. once the order ships, you’ll see the new total of $newtotal."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Fraud Block",
+      "hotkey": "pr7",
+      "canned_text": "It looks like the promotion couldn’t be applied due to REASON. I know that’s not the news you were hoping for, and I’m really sorry for any confusion or inconvenience this may have caused.",
+      "placeholders": [
+        "REASON"
+      ],
+      "search_text": "rx fraud block pr7 it looks like the promotion couldn’t be applied due to reason. i know that’s not the news you were hoping for, and i’m really sorry for any confusion or inconvenience this may have caused."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Price Adjustment",
+      "hotkey": "pa1",
+      "canned_text": "I issued a price adjustment due to REASON. This adjustment updates your order total from $OLDTOTAL to $NEWTOTAL.",
+      "placeholders": [
+        "REASON",
+        "$OLDTOTAL",
+        "$NEWTOTAL."
+      ],
+      "search_text": "rx price adjustment pa1 i issued a price adjustment due to reason. this adjustment updates your order total from $oldtotal to $newtotal."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Price Adjustment - Education",
+      "hotkey": "pa2",
+      "canned_text": "Please note that the new total won’t appear until the order ships, at which point the adjustment for REASON will be reflected in your final charge.",
+      "placeholders": [
+        "REASON"
+      ],
+      "search_text": "rx price adjustment - education pa2 please note that the new total won’t appear until the order ships, at which point the adjustment for reason will be reflected in your final charge."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Greeting",
+      "hotkey": "pp1",
+      "canned_text": "I am so sorry to hear about your loss, I know it’s never an easy thing to go through. Allow me a moment to review your account to ensure we take care of your needs during this interaction.",
+      "placeholders": [],
+      "search_text": "rx greeting pp1 i am so sorry to hear about your loss, i know it’s never an easy thing to go through. allow me a moment to review your account to ensure we take care of your needs during this interaction."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Empathy",
+      "hotkey": "pp2",
+      "canned_text": "We know how hard it is to lose a loved one from your family, and we want to extend our sincerest condolences during this difficult time. If there is anything that we can do for you, please let us know.",
+      "placeholders": [],
+      "search_text": "rx empathy pp2 we know how hard it is to lose a loved one from your family, and we want to extend our sincerest condolences during this difficult time. if there is anything that we can do for you, please let us know."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Thank you",
+      "hotkey": "pp3",
+      "canned_text": "I’m truly sorry for your loss. It’s clear how much PETNAME was loved, and I’m glad I could help in any small way during such a difficult time.",
+      "placeholders": [
+        "PETNAME"
+      ],
+      "search_text": "rx thank you pp3 i’m truly sorry for your loss. it’s clear how much petname was loved, and i’m glad i could help in any small way during such a difficult time."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Refund",
+      "hotkey": "rm1",
+      "canned_text": "I processed a full refund of $TOTAL for MEDICATIONNAME to the payment method attached to the order.",
+      "placeholders": [
+        "$TOTAL",
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx refund rm1 i processed a full refund of $total for medicationname to the payment method attached to the order."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Return/Refund Timelines",
+      "hotkey": "rm2",
+      "canned_text": "You can expect to see the refund reflected back to your payment method in 3 – 6 business days. If you experience any delays, please reach out to your bank associated with the card.",
+      "placeholders": [],
+      "search_text": "rx return/refund timelines rm2 you can expect to see the refund reflected back to your payment method in 3 – 6 business days. if you experience any delays, please reach out to your bank associated with the card."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Return/Refund (PayPal/Chime)",
+      "hotkey": "rm3",
+      "canned_text": "You can expect to see the refund reflected back to your payment method within 30 days. If you experience any delays, please reach out to your bank associated with the account.",
+      "placeholders": [],
+      "search_text": "rx return/refund (paypal/chime) rm3 you can expect to see the refund reflected back to your payment method within 30 days. if you experience any delays, please reach out to your bank associated with the account."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Refund Education",
+      "hotkey": "rm4",
+      "canned_text": "There is no need to return the MEDICATIONNAME, but please dispose according to your state/local guidelines.",
+      "placeholders": [
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx refund education rm4 there is no need to return the medicationname, but please dispose according to your state/local guidelines."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Return",
+      "hotkey": "rm5",
+      "canned_text": "I sent a return label to the email address EMAILADDRESS. Once we see movement on the tracking number linked to your return label you should see a refund of $TOTAL for MEDICATIONNAME to the payment method attached on the order.",
+      "placeholders": [
+        "EMAILADDRESS",
+        "$TOTAL",
+        "MEDICATIONNAME"
+      ],
+      "search_text": "rx return rm5 i sent a return label to the email address emailaddress. once we see movement on the tracking number linked to your return label you should see a refund of $total for medicationname to the payment method attached on the order."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Confirming Replacement",
+      "hotkey": "rr1",
+      "canned_text": "To make sure I have all of the correct information, could you please confirm the following before I start the replacement:\n1. Replacement reason\n2. Correct shipping address\n3. Clinic name\n4. How many days of medication are left?",
+      "placeholders": [],
+      "search_text": "rx confirming replacement rr1 to make sure i have all of the correct information, could you please confirm the following before i start the replacement: 1. replacement reason 2. correct shipping address 3. clinic name 4. how many days of medication are left?"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Processed Replacement (refills)",
+      "hotkey": "rr2",
+      "canned_text": "I successfully initiated the replacement request for you. I do see we have refills on file, so we’ll be able to utilize the refills for this replacement order and your medication should arrive within 1 – 3 days.",
+      "placeholders": [],
+      "search_text": "rx processed replacement (refills) rr2 i successfully initiated the replacement request for you. i do see we have refills on file, so we’ll be able to utilize the refills for this replacement order and your medication should arrive within 1 – 3 days."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Processed Replacement (no refills)",
+      "hotkey": "rr3",
+      "canned_text": "I successfully initiated the replacement request for you. I don’t see we have refills on file, so our team will reach out to your clinic for approval. With that in mind your medication should arrive within 1 – 3 days after we have an approval on file.",
+      "placeholders": [],
+      "search_text": "rx processed replacement (no refills) rr3 i successfully initiated the replacement request for you. i don’t see we have refills on file, so our team will reach out to your clinic for approval. with that in mind your medication should arrive within 1 – 3 days after we have an approval on file."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Original Package Received",
+      "hotkey": "op1",
+      "canned_text": "I’m happy to hear your package arrived safely! Since it was received, I did cancel your replacement order. Because the replacement was provided at no cost, there will be no charges or impact to your payment method.",
+      "placeholders": [],
+      "search_text": "rx original package received op1 i’m happy to hear your package arrived safely! since it was received, i did cancel your replacement order. because the replacement was provided at no cost, there will be no charges or impact to your payment method."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Reroute",
+      "hotkey": "rr4",
+      "canned_text": "It looks like the package is already on its way to that address. I’ve submitted a request to have the shipment to your new address of ADDRESS.",
+      "placeholders": [
+        "ADDRESS"
+      ],
+      "search_text": "rx reroute rr4 it looks like the package is already on its way to that address. i’ve submitted a request to have the shipment to your new address of address."
+    },
+    {
+      "agent_role": "rx",
+      "category": "Reroute Education",
+      "hotkey": "rr5",
+      "canned_text": "If the package does not arrive at your new address, please let us know and we’ll be happy to promptly arrange a replacement for you",
+      "placeholders": [],
+      "search_text": "rx reroute education rr5 if the package does not arrive at your new address, please let us know and we’ll be happy to promptly arrange a replacement for you"
+    },
+    {
+      "agent_role": "rx",
+      "category": "Local reimbursement",
+      "hotkey": "lr1",
+      "canned_text": "Would a small supply help cover PET NAME until your Chewy order arrives? While we work on getting your order to you, you can pick up a small supply locally (up to a 7-day supply) from your clinic or a local pharmacy. If you do, we can reimburse the price difference between Chewy and the local price, up to the total cost of your Chewy order.\n\nAll we ask is that you email a copy of your invoice to rx@chewy.com so we can review it and process the reimbursement.",
+      "placeholders": [
+        "PET NAME"
+      ],
+      "search_text": "rx local reimbursement lr1 would a small supply help cover pet name until your chewy order arrives? while we work on getting your order to you, you can pick up a small supply locally (up to a 7-day supply) from your clinic or a local pharmacy. if you do, we can reimburse the price difference between chewy and the local price, up to the total cost of your chewy order. all we ask is that you email a copy of your invoice to rx@chewy.com so we can review it and process the reimbursement."
+    }
+  ]
+}
