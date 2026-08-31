@@ -371,19 +371,86 @@ test("sends one strict, tool-free, non-stored request and returns a normalized d
   assert.deepEqual(payload.assumptions, generated.assumptions);
 });
 
-test("blocks personal data in provider output and reports a generic generation failure", async () => {
+test("replaces sensitive-looking details invented by the provider before returning the draft", async () => {
   const handler = createGenerateHandler({
     apiKey: "test-key",
     fetchImpl: async () => providerResponse({
       ...generated,
-      customer: { ...generated.customer, openingLine: "Call me at 415-555-1212." },
+      customer: {
+        ...generated.customer,
+        openingLine: "Call me at 415-555-1212 about order number 987654321.",
+      },
     }),
   });
 
   const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(
+    payload.draft.customer.openingLine,
+    "Call me at [de-identified phone] about [fictional service identifier].",
+  );
+});
+
+test("gives the provider more than the previous 45-second generation window", async () => {
+  let requestedTimeout = 0;
+  const originalTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = ((milliseconds: number) => {
+    requestedTimeout = milliseconds;
+    return originalTimeout.call(AbortSignal, milliseconds);
+  }) as typeof AbortSignal.timeout;
+
+  try {
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse(generated),
+    });
+
+    const response = await handler(request(validBody));
+
+    assert.equal(response.status, 200);
+    assert.equal(requestedTimeout >= 60_000, true);
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+});
+
+test("returns a specific message when provider generation times out", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 504);
+  assert.equal(payload.error.code, "generation_timeout");
+  assert.equal(payload.error.message, "Coach Chewy took too long to create the draft. Try again.");
+});
+
+test("returns a specific message when provider output cannot be safely repaired", async () => {
+  const unsafeCustomer = {
+    ...generated.customer,
+    orderNumber: "987654321",
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({ ...generated, customer: unsafeCustomer }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
 
   assert.equal(response.status, 502);
-  assert.equal((await response.json()).error.code, "generation_unavailable");
+  assert.equal(payload.error.code, "unsafe_provider_output");
+  assert.equal(
+    payload.error.message,
+    "Coach Chewy created a draft with sensitive-looking details that could not be safely replaced. Try again.",
+  );
 });
 
 test("preserves imported scenario identity and channel settings in improve mode", async () => {

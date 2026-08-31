@@ -139,7 +139,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
             },
           },
         }),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(75_000),
       });
 
       failureStage = "provider_response_body";
@@ -155,8 +155,19 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
         return errorResponse(502, "generation_unavailable", "Coach Chewy could not create a draft. Check the details and try again.");
       }
       failureStage = "provider_output";
-      const content = parseProviderOutput(providerRaw);
-      if (findPrivacyIssues(content).length > 0) throw new Error("unsafe_provider_output");
+      const content = sanitizeProviderOutput(parseProviderOutput(providerRaw));
+      if (findPrivacyIssues(content).length > 0) {
+        logError({
+          stage: "provider_output",
+          errorName: "Error",
+          errorMessage: "unsafe_provider_output",
+        });
+        return errorResponse(
+          502,
+          "unsafe_provider_output",
+          "Coach Chewy created a draft with sensitive-looking details that could not be safely replaced. Try again.",
+        );
+      }
 
       failureStage = "draft_normalization";
       const draft = normalizeDraft(content, input);
@@ -170,9 +181,25 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
         errorName: caught instanceof Error ? caught.name : "UnknownError",
         errorMessage: safeErrorMessage(caught),
       });
+      if (caught instanceof Error && caught.name === "TimeoutError") {
+        return errorResponse(504, "generation_timeout", "Coach Chewy took too long to create the draft. Try again.");
+      }
       return errorResponse(502, "generation_unavailable", "Coach Chewy could not create a draft. Check the details and try again.");
     }
   };
+}
+
+function sanitizeProviderOutput(content: GeneratedContent): GeneratedContent {
+  return sanitizeProviderValue(content) as GeneratedContent;
+}
+
+function sanitizeProviderValue(value: unknown): unknown {
+  if (typeof value === "string") return redactPrivacyText(value);
+  if (Array.isArray(value)) return value.map(sanitizeProviderValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, sanitizeProviderValue(entry)]),
+  );
 }
 
 function providerErrorCode(raw: string): string {
