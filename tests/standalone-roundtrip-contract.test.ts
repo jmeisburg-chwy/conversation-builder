@@ -430,6 +430,38 @@ test("nests generated prohibitions once and makes them scored guidance boundarie
   );
 });
 
+test("does not duplicate equivalent option and alternative boundary wording", () => {
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "refund_boundaries",
+    prohibitedActions: ["Avoid offering store credit or replacements as alternatives."],
+    phases: [{
+      id: "confirm_refund",
+      title: "Confirm refund",
+      learnerActions: ["Confirm the customer wants a refund."],
+      chatAdvanceRequirements: [{ id: "refund", phrases: ["want a refund", "prefer a refund"] }],
+      partnerResponse: "Yes, I want a refund.",
+      coachGuidance: ["Avoid offering store credit or replacement options."],
+    }],
+    objectives: [{
+      id: "refund_resolution",
+      label: "Refund resolution",
+      description: "Complete the approved refund without offering alternatives.",
+      criteria: ["Avoid offering or mentioning replacement or store credit options."],
+    }],
+  });
+  const criteria = authoring.evaluation.objectives.flatMap((objective: { criteria: Array<{ text: string }> }) =>
+    objective.criteria.map((criterion) => criterion.text)
+  );
+  const cautions = authoring.flow.phases.flatMap((phase: { coachGuidance: { bullets: Array<{ children?: Array<{ text: string; kind: string }> }> } }) =>
+    phase.coachGuidance.bullets.flatMap((bullet) => bullet.children ?? [])
+  ).filter((child: { kind: string }) => child.kind === "caution");
+
+  assert.deepEqual(criteria, ["Avoid offering or mentioning replacement or store credit options."]);
+  assert.equal(cautions.length, 1);
+  assert.match(cautions[0].text, /store credit/i);
+  assert.match(cautions[0].text, /replacement/i);
+});
+
 test("keeps positive guidance with contrast wording as positive guidance", () => {
   for (const guidance of [
     "Process the refund without changing the destination.",

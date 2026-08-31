@@ -102,6 +102,19 @@ test("accepts equivalent option and alternative wording when a prohibition is vi
   assert.equal(payload.ok, true);
 });
 
+test("still rejects equivalent boundary wording when a prohibited action is missing", async () => {
+  const missingAction = draft();
+  missingAction.prohibitedActions = ["Avoid offering store credit or replacements as alternatives."];
+  missingAction.objectives[0].criteria[1] = "Avoid offering store credit options.";
+  missingAction.phases[0].coachGuidance[1] = "Avoid offering store credit options.";
+
+  const response = await createValidateHandler()(request({ draft: missingAction }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "unmapped_prohibited_action"), true);
+});
+
 test("blocks private data from downloadable files with an actionable location", async () => {
   const unsafe = draft();
   unsafe.customer.openingLine = "Email my real address at jordan@personalmail.com.";

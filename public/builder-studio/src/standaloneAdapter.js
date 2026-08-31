@@ -98,7 +98,7 @@ function flattenedGuidance(hierarchy) {
 
 const EXPLICIT_NEGATIVE_GUIDANCE_PATTERN = /^\s*(?:(?:(?:the|a)\s+)?(?:learner|agent|representative|chewy (?:agent|representative))\s+(?:(?:must|should|will|can)\s+(?:not|never)|cannot|never)|avoid|do not|don't|must not|never|refrain(?:\s+from)?)\b/iu;
 const BOUNDARY_GUIDANCE_PATTERN = /\b(?:avoid|do not|don't|must not|never|refrain(?:\s+from)?|without|rather than|instead of)\b/iu;
-const BOUNDARY_STOP_WORDS = new Set(["a", "an", "and", "avoid", "do", "for", "must", "never", "no", "not", "of", "or", "the", "to", "without"]);
+const BOUNDARY_STOP_WORDS = new Set(["a", "an", "alternative", "and", "avoid", "do", "for", "must", "never", "no", "not", "of", "option", "or", "the", "to", "without"]);
 
 function normalizedTextKey(value) {
   return text(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
