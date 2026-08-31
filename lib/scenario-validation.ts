@@ -541,7 +541,7 @@ function isBoundaryCovered(action: string, segments: string[]): boolean {
 }
 
 function meaningfulTokens(value: string): string[] {
-  const stopWords = new Set(["a", "an", "and", "avoid", "do", "for", "must", "never", "no", "not", "of", "or", "the", "to", "without"]);
+  const stopWords = new Set(["a", "an", "alternative", "and", "avoid", "do", "for", "must", "never", "no", "not", "of", "option", "or", "the", "to", "without"]);
   return value.toLowerCase().match(/[a-z0-9]+/g)?.map((token) => token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token).filter((token) => token.length > 2 && !stopWords.has(token)) ?? [];
 }
 
@@ -553,7 +553,7 @@ const BOUNDARY_PATTERN = /\b(?:avoid|do not|must not|never|refrain|unsupported|w
 const VAGUE_PROCESS_REFERENCE_PATTERN = /\b(?:as\s+per|per|according\s+to)\s+(?:(?:the|an)\s+)?(?:(?:correct|approved)\s+)?(?:process|policy|procedure|guidance)\b/i;
 const IMPERATIVE_ACTIONS = new Set([
   "acknowledge", "ask", "avoid", "check", "clarify", "communicate", "complete", "confirm", "connect", "continue",
-  "describe", "determine", "direct", "distinguish", "do", "end", "explain", "focus", "give", "highlight", "identify",
+  "describe", "determine", "direct", "distinguish", "do", "end", "explain", "express", "focus", "give", "highlight", "identify",
   "include", "introduce", "keep", "maintain", "mention", "never", "obtain", "offer", "pause", "personalize", "position",
   "present", "process", "protect", "provide", "read", "reassure", "recap", "recognize", "remain", "request", "require", "respond",
   "restate", "review", "select", "share", "show", "state", "stop", "take", "thank", "update", "use", "verify", "wait",

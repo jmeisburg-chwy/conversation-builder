@@ -426,7 +426,7 @@ const GENERATED_IMPERATIVE_FORMS = new Map([
   ["clarifies", "Clarify"], ["communicates", "Communicate"], ["completes", "Complete"], ["confirms", "Confirm"],
   ["connects", "Connect"], ["continues", "Continue"], ["describes", "Describe"], ["determines", "Determine"],
   ["directs", "Direct"], ["distinguishes", "Distinguish"], ["does", "Do"], ["ends", "End"],
-  ["explains", "Explain"], ["focuses", "Focus"], ["gives", "Give"], ["highlights", "Highlight"],
+  ["explains", "Explain"], ["expresses", "Express"], ["focuses", "Focus"], ["gives", "Give"], ["highlights", "Highlight"],
   ["identifies", "Identify"], ["includes", "Include"], ["informs", "Inform"], ["introduces", "Introduce"], ["issues", "Issue"], ["keeps", "Keep"],
   ["maintains", "Maintain"], ["mentions", "Mention"], ["obtains", "Obtain"], ["offers", "Offer"],
   ["pauses", "Pause"], ["personalizes", "Personalize"], ["positions", "Position"], ["presents", "Present"],
@@ -440,7 +440,7 @@ const GENERATED_IMPERATIVE_FORMS = new Map([
 
 const GENERATED_GERUND_FORMS = new Map([
   ["acknowledging", "Acknowledge"], ["asking", "Ask"], ["avoiding", "Avoid"], ["checking", "Check"],
-  ["clarifying", "Clarify"], ["communicating", "Communicate"], ["confirming", "Confirm"], ["explaining", "Explain"],
+  ["clarifying", "Clarify"], ["communicating", "Communicate"], ["confirming", "Confirm"], ["explaining", "Explain"], ["expressing", "Express"],
   ["identifying", "Identify"], ["informing", "Inform"], ["issuing", "Issue"], ["offering", "Offer"],
   ["processing", "Process"], ["providing", "Provide"], ["recapping", "Recap"], ["stating", "State"],
   ["thanking", "Thank"], ["verifying", "Verify"],

@@ -756,6 +756,7 @@ test("validates normalized refund criteria through the complete generated Review
           "Issues the approved refund.",
           "Informs the customer when the refund will post.",
           "Processing the refund without changing its destination.",
+          "Express understanding of the inconvenience caused by the damage.",
         ],
       }],
     }),
