@@ -205,7 +205,7 @@ test("rejects action-shaped placeholders before calling the provider", async (t)
   assert.equal(calls, 0);
 });
 
-test("instructs the provider to mark missing policy and rejects marked output", async () => {
+test("keeps the server-approved new-scenario outcome authoritative when the provider marks policy missing", async () => {
   let developerInstructions = "";
   const handler = createGenerateHandler({
     apiKey: "test-key",
@@ -221,15 +221,13 @@ test("instructs the provider to mark missing policy and rejects marked output", 
   const response = await handler(request(validBody));
   const payload = await response.json();
 
-  assert.equal(response.status, 422);
-  assert.deepEqual(payload.error, {
-    code: "approved_resolution_required",
-    message: "Describe the exact approved action and expected outcome before Coach Chewy builds the draft.",
-  });
+  assert.equal(response.status, 200);
+  assert.equal(payload.draft.correctProcess[0], validBody.correctProcess);
+  assert.equal(payload.assumptions.some((value: string) => value.startsWith("MISSING_POLICY")), false);
   assert.match(developerInstructions, /MISSING_POLICY/);
 });
 
-test("rejects a missing-policy marker that includes a provider explanation", async () => {
+test("rejects a missing-policy marker for an imported scenario without a server-approved outcome", async () => {
   const handler = createGenerateHandler({
     apiKey: "test-key",
     fetchImpl: async () => providerResponse({
@@ -238,7 +236,12 @@ test("rejects a missing-policy marker that includes a provider explanation", asy
     }),
   });
 
-  const response = await handler(request(validBody));
+  const response = await handler(request({
+    ...validBody,
+    mode: "similar",
+    correctProcess: undefined,
+    sourceDraft: importedDraft(),
+  }));
 
   assert.equal(response.status, 422);
   assert.equal((await response.json()).error.code, "approved_resolution_required");

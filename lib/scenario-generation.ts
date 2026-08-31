@@ -105,11 +105,12 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       return errorResponse(400, "confirmation_required", "Confirm that the content is fictional or de-identified before generating.");
     }
 
-    if (input.mode === "new" && (
-      !input.correctProcess
-      || !hasDeterministicResolutionText(input.correctProcess)
-      || isNondeterministicResolutionText(input.correctProcess)
-    )) {
+    const hasServerApprovedResolution = Boolean(
+      input.correctProcess
+      && hasDeterministicResolutionText(input.correctProcess)
+      && !isNondeterministicResolutionText(input.correctProcess),
+    );
+    if (input.mode === "new" && !hasServerApprovedResolution) {
       return approvedResolutionRequiredResponse();
     }
 
@@ -173,10 +174,22 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       }
       failureStage = "provider_output";
       const content = sanitizeProviderOutput(parseProviderOutput(providerRaw));
-      if (content.assumptions.some((assumption) => new RegExp(`^${MISSING_POLICY_MARKER}(?:\\s*:|\\s*$)`, "i").test(assumption.trim()))) {
+      const missingPolicyPattern = new RegExp(`^${MISSING_POLICY_MARKER}(?:\\s*:|\\s*$)`, "i");
+      const providerMarkedPolicyMissing = content.assumptions.some((assumption) =>
+        missingPolicyPattern.test(assumption.trim())
+      );
+      if (providerMarkedPolicyMissing && !hasServerApprovedResolution) {
         return approvedResolutionRequiredResponse();
       }
-      if (findPrivacyIssues(content).length > 0) {
+      const groundedContent = providerMarkedPolicyMissing
+        ? {
+            ...content,
+            assumptions: content.assumptions.filter((assumption) =>
+              !missingPolicyPattern.test(assumption.trim())
+            ),
+          }
+        : content;
+      if (findPrivacyIssues(groundedContent).length > 0) {
         logError({
           stage: "provider_output",
           errorName: "Error",
@@ -190,9 +203,9 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       }
 
       failureStage = "draft_normalization";
-      const draft = normalizeDraft(content, input);
+      const draft = normalizeDraft(groundedContent, input);
       return Response.json(
-        { draft, assumptions: [...content.assumptions, ...((sourcePrivacyIssues.length > 0 || directPrivacyIssues.length > 0) ? ["Sensitive-looking details in the uploaded JSON were withheld from AI. Review and replace every flagged value before downloading."] : [])] },
+        { draft, assumptions: [...groundedContent.assumptions, ...((sourcePrivacyIssues.length > 0 || directPrivacyIssues.length > 0) ? ["Sensitive-looking details in the uploaded JSON were withheld from AI. Review and replace every flagged value before downloading."] : [])] },
         { headers: { "cache-control": "no-store" } },
       );
     } catch (caught) {
@@ -327,9 +340,11 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
     subtopic: content.subtopic.trim(),
     teamAudience: content.teamAudience.trim(),
     customer: content.customer,
-    correctProcess: input.sourceDraft?.objectiveApprovalRequired
-      ? uniqueStrings([...sanitizeSimilarSourceLines(input.sourceDraft.correctProcess), ...content.correctProcess])
-      : content.correctProcess,
+    correctProcess: input.mode === "new" && input.correctProcess
+      ? uniqueStrings([input.correctProcess, ...content.correctProcess])
+      : input.sourceDraft?.objectiveApprovalRequired
+        ? uniqueStrings([...sanitizeSimilarSourceLines(input.sourceDraft.correctProcess), ...content.correctProcess])
+        : content.correctProcess,
     prohibitedActions: input.sourceDraft
       ? uniqueStrings([
           ...(input.mode === "similar" ? sanitizeSimilarSourceLines(input.sourceDraft.prohibitedActions) : input.sourceDraft.prohibitedActions),
