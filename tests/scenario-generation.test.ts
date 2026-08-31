@@ -551,6 +551,153 @@ test("normalizes generated objective criteria to neutral imperative wording", as
   ]);
 });
 
+test("normalizes positive model output into explicit prohibited actions before Review/Edit", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      correctProcess: [
+        ...generated.correctProcess,
+        "Offer store credit instead of refund.",
+      ],
+      prohibitedActions: [
+        "Offer a replacement bag.",
+        "Offer store credit instead of refund.",
+        "Promise immediate or expedited refund beyond 3-5 business days.",
+        "Provide medical advice or product guarantees.",
+      ],
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: [
+          ...generated.phases[0].learnerActions,
+          "Offer store credit instead of refund.",
+        ],
+        coachGuidance: [
+          ...generated.phases[0].coachGuidance,
+          "Offer store credit rather than a refund.",
+        ],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        criteria: [
+          ...generated.objectives[0].criteria,
+          "Offer store credit instead of refund.",
+        ],
+      }],
+    }),
+  });
+
+  const generatedResponse = await handler(request({
+    ...validBody,
+    situation: "A fictional customer received a torn dog food bag and wants a refund.",
+    learnerGoal: "Issue the exact approved refund without offering alternatives.",
+    correctProcess: "Issue an exact $32.49 refund to the original payment card and explain that it may take 3-5 business days.",
+  }));
+  const generatedPayload = await generatedResponse.json();
+
+  assert.equal(generatedResponse.status, 200);
+  assert.deepEqual(generatedPayload.draft.prohibitedActions, [
+    "Do not offer a replacement bag.",
+    "Do not offer store credit instead of refund.",
+    "Do not promise immediate or expedited refund beyond 3-5 business days.",
+    "Do not provide medical advice or product guarantees.",
+  ]);
+  assert.equal(
+    JSON.stringify({
+      correctProcess: generatedPayload.draft.correctProcess,
+      phases: generatedPayload.draft.phases,
+      objectives: generatedPayload.draft.objectives,
+    }).includes('"Offer store credit instead of refund."'),
+    false,
+  );
+  assert.equal(
+    generatedPayload.draft.phases.some((phase: { coachGuidance: string[] }) =>
+      phase.coachGuidance.includes("Offer store credit rather than a refund.")
+    ),
+    false,
+  );
+
+  const authoring = normalizeStudioDraft(standaloneToAuthoringDraft(
+    generatedPayload.draft,
+    { deidentificationConfirmed: true },
+  ));
+  const downloadableDraft = authoringToStandaloneDraft(authoring);
+  const validationResponse = await createValidateHandler()(new Request("http://localhost/api/builder/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      draft: downloadableDraft,
+      deidentificationConfirmed: true,
+      objectiveApproval: {
+        required: true,
+        approved: true,
+        fingerprint: objectiveFingerprint(downloadableDraft.objectives),
+      },
+    }),
+  }));
+  const validationPayload = await validationResponse.json();
+
+  assert.equal(validationResponse.status, 200, JSON.stringify(validationPayload.issues));
+  assert.equal(
+    downloadableDraft.objectives.flatMap((objective) => objective.criteria)
+      .some((criterion) => /^Offer store credit instead of refund\.?$/i.test(criterion)),
+    false,
+  );
+});
+
+test("canonicalizes subject-led generated prohibitions without double negatives", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      prohibitedActions: [
+        "The learner must not offer store credit.",
+        "The agent cannot provide medical advice.",
+        "Avoid offering a replacement.",
+        "The learner should avoid promising an expedited refund.",
+        "The representative doesn't guarantee an arrival date.",
+        "The agent won’t promise immediate delivery.",
+      ],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not offer store credit.",
+    "Do not provide medical advice.",
+    "Avoid offering a replacement.",
+    "Avoid promising an expedited refund.",
+    "Do not guarantee an arrival date.",
+    "Do not promise immediate delivery.",
+  ]);
+  assert.equal(payload.draft.prohibitedActions.some((action: string) => /do not not/iu.test(action)), false);
+});
+
+test("preserves compound replacement nouns in generated prohibitions", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      prohibitedActions: [
+        "Offer a replacement delivery date.",
+        "Offer a replacement order confirmation.",
+      ],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not offer a replacement delivery date.",
+    "Do not offer a replacement order confirmation.",
+  ]);
+});
+
 test("removes learner actions from generated customer rules and preserves negative guardrails", async () => {
   const handler = createGenerateHandler({
     apiKey: "test-key",

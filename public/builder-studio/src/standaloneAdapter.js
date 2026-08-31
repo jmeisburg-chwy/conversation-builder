@@ -96,7 +96,10 @@ function flattenedGuidance(hierarchy) {
   return hierarchy.flatMap((bullet) => [bullet.text, ...listOf(bullet.children).map((child) => text(child?.text))]).filter(Boolean);
 }
 
-const EXPLICIT_NEGATIVE_GUIDANCE_PATTERN = /^\s*(?:(?:(?:the|a)\s+)?(?:learner|agent|representative|chewy (?:agent|representative))\s+(?:(?:must|should|will|can)\s+(?:not|never)|cannot|never)|avoid|do not|don't|must not|never|refrain(?:\s+from)?)\b/iu;
+const EXPLICIT_NEGATIVE_GUIDANCE_PATTERN = new RegExp(
+  String.raw`^\s*(?:(?:avoid|do\s+not|don['’]t|must\s+not|never|no|refrain(?:\s+from)?)\b|(?:(?:the|a)\s+)?(?:learner|agent|representative|chewy (?:agent|representative))\s+(?:(?:(?:must|should|will|can|could|would|may|shall|does?)\s+(?:not|never))|cannot|can['’]t|doesn['’]t|won['’]t|(?:could|would|should|must|shall)n['’]t|never|(?:(?:must|should|will|can|could|would|may|shall)\s+)?avoid(?:s|ing)?)\b)`,
+  "iu",
+);
 const BOUNDARY_GUIDANCE_PATTERN = /\b(?:avoid|do not|don't|must not|never|refrain(?:\s+from)?|without|rather than|instead of)\b/iu;
 const BOUNDARY_STOP_WORDS = new Set(["a", "an", "alternative", "and", "avoid", "do", "for", "must", "never", "no", "not", "of", "option", "or", "the", "to", "without"]);
 
@@ -104,8 +107,11 @@ function normalizedTextKey(value) {
   return text(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function boundaryTokens(value) {
-  return text(value).toLowerCase().match(/[a-z0-9]+/g)
+function boundaryTokens(value, { prohibitedAction = false } = {}) {
+  const candidate = prohibitedAction
+    ? text(value).replace(/\s+(?:instead\s+of|rather\s+than)\b.*$/iu, "")
+    : text(value);
+  return candidate.toLowerCase().match(/[a-z0-9]+/g)
     ?.map((token) => token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token)
     .filter((token) => token.length > 2 && !BOUNDARY_STOP_WORDS.has(token)) ?? [];
 }
@@ -115,15 +121,15 @@ function relatedBoundaryToken(left, right) {
 }
 
 function boundaryCoverageScore(action, candidate) {
-  const actionTokens = boundaryTokens(action);
+  const actionTokens = boundaryTokens(action, { prohibitedAction: true });
   const candidateTokens = boundaryTokens(candidate);
   if (!actionTokens.length || !candidateTokens.length) return 0;
   return actionTokens.filter((token) => candidateTokens.some((candidateToken) => relatedBoundaryToken(token, candidateToken))).length;
 }
 
 function coversBoundary(action, candidate) {
-  const actionTokens = boundaryTokens(action);
-  return BOUNDARY_GUIDANCE_PATTERN.test(text(candidate))
+  const actionTokens = boundaryTokens(action, { prohibitedAction: true });
+  return EXPLICIT_NEGATIVE_GUIDANCE_PATTERN.test(text(candidate))
     && actionTokens.length > 0
     && boundaryCoverageScore(action, candidate) === actionTokens.length;
 }

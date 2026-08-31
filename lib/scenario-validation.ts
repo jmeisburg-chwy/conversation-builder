@@ -355,9 +355,45 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       });
     });
   });
-  const objectiveCoverage = draft.objectives.flatMap((objective) => objective.criteria);
-  const guideCoverage = draft.phases.flatMap((phase) => [phase.guideBody || "", ...phase.learnerActions, ...phase.coachGuidance]);
+  const objectiveBoundarySegments = draft.objectives.flatMap((objective, objectiveIndex) =>
+    objective.criteria.map((value, criterionIndex) => ({
+      value,
+      path: `draft.objectives[${objectiveIndex}].criteria[${criterionIndex}]`,
+    }))
+  );
+  const guideBoundarySegments = draft.phases.flatMap((phase, phaseIndex) => [
+    ...(phase.guideBody ? [{ value: phase.guideBody, path: `draft.phases[${phaseIndex}].guideBody` }] : []),
+    ...phase.learnerActions.map((value, actionIndex) => ({
+      value,
+      path: `draft.phases[${phaseIndex}].learnerActions[${actionIndex}]`,
+    })),
+    ...phase.coachGuidance.map((value, guidanceIndex) => ({
+      value,
+      path: `draft.phases[${phaseIndex}].coachGuidance[${guidanceIndex}]`,
+    })),
+  ]);
+  const objectiveCoverage = objectiveBoundarySegments.map(({ value }) => value);
+  const guideCoverage = guideBoundarySegments.map(({ value }) => value);
   draft.prohibitedActions.forEach((action, index) => {
+    if (!PROHIBITED_ACTION_NEGATIVE_POLARITY_PATTERN.test(action)) {
+      issues.push({
+        code: "positive_prohibited_action",
+        path: `draft.prohibitedActions[${index}]`,
+        message: "A prohibited action must use explicit negative wording.",
+        fix: "Start with Do not, Avoid, or Never so the boundary cannot be interpreted as an approved action.",
+      });
+      return;
+    }
+    [...objectiveBoundarySegments, ...guideBoundarySegments].forEach(({ value, path }) => {
+      if (PROHIBITED_ACTION_NEGATIVE_POLARITY_PATTERN.test(value)
+        || prohibitedActionBodyKey(value) !== prohibitedActionBodyKey(action)) return;
+      issues.push({
+        code: "positive_prohibited_reference",
+        path,
+        message: "An approved learner action cannot positively instruct a prohibited action.",
+        fix: `Replace this line with the explicit boundary: ${action}`,
+      });
+    });
     if (!isBoundaryCovered(action, objectiveCoverage) || !isBoundaryCovered(action, guideCoverage)) {
       issues.push({ code: "unmapped_prohibited_action", path: `draft.prohibitedActions[${index}]`, message: "Every prohibited action must appear in both the objective criteria and Coach Chewy guidance.", fix: "Add this boundary to an observable criterion and to the relevant guide section." });
     }
@@ -531,13 +567,28 @@ function startsWithImperativeAction(value: string): boolean {
 }
 
 function isBoundaryCovered(action: string, segments: string[]): boolean {
-  const tokens = meaningfulTokens(action);
+  const tokens = meaningfulTokens(
+    prohibitedActionBodyKey(action).replace(/\s+(?:instead\s+of|rather\s+than)\b.*$/iu, ""),
+  );
   if (tokens.length === 0) return false;
   return segments.some((segment) => {
     const coverage = meaningfulTokens(segment);
-    return BOUNDARY_PATTERN.test(segment)
+    return PROHIBITED_ACTION_NEGATIVE_POLARITY_PATTERN.test(segment)
       && tokens.every((token) => coverage.some((candidate) => relatedToken(token, candidate)));
   });
+}
+
+function prohibitedActionBodyKey(value: string): string {
+  return value
+    .trim()
+    .replace(/^\s*(?:avoid|do\s+not|don['’]t|must\s+not|never|no|refrain(?:\s+from)?)\s+/iu, "")
+    .replace(PROHIBITED_ACTION_SUBJECT_NEGATIVE_PREFIX_PATTERN, "")
+    .replace(PROHIBITED_ACTION_POSITIVE_SUBJECT_PREFIX_PATTERN, "")
+    .replace(/\brather\s+than\b/giu, "instead of")
+    .toLowerCase()
+    .replace(/\b(?:a|an|the)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function meaningfulTokens(value: string): string[] {
@@ -549,7 +600,20 @@ function relatedToken(left: string, right: string): boolean {
   return left === right || (Math.min(left.length, right.length) >= 5 && (left.startsWith(right) || right.startsWith(left)));
 }
 
-const BOUNDARY_PATTERN = /\b(?:avoid|do not|must not|never|refrain|unsupported|without)\b|\brather than\b|\binstead of\b/i;
+const PROHIBITED_ACTION_SUBJECT_SOURCE = String.raw`(?:(?:the|a)\s+)?(?:learner|agent|representative|chewy (?:agent|representative))`;
+const PROHIBITED_ACTION_SUBJECT_NEGATIVE_OPERATOR_SOURCE = String.raw`(?:(?:(?:must|should|will|can|could|would|may|shall|does?)\s+(?:not|never))|cannot|can['’]t|doesn['’]t|won['’]t|(?:could|would|should|must|shall)n['’]t|never|(?:(?:must|should|will|can|could|would|may|shall)\s+)?avoid(?:s|ing)?)`;
+const PROHIBITED_ACTION_SUBJECT_NEGATIVE_PREFIX_PATTERN = new RegExp(
+  String.raw`^\s*${PROHIBITED_ACTION_SUBJECT_SOURCE}\s+${PROHIBITED_ACTION_SUBJECT_NEGATIVE_OPERATOR_SOURCE}\s+`,
+  "iu",
+);
+const PROHIBITED_ACTION_POSITIVE_SUBJECT_PREFIX_PATTERN = new RegExp(
+  String.raw`^\s*${PROHIBITED_ACTION_SUBJECT_SOURCE}\s+(?:(?:must|should|will|can|could|would|may|shall)\s+)?`,
+  "iu",
+);
+const PROHIBITED_ACTION_NEGATIVE_POLARITY_PATTERN = new RegExp(
+  String.raw`^\s*(?:(?:avoid|do\s+not|don['’]t|must\s+not|never|no|refrain(?:\s+from)?)\b|${PROHIBITED_ACTION_SUBJECT_SOURCE}\s+${PROHIBITED_ACTION_SUBJECT_NEGATIVE_OPERATOR_SOURCE}\b)`,
+  "iu",
+);
 const VAGUE_PROCESS_REFERENCE_PATTERN = /\b(?:as\s+per|per|according\s+to)\s+(?:(?:the|an)\s+)?(?:(?:correct|approved)\s+)?(?:process|policy|procedure|guidance)\b/i;
 const IMPERATIVE_ACTIONS = new Set([
   "acknowledge", "ask", "avoid", "check", "clarify", "communicate", "complete", "confirm", "connect", "continue",

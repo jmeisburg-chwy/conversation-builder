@@ -115,6 +115,103 @@ test("still rejects equivalent boundary wording when a prohibited action is miss
   assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "unmapped_prohibited_action"), true);
 });
 
+test("rejects a positive prohibited action even when contrast wording makes it look like a boundary", async () => {
+  const positive = draft();
+  positive.prohibitedActions = ["Offer store credit instead of refund."];
+  positive.objectives[0].criteria[1] = "Offer store credit instead of refund.";
+  positive.phases[0].coachGuidance[1] = "Offer store credit instead of refund.";
+
+  const response = await createValidateHandler()(request({ draft: positive }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(
+    payload.issues.find((issue: { code: string }) => issue.code === "positive_prohibited_action"),
+    {
+      code: "positive_prohibited_action",
+      path: "draft.prohibitedActions[0]",
+      message: "A prohibited action must use explicit negative wording.",
+      fix: "Start with Do not, Avoid, or Never so the boundary cannot be interpreted as an approved action.",
+    },
+  );
+});
+
+test("rejects positive contrast wording that contradicts an explicit prohibited action", async () => {
+  const contradictory = draft();
+  contradictory.prohibitedActions = ["Do not offer store credit instead of refund."];
+  contradictory.objectives[0].criteria = [
+    "State the expected delivery window.",
+    "Offer store credit instead of refund.",
+    "Do not offer store credit instead of refund.",
+  ];
+  contradictory.phases[0].coachGuidance = [
+    "Offer store credit rather than a refund.",
+    "Do not offer store credit instead of refund.",
+  ];
+  contradictory.phases[0].learnerActions = [
+    "The learner should offer store credit instead of a refund.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: contradictory }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  const contradictionPaths = payload.issues
+    .filter((issue: { code: string }) => issue.code === "positive_prohibited_reference")
+    .map((issue: { path: string }) => issue.path);
+  assert.equal(contradictionPaths.includes("draft.objectives[0].criteria[1]"), true);
+  assert.equal(contradictionPaths.includes("draft.phases[0].coachGuidance[0]"), true);
+  assert.equal(contradictionPaths.includes("draft.phases[0].learnerActions[0]"), true);
+});
+
+test("accepts equivalent subject-led negative polarity in Coach Chewy guidance", async () => {
+  const subjectLed = draft();
+  subjectLed.prohibitedActions = ["Do not promise a delivery timeline."];
+  subjectLed.objectives[0].criteria = [
+    "State the expected delivery window.",
+    "Do not promise a delivery timeline.",
+  ];
+  subjectLed.phases[0].coachGuidance = [
+    "The representative does not promise a delivery timeline.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: subjectLed }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+});
+
+test("rejects a positive action that contradicts an imported subject-led prohibition", async () => {
+  const contradictory = draft();
+  contradictory.prohibitedActions = [
+    "The representative doesn't promise a delivery timeline.",
+  ];
+  contradictory.objectives[0].criteria = [
+    "State the expected delivery window.",
+    "Do not promise a delivery timeline.",
+  ];
+  contradictory.phases[0].learnerActions = ["Promise a delivery timeline."];
+  contradictory.phases[0].coachGuidance = [
+    "The representative doesn't promise a delivery timeline.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: contradictory }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string; path: string }) =>
+      issue.code === "positive_prohibited_reference"
+      && issue.path === "draft.phases[0].learnerActions[0]"
+    ),
+    true,
+  );
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "unmapped_prohibited_action"),
+    false,
+  );
+});
+
 test("blocks private data from downloadable files with an actionable location", async () => {
   const unsafe = draft();
   unsafe.customer.openingLine = "Email my real address at jordan@personalmail.com.";

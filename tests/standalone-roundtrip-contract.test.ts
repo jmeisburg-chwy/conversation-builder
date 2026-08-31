@@ -508,6 +508,95 @@ test("keeps positive guidance with contrast wording as positive guidance", () =>
   }
 });
 
+test("does not count positive contrast wording as prohibited-action coverage", () => {
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "refund_boundary",
+    title: "Refund boundary",
+    description: "Practice an accurate refund.",
+    learnerGoal: "Complete and explain the approved refund.",
+    channels: ["chat"],
+    customer: {
+      name: "Jamie",
+      tone: "Disappointed",
+      openingLine: "The food bag arrived torn.",
+      behaviorRules: ["Remain disappointed until the learner confirms the refund."],
+    },
+    correctProcess: ["Issue the approved refund to the original payment card."],
+    prohibitedActions: ["Do not offer store credit instead of refund."],
+    phases: [{
+      id: "complete_refund",
+      title: "Complete the refund",
+      learnerActions: ["Issue the approved refund to the original payment card."],
+      chatAdvanceRequirements: [{ id: "refund_complete", phrases: ["refund issued", "refund completed"] }],
+      partnerResponse: "Thank you.",
+      coachGuidance: ["Offer store credit instead of refund."],
+    }],
+    objectives: [{
+      id: "refund_accuracy",
+      label: "Refund accuracy",
+      description: "Complete the approved refund.",
+      criteria: ["Offer store credit instead of refund."],
+    }],
+  });
+
+  const criteria = authoring.evaluation.objectives.flatMap((objective) =>
+    objective.criteria.map((criterion) => criterion.text)
+  );
+  const cautions = authoring.flow.phases.flatMap((phase) =>
+    phase.coachGuidance.bullets.flatMap((bullet) => bullet.children ?? [])
+  ).filter((child) => child.kind === "caution");
+
+  assert.equal(criteria.includes("Do not offer store credit instead of refund."), true);
+  assert.equal(cautions.some((child) => child.text === "Do not offer store credit instead of refund."), true);
+});
+
+test("recognizes subject-led negative guidance without adding a duplicate caution", () => {
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "delivery_boundary",
+    title: "Delivery boundary",
+    description: "Practice setting an accurate expectation.",
+    learnerGoal: "Explain the expected delivery window without a promise.",
+    channels: ["chat"],
+    customer: {
+      name: "Jamie",
+      tone: "Concerned",
+      openingLine: "When will my order arrive?",
+      behaviorRules: ["Remain concerned until the learner explains the expected window."],
+    },
+    correctProcess: ["Explain the expected delivery window."],
+    prohibitedActions: ["Do not promise a delivery timeline."],
+    phases: [{
+      id: "set_expectation",
+      title: "Set the expectation",
+      learnerActions: ["Explain the expected delivery window."],
+      chatAdvanceRequirements: [{ id: "expected_window", phrases: ["expected window", "expected by"] }],
+      partnerResponse: "Thank you for explaining.",
+      coachGuidance: [
+        "Explain the expected delivery window.",
+        "The representative doesn't promise a delivery timeline.",
+      ],
+    }],
+    objectives: [{
+      id: "expectation_accuracy",
+      label: "Expectation accuracy",
+      description: "Set an accurate delivery expectation.",
+      criteria: ["Do not promise a delivery timeline."],
+    }],
+  });
+
+  const cautions = authoring.flow.phases.flatMap((phase) =>
+    phase.coachGuidance.bullets.flatMap((bullet) => bullet.children ?? [])
+  ).filter((child) => child.kind === "caution");
+
+  assert.deepEqual(cautions.map((child) => child.text), ["Do not promise a delivery timeline."]);
+  assert.equal(
+    authoring.flow.phases[0].coachGuidance.bullets.some((bullet) =>
+      bullet.text === "The representative doesn't promise a delivery timeline."
+    ),
+    false,
+  );
+});
+
 test("removes a hidden customer-role inversion before validation and download", () => {
   const authoring = {
     scenario: {

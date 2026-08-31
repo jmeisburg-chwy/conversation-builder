@@ -358,6 +358,13 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
     throw new Error("invalid_generated_content");
   }
   const migratedCustomerGuardrails = guardrailMigrations.map(({ guardrail }) => guardrail).filter(nonempty);
+  const generatedProhibitedActionMap = new Map(content.prohibitedActions.map((action) => [
+    generatedProhibitedActionBodyKey(action),
+    normalizeGeneratedProhibitedAction(action),
+  ]));
+  const generatedProhibitedActions = [...generatedProhibitedActionMap.values()];
+  const normalizeProhibitedEcho = (value: string) =>
+    generatedProhibitedActionMap.get(generatedProhibitedActionBodyKey(value)) || value;
   const customer = {
     ...content.customer,
     behaviorRules: content.customer.behaviorRules.filter((rule) => !customerBehaviorRuleConflictsWithLearner(rule)),
@@ -376,16 +383,19 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
     correctProcess: input.mode === "new" && input.correctProcess
       ? [input.correctProcess]
       : input.sourceDraft?.objectiveApprovalRequired
-        ? uniqueStrings([...sanitizeSimilarSourceLines(input.sourceDraft.correctProcess), ...content.correctProcess])
-        : content.correctProcess,
+        ? uniqueStrings([
+            ...sanitizeSimilarSourceLines(input.sourceDraft.correctProcess),
+            ...content.correctProcess.map(normalizeProhibitedEcho),
+          ])
+        : content.correctProcess.map(normalizeProhibitedEcho),
     prohibitedActions: input.sourceDraft
       ? uniqueStrings([
           ...(input.mode === "similar" ? sanitizeSimilarSourceLines(input.sourceDraft.prohibitedActions) : input.sourceDraft.prohibitedActions),
-          ...content.prohibitedActions,
+          ...generatedProhibitedActions,
           ...migratedCustomerGuardrails,
         ])
       : uniqueStrings([
-          ...content.prohibitedActions,
+          ...generatedProhibitedActions,
           ...migratedCustomerGuardrails,
         ]),
     phases: content.phases.map((phase, index) => {
@@ -394,6 +404,8 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
         : undefined;
       return {
         ...phase,
+        learnerActions: phase.learnerActions.map(normalizeProhibitedEcho),
+        coachGuidance: phase.coachGuidance.map(normalizeProhibitedEcho),
         ...(sourcePhase?.guideSourceLabel !== undefined ? { guideSourceLabel: sourcePhase.guideSourceLabel } : {}),
         ...(sourcePhase?.guideSource !== undefined ? { guideSource: sourcePhase.guideSource } : {}),
         ...(sourcePhase?.guideTitle !== undefined ? { guideTitle: sourcePhase.guideTitle } : {}),
@@ -401,7 +413,10 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
         ...(sourcePhase?.managerGuidance !== undefined ? { managerGuidance: sourcePhase.managerGuidance } : {}),
       };
     }),
-    objectives: normalizeGeneratedObjectives(content.objectives),
+    objectives: normalizeGeneratedObjectives(content.objectives.map((objective) => ({
+      ...objective,
+      criteria: objective.criteria.map(normalizeProhibitedEcho),
+    }))),
     objectiveApprovalRequired: Boolean(input.sourceDraft?.objectiveApprovalRequired),
     evaluation: preserveImportedSettings && input.sourceDraft!.evaluation
       ? structuredClone(input.sourceDraft!.evaluation)
@@ -449,6 +464,67 @@ const GENERATED_GERUND_FORMS = new Map([
 const GENERATED_IMPERATIVE_BASES = new Set(
   [...GENERATED_IMPERATIVE_FORMS.values(), ...GENERATED_GERUND_FORMS.values()].map((value) => value.toLowerCase()),
 );
+
+const GENERATED_DIRECT_NEGATIVE_ACTION_PATTERN = /^\s*(?:do\s+not|don['’]t|must\s+not|never|refrain(?:\s+from)?)\s+(.+?)\s*$/iu;
+const GENERATED_DIRECT_AVOID_ACTION_PATTERN = /^\s*(?:avoid|no)\s+(.+?)\s*$/iu;
+const GENERATED_SUBJECT_NEGATIVE_ACTION_PATTERN = new RegExp(
+  String.raw`^\s*(?:(?:the|a)\s+)?(?:learner|agent|representative|chewy (?:agent|representative))\s+(?:(?:(?:must|should|will|can|could|would|may|shall|does?)\s+(?:not|never))|cannot|can['’]t|doesn['’]t|won['’]t|(?:could|would|should|must|shall)n['’]t|never)\s+(.+?)\s*$`,
+  "iu",
+);
+const GENERATED_SUBJECT_AVOID_ACTION_PATTERN = new RegExp(
+  String.raw`^\s*(?:(?:the|a)\s+)?(?:learner|agent|representative|chewy (?:agent|representative))\s+(?:(?:must|should|will|can|could|would|may|shall)\s+)?avoid(?:s|ing)?\s+(.+?)\s*$`,
+  "iu",
+);
+
+function generatedNegativeAction(value: string): { action: string; style: "avoid" | "do_not" } | null {
+  const subjectNegative = value.match(GENERATED_SUBJECT_NEGATIVE_ACTION_PATTERN);
+  if (subjectNegative) return { action: subjectNegative[1], style: "do_not" };
+
+  const subjectAvoid = value.match(GENERATED_SUBJECT_AVOID_ACTION_PATTERN);
+  if (subjectAvoid) return { action: subjectAvoid[1], style: "avoid" };
+
+  const directNegative = value.match(GENERATED_DIRECT_NEGATIVE_ACTION_PATTERN);
+  if (directNegative) return { action: directNegative[1], style: "do_not" };
+
+  const directAvoid = value.match(GENERATED_DIRECT_AVOID_ACTION_PATTERN);
+  if (directAvoid) return { action: directAvoid[1], style: "avoid" };
+
+  return null;
+}
+
+function normalizedGeneratedAction(value: string): { action: string; punctuation: string } {
+  const trimmed = value.trim();
+  const punctuation = trimmed.match(/[.!?]$/u)?.[0] || ".";
+  const action = normalizeGeneratedCriterion(trimmed.replace(/[.!?]+$/u, "")).trim();
+  return { action, punctuation };
+}
+
+function generatedProhibitedActionBodyKey(value: string): string {
+  const parsed = generatedNegativeAction(value);
+  const { action } = normalizedGeneratedAction(parsed?.action || value);
+  return action
+    .replace(/\brather\s+than\b/giu, "instead of")
+    .toLowerCase()
+    .replace(/\b(?:a|an|the)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeGeneratedProhibitedAction(value: string): string {
+  const parsed = generatedNegativeAction(value);
+  if (parsed?.style === "avoid") {
+    const trimmedAction = parsed.action.trim();
+    const punctuation = trimmedAction.match(/[.!?]$/u)?.[0] || ".";
+    const action = trimmedAction.replace(/[.!?]+$/u, "").trim();
+    return action
+      ? `Avoid ${action.replace(/^./u, (character) => character.toLowerCase())}${punctuation}`
+      : "";
+  }
+  const { action, punctuation } = normalizedGeneratedAction(parsed?.action || value);
+  if (!action) return "";
+  const lowerAction = action.replace(/^./u, (character) => character.toLowerCase());
+  return `Do not ${lowerAction}${punctuation}`;
+}
 
 function normalizeGeneratedCriterion(value: string): string {
   const criterion = value.trim().replace(
@@ -615,7 +691,7 @@ Begin every objective criterion with a neutral imperative action such as Acknowl
 For every phase, create chatAdvanceRequirements with one independently required positive concept per entry. Give each entry two or more short natural learner phrases that express only that concept. A Chat phase advances only when every entry matches. Never use a prohibited option, incidental courtesy, or generic word such as issue, customer, process, thank, or help as positive evidence.
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.
-Repeat every prohibited action in neutral imperative wording in both an objective criterion and the relevant Coach Chewy guidance.
+Write every prohibited action with explicit negative polarity such as Do not, Avoid, or Never. Repeat that same negative wording in both an objective criterion and the relevant Coach Chewy guidance.
 Never omit a prohibited action or guardrail carried by an uploaded source draft.
 For improve mode, preserve the source draft's intent and identity. For similar mode, create a distinct scenario inspired by the source.`;
 
