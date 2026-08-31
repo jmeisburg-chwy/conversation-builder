@@ -105,12 +105,13 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       return errorResponse(400, "confirmation_required", "Confirm that the content is fictional or de-identified before generating.");
     }
 
-    const hasServerApprovedResolution = Boolean(
-      input.correctProcess
+    const hasServerApprovedNewResolution = Boolean(
+      input.mode === "new"
+      && input.correctProcess
       && hasDeterministicResolutionText(input.correctProcess)
       && !isNondeterministicResolutionText(input.correctProcess),
     );
-    if (input.mode === "new" && !hasServerApprovedResolution) {
+    if (input.mode === "new" && !hasServerApprovedNewResolution) {
       return approvedResolutionRequiredResponse();
     }
 
@@ -178,7 +179,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       const providerMarkedPolicyMissing = content.assumptions.some((assumption) =>
         missingPolicyPattern.test(assumption.trim())
       );
-      if (providerMarkedPolicyMissing && !hasServerApprovedResolution) {
+      if (providerMarkedPolicyMissing && !hasServerApprovedNewResolution) {
         return approvedResolutionRequiredResponse();
       }
       const groundedContent = providerMarkedPolicyMissing
@@ -341,7 +342,7 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
     teamAudience: content.teamAudience.trim(),
     customer: content.customer,
     correctProcess: input.mode === "new" && input.correctProcess
-      ? uniqueStrings([input.correctProcess, ...content.correctProcess])
+      ? [input.correctProcess]
       : input.sourceDraft?.objectiveApprovalRequired
         ? uniqueStrings([...sanitizeSimilarSourceLines(input.sourceDraft.correctProcess), ...content.correctProcess])
         : content.correctProcess,

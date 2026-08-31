@@ -222,7 +222,7 @@ test("keeps the server-approved new-scenario outcome authoritative when the prov
   const payload = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(payload.draft.correctProcess[0], validBody.correctProcess);
+  assert.deepEqual(payload.draft.correctProcess, [validBody.correctProcess]);
   assert.equal(payload.assumptions.some((value: string) => value.startsWith("MISSING_POLICY")), false);
   assert.match(developerInstructions, /MISSING_POLICY/);
 });
