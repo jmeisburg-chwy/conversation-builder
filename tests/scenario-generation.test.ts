@@ -292,6 +292,22 @@ test("uses the Worker runtime binding for provider configuration", async () => {
   assert.equal(authorization, "Bearer worker-binding-test-key");
 });
 
+test("trims surrounding whitespace from the hosted API key before building the authorization header", async () => {
+  let authorization = "";
+  const handler = createGenerateHandler({
+    runtimeEnv: { OPENAI_API_KEY: "  worker-binding-test-key\n" },
+    fetchImpl: async (_input, init) => {
+      authorization = new Headers(init?.headers).get("authorization") || "";
+      return providerResponse(generated);
+    },
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 200);
+  assert.equal(authorization, "Bearer worker-binding-test-key");
+});
+
 test("uses a supported Responses API model when no authoring model is configured", async () => {
   let providerModel = "";
   const handler = createGenerateHandler({
