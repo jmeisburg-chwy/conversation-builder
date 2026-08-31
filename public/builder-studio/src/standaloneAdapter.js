@@ -340,6 +340,30 @@ function ensureProhibitedCoverage(objectives, phases, prohibitedActions) {
   });
 }
 
+function defaultPhaseEvaluationLinks(objectives, phaseCount) {
+  if (phaseCount <= 0) return [];
+  const references = objectives.flatMap((objective) =>
+    objective.criteria.map((criterion) => ({ objectiveId: objective.id, criterionId: criterion.id }))
+  );
+  const lastPhaseIndex = phaseCount - 1;
+  const assigned = Array.from({ length: phaseCount }, () => []);
+  references.forEach((reference, referenceIndex) => {
+    assigned[Math.min(referenceIndex, lastPhaseIndex)].push(reference);
+  });
+  assigned.forEach((phaseReferences, phaseIndex) => {
+    if (phaseReferences.length || !references.length) return;
+    phaseReferences.push(references[Math.min(phaseIndex, references.length - 1)]);
+  });
+  return assigned.map((phaseReferences) => {
+    const grouped = new Map();
+    phaseReferences.forEach(({ objectiveId, criterionId }) => {
+      if (!grouped.has(objectiveId)) grouped.set(objectiveId, []);
+      grouped.get(objectiveId).push(criterionId);
+    });
+    return [...grouped].map(([objectiveId, criterionIds]) => ({ objectiveId, criterionIds }));
+  });
+}
+
 export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
   const objectives = listOf(draft?.objectives).map((objective, objectiveIndex) => {
     const id = slug(objective?.id, `objective_${objectiveIndex + 1}`);
@@ -351,7 +375,7 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
     };
   });
   const sourcePhases = listOf(draft?.phases);
-  const lastPhaseIndex = Math.max(0, sourcePhases.length - 1);
+  const generatedEvaluationLinks = defaultPhaseEvaluationLinks(objectives, sourcePhases.length);
   const phases = sourcePhases.map((phase, index) => {
     const phaseId = slug(phase?.id, `phase_${index + 1}`);
     const hierarchy = canonicalPhaseGuidance(
@@ -375,12 +399,7 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
       advanceWhen: list(phase?.learnerActions).join(" "),
       evaluationLinks: phaseEvaluationLinks(phase?.evaluationLinks).length
         ? phaseEvaluationLinks(phase?.evaluationLinks)
-        : objectives.flatMap((objective) => {
-            const criterionIds = objective.criteria
-              .filter((_criterion, criterionIndex) => Math.min(criterionIndex, lastPhaseIndex) === index)
-              .map((criterion) => criterion.id);
-            return criterionIds.length ? [{ objectiveId: objective.id, criterionIds }] : [];
-          }),
+        : generatedEvaluationLinks[index],
     };
   });
   const guidanceCautions = phases.flatMap((phase) => listOf(phase.coachGuidance?.bullets).flatMap((bullet) =>

@@ -357,6 +357,29 @@ test("assigns every generated objective criterion to a phase", () => {
     "refund_process_accuracy_criterion_5",
     "refund_process_accuracy_criterion_6",
   ]);
+
+  const oneCriterionObjectives = structuredClone(standalone);
+  oneCriterionObjectives.phases = standalone.phases.slice(0, 2);
+  oneCriterionObjectives.objectives = Array.from({ length: 5 }, (_value, index) => ({
+    id: `refund_step_${index + 1}`,
+    label: `Refund step ${index + 1}`,
+    description: `Complete refund step ${index + 1}.`,
+    criteria: [`Complete refund step ${index + 1}.`],
+  }));
+  oneCriterionObjectives.prohibitedActions = [];
+
+  const distributed = standaloneToAuthoringDraft(oneCriterionObjectives);
+
+  assert.equal(distributed.flow.phases.every((phase) => phase.evaluationLinks.length > 0), true);
+  assert.deepEqual(
+    distributed.flow.phases.map((phase) => phase.evaluationLinks.flatMap((link) => link.criterionIds)),
+    [["refund_step_1_criterion_1"], [
+      "refund_step_2_criterion_1",
+      "refund_step_3_criterion_1",
+      "refund_step_4_criterion_1",
+      "refund_step_5_criterion_1",
+    ]],
+  );
 });
 
 test("nests generated prohibitions once and makes them scored guidance boundaries", () => {
