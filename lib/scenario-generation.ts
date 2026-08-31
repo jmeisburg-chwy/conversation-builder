@@ -49,6 +49,16 @@ interface GenerateHandlerOptions {
     OPENAI_AUTHORING_MODEL?: string;
   };
   fetchImpl?: typeof fetch;
+  logError?: (diagnostic: GenerationDiagnostic) => void;
+}
+
+interface GenerationDiagnostic {
+  stage: "provider_request" | "provider_response_body" | "provider_response" | "provider_output" | "draft_normalization";
+  providerStatus?: number;
+  providerErrorCode?: string;
+  providerRequestId?: string;
+  errorName?: string;
+  errorMessage?: string;
 }
 
 const MAX_REQUEST_BYTES = 1_500_000;
@@ -59,6 +69,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
   const apiKey = options.apiKey ?? options.runtimeEnv?.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
   const model = options.model ?? options.runtimeEnv?.OPENAI_AUTHORING_MODEL ?? process.env.OPENAI_AUTHORING_MODEL ?? DEFAULT_MODEL;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const logError = options.logError ?? (() => {});
 
   return async function generate(request: Request): Promise<Response> {
     if (!isJsonContentType(request.headers.get("content-type"))) {
@@ -95,6 +106,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       return errorResponse(503, "generation_not_configured", "AI generation is not configured for this Site yet.");
     }
 
+    let failureStage: GenerationDiagnostic["stage"] = "provider_request";
     try {
       const providerInput = input.sourceDraft
         ? redactPrivacyValues({ ...input, sourceDraft: stripSourceEnvelope(input.sourceDraft) })
@@ -130,20 +142,51 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
         signal: AbortSignal.timeout(45_000),
       });
 
+      failureStage = "provider_response_body";
       const providerRaw = await readBodyBounded(provider, MAX_PROVIDER_BYTES);
-      if (!provider.ok) throw new Error("provider_error");
+      if (!provider.ok) {
+        const providerRequestId = provider.headers.get("x-request-id") || undefined;
+        logError({
+          stage: "provider_response",
+          providerStatus: provider.status,
+          providerErrorCode: providerErrorCode(providerRaw),
+          ...(providerRequestId ? { providerRequestId } : {}),
+        });
+        return errorResponse(502, "generation_unavailable", "Coach Chewy could not create a draft. Check the details and try again.");
+      }
+      failureStage = "provider_output";
       const content = parseProviderOutput(providerRaw);
       if (findPrivacyIssues(content).length > 0) throw new Error("unsafe_provider_output");
 
+      failureStage = "draft_normalization";
       const draft = normalizeDraft(content, input);
       return Response.json(
         { draft, assumptions: [...content.assumptions, ...((sourcePrivacyIssues.length > 0 || directPrivacyIssues.length > 0) ? ["Sensitive-looking details in the uploaded JSON were withheld from AI. Review and replace every flagged value before downloading."] : [])] },
         { headers: { "cache-control": "no-store" } },
       );
-    } catch {
+    } catch (caught) {
+      logError({
+        stage: failureStage,
+        errorName: caught instanceof Error ? caught.name : "UnknownError",
+        errorMessage: safeErrorMessage(caught),
+      });
       return errorResponse(502, "generation_unavailable", "Coach Chewy could not create a draft. Check the details and try again.");
     }
   };
+}
+
+function providerErrorCode(raw: string): string {
+  try {
+    const payload = JSON.parse(raw) as { error?: { code?: unknown } };
+    return typeof payload.error?.code === "string" ? payload.error.code.slice(0, 100) : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function safeErrorMessage(caught: unknown): string {
+  const message = caught instanceof Error ? caught.message : String(caught);
+  return message.replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[redacted]").slice(0, 300);
 }
 
 function parseRequest(raw: string): GenerateRequest {

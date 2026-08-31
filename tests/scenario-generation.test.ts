@@ -232,6 +232,47 @@ test("returns a configuration error without exposing or calling an absent key", 
   assert.equal(called, false);
 });
 
+test("reports safe diagnostics when the provider rejects a generation request", async () => {
+  const diagnostics: unknown[] = [];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    logError: (diagnostic) => diagnostics.push(diagnostic),
+    fetchImpl: async () => Response.json(
+      { error: { code: "model_not_found", message: "Provider detail that must not be logged." } },
+      { status: 400, headers: { "x-request-id": "req_test_123" } },
+    ),
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 502);
+  assert.deepEqual(diagnostics, [{
+    stage: "provider_response",
+    providerStatus: 400,
+    providerErrorCode: "model_not_found",
+    providerRequestId: "req_test_123",
+  }]);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /Provider detail|test-key/);
+});
+
+test("reports a redacted diagnostic when the provider request throws", async () => {
+  const diagnostics: unknown[] = [];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    logError: (diagnostic) => diagnostics.push(diagnostic),
+    fetchImpl: async () => { throw new TypeError("Network failed near sk-secretvalue123."); },
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 502);
+  assert.deepEqual(diagnostics, [{
+    stage: "provider_request",
+    errorName: "TypeError",
+    errorMessage: "Network failed near [redacted].",
+  }]);
+});
+
 test("uses the Worker runtime binding for provider configuration", async () => {
   let authorization = "";
   const handler = createGenerateHandler({
