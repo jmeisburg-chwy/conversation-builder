@@ -53,7 +53,7 @@ interface GenerateHandlerOptions {
 
 const MAX_REQUEST_BYTES = 1_500_000;
 const MAX_PROVIDER_BYTES = 200_000;
-const DEFAULT_MODEL = "gpt-5.4-mini";
+const DEFAULT_MODEL = "gpt-5-mini";
 
 export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
   const apiKey = options.apiKey ?? options.runtimeEnv?.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "";

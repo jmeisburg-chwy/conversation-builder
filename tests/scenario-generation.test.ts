@@ -251,6 +251,22 @@ test("uses the Worker runtime binding for provider configuration", async () => {
   assert.equal(authorization, "Bearer worker-binding-test-key");
 });
 
+test("uses a supported Responses API model when no authoring model is configured", async () => {
+  let providerModel = "";
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async (_input, init) => {
+      providerModel = JSON.parse(String(init?.body)).model;
+      return providerResponse(generated);
+    },
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 200);
+  assert.equal(providerModel, "gpt-5-mini");
+});
+
 test("sends one strict, tool-free, non-stored request and returns a normalized draft", async () => {
   let providerRequest: RequestInit | undefined;
   const handler = createGenerateHandler({
