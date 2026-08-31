@@ -238,6 +238,65 @@ export interface ValidationIssue {
   fix: string;
 }
 
+const CHAT_MATCH_STOP_WORDS = new Set([
+  "about", "accurately", "action", "after", "agent", "approved", "before", "chewy",
+  "complete", "customer", "discussing", "explain", "handling", "learner", "provide",
+  "relevant", "resolution", "response", "should", "state", "support", "their", "there",
+  "these", "using", "what", "which", "while", "would",
+]);
+
+const CHAT_MATCH_INTENT_HINTS = [
+  {
+    pattern: /\b(acknowledge|apolog|concern|empath|frustrat|sorry|understand)\b/i,
+    phrases: ["sorry", "understand", "concern", "empath", "frustrat"],
+  },
+  {
+    pattern: /\b(ask|check|confirm|discover|clarif|status|tracking|verify)\b/i,
+    phrases: ["already checked", "have you checked", "did you check", "tracking", "status", "confirm", "verify"],
+  },
+  {
+    pattern: /\b(identify|reason|recap|state|summar)\b/i,
+    phrases: ["reason for contact", "the issue is", "marked delivered", "says delivered", "cannot find", "can't find", "missing"],
+  },
+] as const;
+
+function buildChatMatchPhrases(learnerActions: string[]): string[] {
+  const source = learnerActions.join(" ").trim();
+  const phrases: string[] = [];
+  CHAT_MATCH_INTENT_HINTS.forEach((hint) => {
+    if (hint.pattern.test(source)) phrases.push(...hint.phrases);
+  });
+  phrases.push(...source
+    .toLowerCase()
+    .replace(/[^a-z0-9'\s-]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length >= 5 && !CHAT_MATCH_STOP_WORDS.has(word)));
+  return uniqueStrings(phrases).slice(0, 24);
+}
+
+function buildChatMatch(learnerActions: string[]): Record<string, unknown> {
+  return {
+    all: [],
+    any: [{ op: "contains_any", phrases: buildChatMatchPhrases(learnerActions) }],
+  };
+}
+
+function isRiseChatMatch(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const match = value as Record<string, unknown>;
+  const all = Array.isArray(match.all) ? match.all : [];
+  const any = Array.isArray(match.any) ? match.any : [];
+  if (!all.length && !any.length) return false;
+  return [...all, ...any].every((condition) => {
+    if (!condition || typeof condition !== "object" || Array.isArray(condition)) return false;
+    const entry = condition as Record<string, unknown>;
+    return entry.op === "contains_any"
+      && Array.isArray(entry.phrases)
+      && entry.phrases.length > 0
+      && entry.phrases.every((phrase) => typeof phrase === "string" && phrase.trim());
+  });
+}
+
 export type ImportResult =
   | { kind: "focused"; draft: StudioDraft; original: ScenarioObject; requiresObjectiveApproval: false }
   | { kind: "full_conversation_copy"; draft: StudioDraft; original: ScenarioObject; requiresObjectiveApproval: true };
@@ -291,6 +350,27 @@ export function validateScenarioFiles(files: ScenarioFile[]): ValidationIssue[] 
     if (JSON.stringify(scenario).includes("pauseAfter")) {
       issues.push(issue("unsupported_pause_after", prefix, "Rise guidance cannot include pauseAfter.", "Put response dependencies directly in the guidance text."));
     }
+    if (channel === "chat") {
+      const progressions = [
+        { path: `${prefix}.chatConfig.stepProgression`, steps: scenario.chatConfig?.stepProgression },
+        { path: `${prefix}.simulation.stateModel.chatStepProgression`, steps: scenario.simulation?.stateModel?.chatStepProgression },
+      ];
+      progressions.forEach(({ path, steps }) => {
+        if (!Array.isArray(steps) || steps.length === 0) {
+          issues.push(issue("chat_step_progression_required", path, "Chat scenarios need at least one Rise-compatible turn-matching step.", "Add a Chat progression step for each Conversation Phase."));
+          return;
+        }
+        steps.forEach((step, stepIndex) => {
+          if (isRiseChatMatch(step?.match)) return;
+          issues.push(issue(
+            "invalid_chat_step_match",
+            `${path}[${stepIndex}].match`,
+            "Chat turn matching is not compatible with the Rise simulator.",
+            "Use match.all or match.any with a contains_any condition and at least one phrase.",
+          ));
+        });
+      });
+    }
   });
   return issues;
 }
@@ -338,15 +418,15 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
   ]);
   const chatProgression = channel === "chat" ? draft.phases.flatMap((phase, index) => phase.customerRemainsSilent ? [] : [{
     id: index,
-    label: phase.title,
-    match: phase.learnerActions,
+    label: `Handling step ${index + 1}`,
+    match: buildChatMatch(phase.learnerActions),
     customerResponse: phase.partnerResponse,
-    scenarioPathHint: phase.id,
+    scenarioPathHint: `chatConfig.stepProgression[${index}]`,
   }]) : [];
   const voiceProgression = channel === "voice" ? draft.phases.flatMap((phase, index) => phase.customerRemainsSilent ? [] : [{
     id: index,
-    label: phase.title,
-    trigger: `Use after the learner completes this action: ${phase.learnerActions.join(" ")} Wait for the completed learner thought.`,
+    label: `Handling step ${index + 1}`,
+    trigger: `Use after the learner completes this approved customer-support action: ${phase.learnerActions.join(" ")}`,
     customerResponse: phase.partnerResponse,
   }]) : [];
   const approvedTranscript = [
@@ -978,7 +1058,15 @@ function chatOnlyApprovedInstructionCounts(
   for (const assignment of assignments) {
     const instruction = normalizedInstruction(assignment.instruction);
     const phaseId = String(assignment.phaseId || "");
-    const phaseIndex = progression.findIndex((step) => String(step.scenarioPathHint || "") === phaseId);
+    const hintedPhaseIndex = progression.findIndex((step) => String(step.scenarioPathHint || "") === phaseId);
+    const phaseIndex = hintedPhaseIndex >= 0
+      ? hintedPhaseIndex
+      : chatGuideSections.findIndex((section, index) => {
+          const chatBullets = Array.isArray(section?.bullets) ? section.bullets as unknown[] : [];
+          const voiceBullets = Array.isArray(voiceGuideSections[index]?.bullets) ? voiceGuideSections[index].bullets as unknown[] : [];
+          return chatBullets.filter((bullet) => normalizedInstruction(bullet) === instruction).length
+            > voiceBullets.filter((bullet) => normalizedInstruction(bullet) === instruction).length;
+        });
     if (!instruction || phaseIndex < 0) continue;
     const sectionCounts = assignmentCounts.get(phaseIndex) ?? new Map<string, number>();
     sectionCounts.set(instruction, (sectionCounts.get(instruction) ?? 0) + 1);

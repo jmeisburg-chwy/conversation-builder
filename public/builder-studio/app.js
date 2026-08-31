@@ -3067,6 +3067,15 @@ export function reviewFindingTargets(draft, findings = blockingPhaseEvaluationFi
   const phases = draft?.flow?.phases || [];
   const objectives = draft?.evaluation?.objectives || [];
   return findings.flatMap((finding) => {
+    if (String(finding?.fieldPath || "") === "flow.closingPartnerTurn") {
+      const phase = phases.at(-1);
+      return phase ? [{
+        finding,
+        phaseId: phase.id,
+        phaseIndex: phases.length - 1,
+        focusKey: `closing-partner-turn:${phase.id}`,
+      }] : [];
+    }
     const phaseMatch = String(finding?.fieldPath || "").match(/^flow\.phases\.(\d+)\.(.+)$/);
     if (phaseMatch) {
       const phaseIndex = canonicalCreatorPhaseIndex(phaseMatch[1]);
@@ -5117,6 +5126,7 @@ export function createConversationPhaseEditorCoordinator({
       body.hidden = !isPhaseOpen(phase.id);
       let titleReview = null;
       let partnerReview = null;
+      let closingPartnerReview = null;
       let guidanceReview = null;
       let strongReview = null;
       const title = labeledControl("Title", phase.title, `phase-title:${phase.id}`, "input");
@@ -5220,6 +5230,34 @@ export function createConversationPhaseEditorCoordinator({
           notifyCommit();
         }));
         partnerStarts.append(toggle, copy);
+      }
+
+      const closingPartner = phaseIndex === phases.length - 1
+        ? labeledControl(
+            "Final Conversation Partner response",
+            currentDraft.flow?.closingPartnerTurn,
+            `closing-partner-turn:${phase.id}`
+          )
+        : null;
+      if (closingPartner) {
+        closingPartner.label.className = "visually-hidden";
+        closingPartner.input.addEventListener("input", runMountedOperation(closingPartner.input, () => {
+          currentDraft.flow = {
+            ...(currentDraft.flow || {}),
+            closingPartnerTurn: closingPartner.input.value
+          };
+          closingPartnerReview.preview.textContent = closingPartner.input.value.trim()
+            || "No final Conversation Partner response yet.";
+          projectLegacy();
+          notifyCommit();
+        }));
+        wirePhaseBlur(closingPartner.input, phase.id);
+        appendPhaseFindings(
+          closingPartner.field,
+          phase.id,
+          phaseIndex,
+          "flow.closingPartnerTurn"
+        );
       }
 
       const guidanceSection = editorDocument.createElement("section");
@@ -5696,11 +5734,23 @@ export function createConversationPhaseEditorCoordinator({
         iconName: "shield-check",
         content: strong.field
       });
+      if (closingPartner) {
+        closingPartnerReview = phaseReviewSection({
+          phaseId: phase.id,
+          key: "closing-partner",
+          label: "Final Conversation Partner response",
+          preview: String(currentDraft.flow?.closingPartnerTurn || "").trim()
+            || "No final Conversation Partner response yet.",
+          iconName: "user",
+          content: closingPartner.field
+        });
+      }
       body.append(
         titleReview.details,
         partnerReview.details,
         guidanceReview.details,
         strongReview.details,
+        ...(closingPartnerReview ? [closingPartnerReview.details] : []),
         evaluates
       );
       card.append(heading, body);
@@ -7927,7 +7977,7 @@ function normalizedIssuePath(issue) {
     .replace(/^scenarios?\.\d+\./i, "");
 }
 
-function creatorFieldPathForIssue(issue, reviewSection) {
+function creatorFieldPathForIssue(issue, reviewSection, draft = null) {
   const path = normalizedIssuePath(issue);
   let standaloneMatch = path.match(/^draft\.objectives\.(\d+)\.criteria\.(\d+)(?:\.|$)/i);
   if (standaloneMatch) {
@@ -7945,7 +7995,13 @@ function creatorFieldPathForIssue(issue, reviewSection) {
     return `flow.phases.${standaloneMatch[1]}.coachGuidance.bullets.${standaloneMatch[2] || 0}.text`;
   }
   standaloneMatch = path.match(/^draft\.phases\.(\d+)\.partnerResponse$/i);
-  if (standaloneMatch) return `flow.phases.${standaloneMatch[1]}.partnerTurn`;
+  if (standaloneMatch) {
+    const responseIndex = Number(standaloneMatch[1]);
+    const phaseCount = Array.isArray(draft?.flow?.phases) ? draft.flow.phases.length : null;
+    return phaseCount !== null && responseIndex + 1 >= phaseCount
+      ? "flow.closingPartnerTurn"
+      : `flow.phases.${responseIndex + 1}.partnerTurn`;
+  }
   if (/^draft\.title$/i.test(path)) return "scenario.title";
   if (/^draft\.learnerGoal$/i.test(path)) return "scenario.learnerGoal";
   if (/^draft\.channels(?:\.|$)/i.test(path)) return "scenario.channels";
@@ -8058,6 +8114,12 @@ function reviewSectionForCreatorFieldPath(value) {
 
 function finalCheckCreatorAction(reviewFieldPath, reviewSection) {
   const path = String(reviewFieldPath || "").trim().toLowerCase();
+  if (path === "flow.closingpartnerturn") {
+    return {
+      message: "Add the Conversation Partner's final response.",
+      actionLabel: "Edit final response",
+    };
+  }
   const phaseMatch = path.match(/^flow\.phases\.([^.]+)\.(.+)$/);
   const phaseIndex = canonicalCreatorPhaseIndex(phaseMatch?.[1]);
   const phaseNumber = phaseIndex === null ? null : phaseIndex + 1;
@@ -8171,14 +8233,23 @@ export function actionableBlockingIssues(validation = {}, { draft = null } = {})
     const severity = String(issue.severity || issue.level || issue.type || "FAIL").toUpperCase();
     if (severity !== "FAIL") return;
     const initialReviewSection = reviewSectionForIssue(issue);
-    const reviewFieldPath = creatorFieldPathForIssue(issue, initialReviewSection);
+    const reviewFieldPath = creatorFieldPathForIssue(issue, initialReviewSection, draft);
     const reviewSection = reviewSectionForCreatorFieldPath(reviewFieldPath);
     const messageRule = finalCheckMessageRule(issue, { reviewFieldPath, reviewSection });
-    const creatorAction = finalCheckCreatorAction(reviewFieldPath, reviewSection);
-    const message = messageRule?.message || creatorAction.message;
     const code = String(issue.code || messageRule?.code || "").trim().toLowerCase()
       || finalCheckSlug(issue.message || issue.detail || issue.text)
       || `blocking-issue-${index + 1}`;
+    const creatorAction = finalCheckCreatorAction(reviewFieldPath, reviewSection);
+    const blockerFix = [
+      "repeated_customer_opening",
+      "customer_role_conflict",
+      "nondeterministic_resolution",
+      "invalid_chat_step_match",
+      "chat_step_progression_required"
+    ].includes(code)
+      ? String(issue.fix || issue.message || "").trim()
+      : "";
+    const message = messageRule?.message || blockerFix || creatorAction.message;
     const issueFieldIdentity = normalizedIssuePath(issue) || reviewFieldPath;
     const normalizedFieldIdentity = issueFieldIdentity.trim().toLowerCase();
     const messageIdentity = normalizedFinalCheckMessageIdentity(issue);

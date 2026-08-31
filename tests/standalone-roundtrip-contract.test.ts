@@ -180,3 +180,45 @@ test("preserves Review/Edit scoring, opening, phase evaluation, and approved-res
     ],
   });
 });
+
+test("removes a hidden customer-role inversion before validation and download", () => {
+  const authoring = {
+    scenario: {
+      baseId: "missing_package",
+      title: "Missing package",
+      description: "Practice helping with a missing package.",
+      learnerGoal: "Ask what the customer checked, then submit a replacement order.",
+      channels: ["chat"],
+      agentType: "Core",
+      topic: "Delivery / Tracking",
+      subtopic: "Missing package",
+      teamAudience: "Customer Care",
+    },
+    partner: { name: "Alex", mood: "Concerned", personality: "Wants help." },
+    flow: {
+      phases: [{
+        id: "discover",
+        title: "Discover",
+        partnerTurn: "My package says delivered, but I cannot find it.",
+        strongLearnerResponse: "Ask what the customer has already checked for the package.",
+        coachGuidance: { title: "Discover", bullets: [{ text: "Ask what they checked." }] },
+      }],
+      closingPartnerTurn: "Thank you.",
+    },
+    facts: { conditionalFollowUp: "Can you confirm which delivery spots you checked?" },
+    evaluation: { objectives: [], passingScore: 80 },
+    chat: { hotkeyProfile: "core", standardText: [] },
+    voice: {},
+  };
+
+  const sanitized = authoringToStandaloneDraft(authoring);
+  assert.deepEqual(sanitized.customer.conditionalFollowUps, []);
+  assert.equal(sanitized.compatibilityFacts.conditionalFollowUp, "");
+
+  const legitimate = authoringToStandaloneDraft({
+    ...authoring,
+    facts: { conditionalFollowUp: "Have you checked whether the refund posted?" },
+  });
+  assert.deepEqual(legitimate.customer.conditionalFollowUps, ["Have you checked whether the refund posted?"]);
+  assert.equal(legitimate.compatibilityFacts.conditionalFollowUp, "Have you checked whether the refund posted?");
+});

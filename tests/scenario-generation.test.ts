@@ -10,7 +10,7 @@ const validBody = {
   channels: ["chat", "voice"],
   situation: "A fictional customer needs help with a delayed dog food order.",
   learnerGoal: "Resolve the delay without guaranteeing a delivery date.",
-  correctProcess: "Acknowledge the concern, check the delivery estimate, and explain the next step.",
+  correctProcess: "For this fictional exercise, confirm tracking shows the package is lost, submit a no-cost replacement order, and tell the customer the replacement order is confirmed.",
   agentType: "Core",
 };
 
@@ -135,6 +135,115 @@ test("requires de-identification confirmation before calling the provider", asyn
   assert.equal(called, false);
 });
 
+test("accepts a concrete approved outcome and calls the provider", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse(generated);
+    },
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+});
+
+test("requires a concrete approved outcome before calling the provider", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse(generated);
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: "Help the customer with the delayed order.",
+    correctProcess: "Acknowledge the concern, confirm the details, and help the customer.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(payload.error, {
+    code: "approved_resolution_required",
+    message: "Describe the exact approved action and expected outcome before Coach Chewy builds the draft.",
+  });
+  assert.equal(called, false);
+});
+
+test("rejects action-shaped placeholders before calling the provider", async (t) => {
+  let calls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      calls += 1;
+      return providerResponse(generated);
+    },
+  });
+
+  for (const correctProcess of [
+    "Submit a request.",
+    "Provide the approved refund options.",
+    "Create a replacement order if appropriate.",
+    "Explain the appropriate next steps to the customer.",
+    "Confirm the approved resolution with the customer.",
+    "Submit the appropriate request for the customer.",
+    "Create a detailed plan for the customer.",
+  ]) {
+    await t.test(correctProcess, async () => {
+      const response = await handler(request({ ...validBody, correctProcess }));
+
+      assert.equal(response.status, 422);
+      assert.equal((await response.json()).error.code, "approved_resolution_required");
+    });
+  }
+  assert.equal(calls, 0);
+});
+
+test("instructs the provider to mark missing policy and rejects marked output", async () => {
+  let developerInstructions = "";
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body)) as {
+        input: Array<{ role: string; content: Array<{ text: string }> }>;
+      };
+      developerInstructions = payload.input.find(({ role }) => role === "developer")!.content[0].text;
+      return providerResponse({ ...generated, assumptions: ["MISSING_POLICY"] });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(payload.error, {
+    code: "approved_resolution_required",
+    message: "Describe the exact approved action and expected outcome before Coach Chewy builds the draft.",
+  });
+  assert.match(developerInstructions, /MISSING_POLICY/);
+});
+
+test("rejects a missing-policy marker that includes a provider explanation", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      assumptions: ["MISSING_POLICY: the replacement threshold was not supplied"],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).error.code, "approved_resolution_required");
+});
+
 test("infers Rx from the original two-question Build answers and keeps it authoritative", async () => {
   let providerInput: Record<string, unknown> | undefined;
   const handler = createGenerateHandler({
@@ -157,7 +266,7 @@ test("infers Rx from the original two-question Build answers and keeps it author
     ...validBody,
     situation: "A fictional pet parent needs help with a delayed prescription refill from Chewy Pharmacy.",
     learnerGoal: "Explain the medication refill status and the approved next step.",
-    correctProcess: "Confirm the prescription details and set accurate expectations.",
+    correctProcess: "Confirm the prescription details, submit a case to the Pharmacy team, and tell the customer the case was submitted for review.",
     agentType: undefined,
   }));
   const payload = await response.json();

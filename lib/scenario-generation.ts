@@ -8,6 +8,10 @@ import type {
   StudioDraft,
 } from "./scenario-contract";
 import { createDefaultVoiceExperience } from "./scenario-contract";
+import {
+  hasDeterministicResolutionText,
+  isNondeterministicResolutionText,
+} from "./scenario-quality-guards";
 import { parseStudioDraft } from "./scenario-validation";
 import { recommendImportedStandardText, recommendStandardText } from "./standard-text-recommendations";
 
@@ -64,6 +68,11 @@ interface GenerationDiagnostic {
 const MAX_REQUEST_BYTES = 1_500_000;
 const MAX_PROVIDER_BYTES = 200_000;
 const DEFAULT_MODEL = "gpt-5-mini";
+const MISSING_POLICY_MARKER = "MISSING_POLICY";
+const APPROVED_RESOLUTION_ERROR = {
+  code: "approved_resolution_required",
+  message: "Describe the exact approved action and expected outcome before Coach Chewy builds the draft.",
+} as const;
 
 export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
   const apiKey = (options.apiKey ?? options.runtimeEnv?.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "").replace(/\s+/g, "");
@@ -94,6 +103,14 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
 
     if (!input.deidentificationConfirmed) {
       return errorResponse(400, "confirmation_required", "Confirm that the content is fictional or de-identified before generating.");
+    }
+
+    if (input.mode === "new" && (
+      !input.correctProcess
+      || !hasDeterministicResolutionText(input.correctProcess)
+      || isNondeterministicResolutionText(input.correctProcess)
+    )) {
+      return approvedResolutionRequiredResponse();
     }
 
     const sourcePrivacyIssues = input.sourceDraft ? findPrivacyIssues(input.sourceDraft) : [];
@@ -156,6 +173,9 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       }
       failureStage = "provider_output";
       const content = sanitizeProviderOutput(parseProviderOutput(providerRaw));
+      if (content.assumptions.some((assumption) => new RegExp(`^${MISSING_POLICY_MARKER}(?:\\s*:|\\s*$)`, "i").test(assumption.trim()))) {
+        return approvedResolutionRequiredResponse();
+      }
       if (findPrivacyIssues(content).length > 0) {
         logError({
           stage: "provider_output",
@@ -394,6 +414,10 @@ function errorResponse(status: number, code: string, message: string, details?: 
   );
 }
 
+function approvedResolutionRequiredResponse(): Response {
+  return errorResponse(422, APPROVED_RESOLUTION_ERROR.code, APPROVED_RESOLUTION_ERROR.message);
+}
+
 function cleanOptional(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -494,7 +518,11 @@ Return only the requested strict JSON object. Create focused learning-objective 
 Use fictional names and details. Never invent policy, refunds, delivery guarantees, medical guidance, system access, or customer data.
 When a street address is needed, use the visibly fictional placeholder 123 Example Street, Exampletown, PA 00000.
 Treat supplied correct-process details as the authority. Surface uncertainty in assumptions.
+If the supplied correct-process details do not state one exact authorized action and expected outcome, do not guess. Add exactly MISSING_POLICY as a standalone item in assumptions.
 Make each objective observable and each phase response-ordered. Keep customer responses natural and concise.
+Each phase.partnerResponse is the new Conversation Partner turn after the Learner completes that phase. It must never repeat customer.openingLine.
+Write customer.conditionalFollowUps only as Conversation Partner reactions, objections, or questions. Never assign the Learner's discovery question or Chewy-agent action to the Conversation Partner.
+Write one deterministic approved resolution. Never substitute phrases such as available next steps, approved process, locating the package or replacement, or initiate resolution for the exact authorized action and expected outcome.
 Begin every objective criterion with a neutral imperative action such as Acknowledge, Ask, Explain, Confirm, Avoid, or Recap.
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.

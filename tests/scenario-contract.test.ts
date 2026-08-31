@@ -117,6 +117,41 @@ test("composes separate focused-objective chat and voice files without legacy be
   assert.equal(chat.frontend.chat.standardTextGuidance, "No approved Standard Text is required for this scenario.");
 });
 
+test("composes Rise-compatible Chat step match conditions", () => {
+  const [chat] = composeScenarioFiles({ ...focusedDraft(), channels: ["chat"] });
+  const step = chat.scenario.chatConfig?.stepProgression[0];
+  const match = step?.match as {
+    all?: Array<{ op: string; phrases: string[] }>;
+    any?: Array<{ op: string; phrases: string[] }>;
+  };
+
+  assert.equal(Array.isArray(step?.match), false);
+  assert.deepEqual(match.all, []);
+  assert.equal(match.any?.length, 1);
+  assert.equal(match.any?.[0]?.op, "contains_any");
+  assert.equal(match.any?.[0]?.phrases.includes("concern"), true);
+  assert.equal((match.any?.[0]?.phrases.length ?? 0) > 0, true);
+  assert.equal(step?.label, "Handling step 1");
+  assert.equal(step?.scenarioPathHint, "chatConfig.stepProgression[0]");
+});
+
+test("rejects Chat step matching that the Rise runtime cannot evaluate", () => {
+  const files = composeScenarioFiles({ ...focusedDraft(), channels: ["chat"] });
+  const chat = files[0].scenario;
+  chat.chatConfig!.stepProgression[0].match = ["Acknowledge the concern."];
+  chat.simulation.stateModel.chatStepProgression[0].match = ["Acknowledge the concern."];
+
+  assert.deepEqual(
+    validateScenarioFiles(files).find((issue) => issue.code === "invalid_chat_step_match"),
+    {
+      code: "invalid_chat_step_match",
+      path: "files[0].scenario.chatConfig.stepProgression[0].match",
+      message: "Chat turn matching is not compatible with the Rise simulator.",
+      fix: "Use match.all or match.any with a contains_any condition and at least one phrase.",
+    },
+  );
+});
+
 test("reports the exact location, cause, and fix for a channel-id mismatch", () => {
   const files = composeScenarioFiles(focusedDraft());
   files[0].scenario.id = "late_order_recovery_voice";
@@ -433,9 +468,12 @@ test("removes unfinished blank list rows from downloaded scenario content", () =
   draft.objectives[0].criteria.push("");
 
   const [file] = composeScenarioFiles({ ...draft, channels: ["chat"] });
+  const match = file.scenario.chatConfig?.stepProgression[0].match as {
+    any: Array<{ phrases: string[] }>;
+  };
 
   assert.equal(file.scenario.evaluationCriteria.includes(""), false);
-  assert.equal((file.scenario.chatConfig?.stepProgression[0].match as string[]).includes(""), false);
+  assert.equal(match.any[0].phrases.includes(""), false);
   assert.equal(JSON.stringify(file.scenario.frontend.chat).includes('"bullets":["'), true);
   assert.doesNotMatch(JSON.stringify(file.scenario), /""\s*,\s*""/);
 });

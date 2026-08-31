@@ -159,6 +159,245 @@ test("reports missing creator-owned content before offering downloads", async ()
   assert.equal(payload.files, undefined);
 });
 
+test("blocks a repeated opening before it can become the first earned partner turn", async () => {
+  const invalid = draft();
+  invalid.phases[0].partnerResponse = invalid.customer.openingLine;
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(
+    payload.issues.find((issue: { code: string }) => issue.code === "repeated_customer_opening"),
+    {
+      code: "repeated_customer_opening",
+      path: "draft.phases[0].partnerResponse",
+      message: "The first Conversation Partner response repeats the opening line.",
+      fix: "Write what the Conversation Partner says after the Learner completes Phase 1.",
+    },
+  );
+  assert.equal(payload.files, undefined);
+});
+
+test("blocks a customer follow-up that performs the Learner's discovery question", async () => {
+  const invalid = draft();
+  invalid.customer.conditionalFollowUps = ["Have you checked neighbors or other usual delivery spots?"];
+  invalid.phases[0].learnerActions = ["Ask what the customer has already checked for the package."];
+  invalid.objectives[0].criteria = [
+    "Ask what the customer has already checked for the package.",
+    "Avoid guaranteeing delivery.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(
+    payload.issues.find((issue: { code: string }) => issue.code === "customer_role_conflict"),
+    {
+      code: "customer_role_conflict",
+      path: "draft.customer.conditionalFollowUps[0]",
+      message: "This follow-up assigns the Learner's discovery question to the Conversation Partner.",
+      fix: "Rewrite it as the Conversation Partner's reaction or answer after the Learner asks the question.",
+    },
+  );
+  assert.equal(payload.files, undefined);
+});
+
+test("matches customer-role conflicts by delivery subject instead of the shared check verb", async () => {
+  for (const followUp of [
+    "What have you already checked for the package?",
+    "Can you confirm which delivery spots you checked?",
+  ]) {
+    const invalid = draft();
+    invalid.customer.conditionalFollowUps = [followUp];
+    invalid.phases[0].learnerActions = ["Ask what the customer has already checked for the package."];
+
+    const response = await createValidateHandler()(request({ draft: invalid }));
+    const payload = await response.json();
+    const roleIssues = payload.issues.filter((issue: { code: string }) => issue.code === "customer_role_conflict");
+
+    assert.equal(response.status, 422, followUp);
+    assert.deepEqual(roleIssues, [{
+      code: "customer_role_conflict",
+      path: "draft.customer.conditionalFollowUps[0]",
+      message: "This follow-up assigns the Learner's discovery question to the Conversation Partner.",
+      fix: "Rewrite it as the Conversation Partner's reaction or answer after the Learner asks the question.",
+    }]);
+  }
+
+  for (const followUp of [
+    "Have you checked whether the refund posted?",
+    "Have you checked with your supervisor?",
+  ]) {
+    const valid = draft();
+    valid.customer.conditionalFollowUps = [followUp];
+    valid.phases[0].learnerActions = ["Ask what the customer has already checked for the package."];
+
+    const response = await createValidateHandler()(request({ draft: valid }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 200, `${followUp}: ${JSON.stringify(payload.issues)}`);
+    assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "customer_role_conflict"), false);
+  }
+});
+
+test("blocks a placeholder resolution that does not define an approved outcome", async () => {
+  const invalid = draft();
+  invalid.correctProcess = [
+    "Acknowledge the concern.",
+    "Explain the available next steps to locate the package or initiate resolution.",
+  ];
+  invalid.phases[0].learnerActions = [...invalid.correctProcess];
+  invalid.objectives[0].criteria = [
+    "Acknowledge the concern.",
+    "Explain the available next steps to locate the package or initiate resolution.",
+    "Avoid guaranteeing delivery.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(
+    payload.issues.find((issue: { code: string }) => issue.code === "nondeterministic_resolution"),
+    {
+      code: "nondeterministic_resolution",
+      path: "draft.correctProcess[1]",
+      message: "The correct process does not define one approved outcome.",
+      fix: "Replace general options or next steps with the exact authorized action and expected result.",
+    },
+  );
+  assert.equal(payload.files, undefined);
+});
+
+test("blocks resolution alternatives and policy deferrals at one editable process item", async () => {
+  for (const unresolvedStep of [
+    "Issue an approved refund or send a replacement.",
+    "Follow policy to determine the best resolution.",
+    "Discuss the refund policy with the customer.",
+  ]) {
+    const invalid = draft();
+    invalid.correctProcess = ["Acknowledge the concern.", unresolvedStep];
+
+    const response = await createValidateHandler()(request({ draft: invalid }));
+    const payload = await response.json();
+    const resolutionIssues = payload.issues.filter((issue: { code: string }) => issue.code === "nondeterministic_resolution");
+
+    assert.equal(response.status, 422, unresolvedStep);
+    assert.deepEqual(resolutionIssues, [{
+      code: "nondeterministic_resolution",
+      path: "draft.correctProcess[1]",
+      message: "The correct process does not define one approved outcome.",
+      fix: "Replace general options or next steps with the exact authorized action and expected result.",
+    }]);
+  }
+});
+
+test("blocks action-shaped placeholders that still leave the result unresolved", async (t) => {
+  for (const unresolvedStep of [
+    "Submit a request.",
+    "Provide the approved refund options.",
+    "Create a replacement order if appropriate.",
+    "Explain the appropriate next steps to the customer.",
+    "Confirm the approved resolution with the customer.",
+    "Submit the appropriate request for the customer.",
+    "Create a detailed plan for the customer.",
+  ]) {
+    await t.test(unresolvedStep, async () => {
+      const invalid = draft();
+      invalid.correctProcess = ["Acknowledge the concern.", unresolvedStep];
+
+      const response = await createValidateHandler()(request({ draft: invalid }));
+      const payload = await response.json();
+
+      assert.equal(response.status, 422);
+      assert.deepEqual(
+        payload.issues.find((issue: { code: string }) => issue.code === "nondeterministic_resolution"),
+        {
+          code: "nondeterministic_resolution",
+          path: "draft.correctProcess[1]",
+          message: "The correct process does not define one approved outcome.",
+          fix: "Replace general options or next steps with the exact authorized action and expected result.",
+        },
+      );
+    });
+  }
+});
+
+test("requires a concrete outcome even when the process contains no known placeholder phrase", async () => {
+  const invalid = draft();
+  invalid.correctProcess = [
+    "Acknowledge the concern.",
+    "Help the customer with the order.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(
+    payload.issues.find((issue: { code: string }) => issue.code === "nondeterministic_resolution"),
+    {
+      code: "nondeterministic_resolution",
+      path: "draft.correctProcess[1]",
+      message: "The correct process does not define one approved outcome.",
+      fix: "Replace general options or next steps with the exact authorized action and expected result.",
+    },
+  );
+});
+
+test("accepts an exact resolution even when process wording introduces it", async () => {
+  for (const exactStep of [
+    "Follow the approved process to issue a full refund.",
+    "Initiate a resolution by issuing a full refund.",
+  ]) {
+    const valid = draft();
+    valid.correctProcess = ["Acknowledge the concern.", exactStep];
+
+    const response = await createValidateHandler()(request({ draft: valid }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 200, `${exactStep}: ${JSON.stringify(payload.issues)}`);
+    assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "nondeterministic_resolution"), false);
+  }
+});
+
+test("assesses the correct process as a whole instead of flagging setup steps", async () => {
+  const valid = draft();
+  valid.correctProcess = [
+    "Acknowledge the concern.",
+    "Follow the approved process.",
+    "Issue a full refund.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+  assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "nondeterministic_resolution"), false);
+});
+
+test("accepts representative exact outcomes without depending on the outcome topic", async (t) => {
+  for (const exactStep of [
+    "Complete a warm transfer to the Tiger Team so the customer does not have to repeat the issue.",
+    "Offer a 20% partial refund with the choice of original payment method or Chewy account, then process the customer's selected refund back to the original payment card and explain it will post within 3–5 business days.",
+    "Confirm the package is still moving within the delivery window, share the tracking link, and explain that no refund or other compensation is approved while it remains on time.",
+    "Create a behavior improvement plan that requires the learner to acknowledge the concern before asking discovery questions in every practice attempt.",
+  ]) {
+    await t.test(exactStep, async () => {
+      const valid = draft();
+      valid.correctProcess = ["Acknowledge the concern.", exactStep];
+
+      const response = await createValidateHandler()(request({ draft: valid }));
+      const payload = await response.json();
+
+      assert.equal(response.status, 200, JSON.stringify(payload.issues));
+      assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "nondeterministic_resolution"), false);
+    });
+  }
+});
+
 test("rejects passing scores outside the displayed 1-100 range", async () => {
   for (const passingScore of [0, 101]) {
     const invalid = draft();

@@ -1,3 +1,5 @@
+import { customerFollowUpConflictsWithLearner } from "./scenarioQualityGuards.js";
+
 export const STANDALONE_DRAFT_STORAGE_KEY = "conversation-builder.standalone-draft.v1";
 
 const text = (value, fallback = "") => String(value ?? "").trim() || fallback;
@@ -213,6 +215,13 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
 export function authoringToStandaloneDraft(draft) {
   const phases = listOf(draft?.flow?.phases);
   const sourceObjectives = listOf(draft?.evaluation?.objectives);
+  const learnerDiscoveryActions = [
+    ...phases.map((phase) => text(phase?.strongLearnerResponse)),
+    ...sourceObjectives.flatMap((objective) => listOf(objective?.criteria)
+      .map((criterion) => text(typeof criterion === "object" && criterion ? criterion.text : criterion))),
+  ].filter(Boolean);
+  const conditionalFollowUps = list(draft?.facts?.conditionalFollowUp)
+    .filter((followUp) => !customerFollowUpConflictsWithLearner(followUp, learnerDiscoveryActions));
   const objectives = sourceObjectives.map((objective, index) => ({
     id: slug(objective?.id, `objective_${index + 1}`),
     label: text(objective?.label, `Objective ${index + 1}`),
@@ -252,7 +261,7 @@ export function authoringToStandaloneDraft(draft) {
       revealOnlyWhenAsked: [...new Set([...list(draft?.partner?.withholds), ...list(draft?.facts?.shareOnlyIfAsked)])],
       objections: list(draft?.facts?.allowedObjections),
       behaviorRules: list(draft?.partner?.behaviorRules),
-      conditionalFollowUps: list(draft?.facts?.conditionalFollowUp),
+      conditionalFollowUps,
       closingLine: text(draft?.flow?.closingPartnerTurn, draft?.facts?.closingLine),
     },
     correctProcess: phases.map((phase) => text(phase?.strongLearnerResponse)).filter(Boolean),
@@ -286,7 +295,7 @@ export function authoringToStandaloneDraft(draft) {
       clinic: text(draft?.facts?.clinic),
       keyQuestion: text(draft?.facts?.keyQuestion),
       rootCauseBelief: text(draft?.facts?.rootCauseBelief),
-      conditionalFollowUp: text(draft?.facts?.conditionalFollowUp),
+      conditionalFollowUp: text(conditionalFollowUps[0]),
     },
     chat: {
       hotkeyProfile: draft?.chat?.hotkeyProfile === "rx" ? "rx" : "core",

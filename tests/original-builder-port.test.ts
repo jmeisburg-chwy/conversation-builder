@@ -20,6 +20,7 @@ const root = new URL("../", import.meta.url);
 
 test("ports the original complete Review/Edit surface into the standalone Builder", () => {
   const html = readFileSync(new URL("public/builder-studio/index.html", root), "utf8");
+  const script = readFileSync(new URL("public/builder-studio/app.js", root), "utf8");
 
   assert.match(html, /id="reviewConversationSetup"/);
   assert.match(html, /id="setupObjectiveList"/);
@@ -28,6 +29,10 @@ test("ports the original complete Review/Edit surface into the standalone Builde
   assert.match(html, /id="reviewPractice"/);
   assert.match(html, /id="hotkeyLibrary"/);
   assert.match(html, /id="reviewFinalCheck"/);
+  assert.match(html, /Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid\./);
+  assert.match(script, /Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid\./);
+  assert.match(script, /Final Conversation Partner response/);
+  assert.match(script, /closing-partner-turn:/);
   assert.doesNotMatch(html, /id="deidentificationConfirmed"|By creating a draft, you confirm/i);
 });
 
@@ -76,6 +81,61 @@ test("maps standalone validation paths back to the original Review/Edit controls
   assert.equal(action.reviewFieldPath, "evaluation.objectives.1.criteria.2.text");
   assert.equal(action.actionLabel, "Review objectives");
   assert.equal(action.message, "Add at least one evaluation criterion.");
+});
+
+test("routes five-blocker corrections to the earned turn and preserves their actionable fix", () => {
+  const [repeatedTurn, resolution] = actionableBlockingIssues({
+    issues: [
+      {
+        severity: "FAIL",
+        code: "repeated_customer_opening",
+        path: "draft.phases[0].partnerResponse",
+        message: "The first Conversation Partner response repeats the opening line.",
+        fix: "Write what the Conversation Partner says after the Learner completes Phase 1.",
+      },
+      {
+        severity: "FAIL",
+        code: "nondeterministic_resolution",
+        path: "draft.correctProcess[1]",
+        message: "The correct process does not define one approved outcome.",
+        fix: "Replace general options or next steps with the exact authorized action and expected result.",
+      },
+    ],
+  });
+
+  assert.equal(repeatedTurn.reviewFieldPath, "flow.phases.1.partnerTurn");
+  assert.equal(repeatedTurn.actionLabel, "Edit phase 2");
+  assert.equal(repeatedTurn.message, "Write what the Conversation Partner says after the Learner completes Phase 1.");
+  assert.equal(resolution.reviewFieldPath, "flow.phases.1.strongLearnerResponse");
+  assert.equal(resolution.actionLabel, "Edit phase 2");
+  assert.equal(resolution.message, "Replace general options or next steps with the exact authorized action and expected result.");
+});
+
+test("routes a one-phase repeated opening to an editable closing response", () => {
+  const [action] = actionableBlockingIssues({
+    issues: [{
+      severity: "FAIL",
+      code: "repeated_customer_opening",
+      path: "draft.phases[0].partnerResponse",
+      message: "The first Conversation Partner response repeats the opening line.",
+      fix: "Write what the Conversation Partner says after the Learner completes Phase 1.",
+    }],
+  }, {
+    draft: {
+      flow: {
+        phases: [{ id: "resolve_delay" }],
+        closingPartnerTurn: "My order is late. Can you help?",
+      },
+      evaluation: { objectives: [] },
+    },
+  });
+
+  assert.equal(action.reviewFieldPath, "flow.closingPartnerTurn");
+  assert.equal(action.actionLabel, "Edit final response");
+  assert.deepEqual(action.reviewTarget, {
+    phaseId: "resolve_delay",
+    focusKey: "closing-partner-turn:resolve_delay",
+  });
 });
 
 test("marks Personal information as needing attention for standalone privacy issues", () => {
@@ -187,4 +247,32 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
     ["voice"],
   ]);
   assert.equal(payload.files[0].scenario.coaching.gradingModel.mode, "focused_learning_objectives");
+
+  const firstChatJson = JSON.stringify(payload.files[0].scenario);
+  restored!.draft.flow.phases[0].strongLearnerResponse =
+    "Acknowledge the concern and state the expected delivery window.";
+  saveStandaloneDraft(storage, restored!.draft);
+  const revised = loadStandaloneDraft(storage);
+  const revisedRoundTrip = authoringToStandaloneDraft(revised?.draft);
+  const revisedResponse = await createValidateHandler()(new Request("http://localhost/api/builder/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      draft: revisedRoundTrip,
+      deidentificationConfirmed: true,
+      objectiveApproval: {
+        required: true,
+        approved: true,
+        fingerprint: objectiveFingerprint(revisedRoundTrip.objectives),
+      },
+    }),
+  }));
+  const revisedPayload = await revisedResponse.json();
+  const revisedMatch = revisedPayload.files[0].scenario.chatConfig.stepProgression[0].match;
+
+  assert.equal(revisedResponse.status, 200);
+  assert.notEqual(JSON.stringify(revisedPayload.files[0].scenario), firstChatJson);
+  assert.equal(Array.isArray(revisedMatch), false);
+  assert.equal(revisedMatch.any[0].op, "contains_any");
+  assert.equal(revisedMatch.any[0].phrases.length > 0, true);
 });

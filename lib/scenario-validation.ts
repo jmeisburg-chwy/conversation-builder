@@ -8,6 +8,11 @@ import {
   type StudioDraft,
   type ValidationIssue,
 } from "./scenario-contract";
+import {
+  customerFollowUpConflictsWithLearner,
+  findNondeterministicResolutionStep,
+  repeatsOpening,
+} from "./scenario-quality-guards";
 import { approvedStandardTextPrivacySource } from "./standard-text-recommendations";
 
 export function createValidateHandler() {
@@ -189,6 +194,15 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
   requireText("draft.customer.openingLine", draft.customer.openingLine, "Opening line");
   requireText("draft.customer.closingLine", draft.customer.closingLine, "Closing line");
   requireLines("draft.correctProcess", draft.correctProcess, "Correct process");
+  const nondeterministicResolutionIndex = findNondeterministicResolutionStep(draft.correctProcess);
+  if (nondeterministicResolutionIndex >= 0) {
+    issues.push({
+      code: "nondeterministic_resolution",
+      path: `draft.correctProcess[${nondeterministicResolutionIndex}]`,
+      message: "The correct process does not define one approved outcome.",
+      fix: "Replace general options or next steps with the exact authorized action and expected result.",
+    });
+  }
   if (draft.evaluation && (draft.evaluation.passingScore < 1 || draft.evaluation.passingScore > 100)) {
     issues.push({
       code: "invalid_passing_score",
@@ -216,6 +230,14 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       }
     } else {
       requireText(`draft.phases[${index}].partnerResponse`, phase?.partnerResponse, "Conversation Partner response");
+    }
+    if (index === 0 && repeatsOpening(draft.customer.openingLine, phase.partnerResponse)) {
+      issues.push({
+        code: "repeated_customer_opening",
+        path: "draft.phases[0].partnerResponse",
+        message: "The first Conversation Partner response repeats the opening line.",
+        fix: "Write what the Conversation Partner says after the Learner completes Phase 1.",
+      });
     }
     requireLines(`draft.phases[${index}].learnerActions`, phase?.learnerActions, "Learner action");
     requireLines(`draft.phases[${index}].coachGuidance`, phase?.coachGuidance, "Coach Chewy guidance");
@@ -255,6 +277,19 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
     if (!isBoundaryCovered(action, objectiveCoverage) || !isBoundaryCovered(action, guideCoverage)) {
       issues.push({ code: "unmapped_prohibited_action", path: `draft.prohibitedActions[${index}]`, message: "Every prohibited action must appear in both the objective criteria and Coach Chewy guidance.", fix: "Add this boundary to an observable criterion and to the relevant guide section." });
     }
+  });
+  const learnerDiscoveryActions = [
+    ...draft.phases.flatMap((phase) => phase.learnerActions),
+    ...draft.objectives.flatMap((objective) => objective.criteria),
+  ];
+  draft.customer.conditionalFollowUps.forEach((followUp, index) => {
+    if (!customerFollowUpConflictsWithLearner(followUp, learnerDiscoveryActions)) return;
+    issues.push({
+      code: "customer_role_conflict",
+      path: `draft.customer.conditionalFollowUps[${index}]`,
+      message: "This follow-up assigns the Learner's discovery question to the Conversation Partner.",
+      fix: "Rewrite it as the Conversation Partner's reaction or answer after the Learner asks the question.",
+    });
   });
   if (draft.channels.includes("chat")) {
     if (draft.chat.standardTextDecision === "unreviewed") {
