@@ -1353,7 +1353,6 @@ export async function requestGeneratedStudioDraftFromInputs({
       situation: creatorInput.conversationAbout,
       learnerGoal: creatorInput.learnerApproach,
       correctProcess: creatorInput.learnerApproach,
-      agentType: "Core",
       deidentificationConfirmed: true
     })
   });
@@ -6933,6 +6932,7 @@ function previewButtonLabel({ restartVoice = "" } = {}) {
 }
 
 function updatePreviewButtonLabel(options = {}) {
+  if (!elements.playPreviewButton) return;
   elements.playPreviewButton.textContent = previewButtonLabel(options);
 }
 
@@ -7929,6 +7929,34 @@ function normalizedIssuePath(issue) {
 
 function creatorFieldPathForIssue(issue, reviewSection) {
   const path = normalizedIssuePath(issue);
+  let standaloneMatch = path.match(/^draft\.objectives\.(\d+)\.criteria\.(\d+)(?:\.|$)/i);
+  if (standaloneMatch) {
+    return `evaluation.objectives.${standaloneMatch[1]}.criteria.${standaloneMatch[2]}.text`;
+  }
+  standaloneMatch = path.match(/^draft\.objectives\.(\d+)\.(label|description)$/i);
+  if (standaloneMatch) return `evaluation.objectives.${standaloneMatch[1]}.${standaloneMatch[2]}`;
+  if (/^draft\.objectives(?:\.|$)/i.test(path)) return "evaluation.objectives";
+  standaloneMatch = path.match(/^draft\.phases\.(\d+)\.(title|id)$/i);
+  if (standaloneMatch) return `flow.phases.${standaloneMatch[1]}.${standaloneMatch[2]}`;
+  standaloneMatch = path.match(/^draft\.phases\.(\d+)\.learnerActions(?:\.|$)/i);
+  if (standaloneMatch) return `flow.phases.${standaloneMatch[1]}.strongLearnerResponse`;
+  standaloneMatch = path.match(/^draft\.phases\.(\d+)\.coachGuidance(?:\.(\d+))?/i);
+  if (standaloneMatch) {
+    return `flow.phases.${standaloneMatch[1]}.coachGuidance.bullets.${standaloneMatch[2] || 0}.text`;
+  }
+  standaloneMatch = path.match(/^draft\.phases\.(\d+)\.partnerResponse$/i);
+  if (standaloneMatch) return `flow.phases.${standaloneMatch[1]}.partnerTurn`;
+  if (/^draft\.title$/i.test(path)) return "scenario.title";
+  if (/^draft\.learnerGoal$/i.test(path)) return "scenario.learnerGoal";
+  if (/^draft\.channels(?:\.|$)/i.test(path)) return "scenario.channels";
+  if (/^draft\.customer\.openingLine$/i.test(path)) return "flow.phases.0.partnerTurn";
+  if (/^draft\.customer\.name$/i.test(path)) return "partner.name";
+  if (/^draft\.customer\.tone$/i.test(path)) return "partner.mood";
+  if (/^draft\.customer\.goal$/i.test(path)) return "partner.personality";
+  standaloneMatch = path.match(/^draft\.correctProcess\.(\d+)/i);
+  if (standaloneMatch) return `flow.phases.${standaloneMatch[1]}.strongLearnerResponse`;
+  if (/^draft\.chat(?:\.|$)/i.test(path)) return path.replace(/^draft\.chat/i, "chatconfig");
+  if (/^draft\.voice(?:\.|$)/i.test(path)) return path.replace(/^draft\.voice/i, "voiceconfig");
   if (/^catalog\.title$/i.test(path)) return "scenario.title";
   if (/^(?:scenario\.)?channels(?:\.\d+)?$/i.test(path)) return "scenario.channels";
   if (/^frontend\.chat\.initialTranscript(?:\.|$)/i.test(path)) {
@@ -8855,6 +8883,16 @@ function renderValidation() {
   renderPortableDownloads();
 }
 
+export function standalonePublishChecks({ issues = [], fail = 0 } = {}) {
+  const privacyHasBlockingIssue = issues.some((issue) =>
+    /^privacy_/i.test(String(issue?.code || ""))
+  );
+  return {
+    authoritative: fail === 0 ? "passed" : "attention",
+    privacy: privacyHasBlockingIssue ? "attention" : "passed"
+  };
+}
+
 async function runValidation() {
   elements.validateButton.disabled = true;
   elements.validateButton.textContent = "Validating…";
@@ -8898,6 +8936,7 @@ async function runValidation() {
     }
     state.standaloneFiles = Array.isArray(authoritative.files) ? authoritative.files : [];
     const authoritativeIssues = (Array.isArray(authoritative.issues) ? authoritative.issues : []).map((issue) => ({
+      code: String(issue.code || ""),
       severity: "FAIL",
       section: String(issue.path || "Conversation"),
       fieldPath: String(issue.path || ""),
@@ -8934,17 +8973,15 @@ async function runValidation() {
       ok: fail === 0,
       summary: { fail, warn }
     };
-    state.publishChecks = {
-      authoritative: fail === 0
-        ? "passed"
-        : "attention",
-      privacy: "passed"
-    };
+    state.publishChecks = standalonePublishChecks({
+      issues: authoritative.issues,
+      fail
+    });
     renderValidation();
     if (state.validation.ok) {
       showToast(buildFinalCheckReadyCopy(state.draft.scenario.channels).toast);
     } else {
-      showToast("Changes are needed before publishing.");
+      showToast("Changes are needed before downloading.");
     }
   } catch (error) {
     state.validation = validationUnavailableState(error);

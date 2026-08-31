@@ -9,6 +9,25 @@ export interface ObjectiveDraft {
   criteria: string[];
 }
 
+export interface EvaluationLinkDraft {
+  objectiveId: string;
+  criterionIds: string[];
+}
+
+export interface GuidanceChildDraft {
+  id: string;
+  text: string;
+  kind: "support" | "caution";
+  kindOverride?: boolean;
+}
+
+export interface GuidanceBulletDraft {
+  id: string;
+  text: string;
+  children?: GuidanceChildDraft[];
+  systemReference?: Record<string, unknown>;
+}
+
 export interface PhaseDraft {
   id: string;
   title: string;
@@ -21,6 +40,8 @@ export interface PhaseDraft {
   guideBody?: string;
   managerGuidance?: string;
   customerRemainsSilent?: boolean;
+  evaluationLinks?: EvaluationLinkDraft[];
+  coachGuidanceHierarchy?: GuidanceBulletDraft[];
 }
 
 export interface CustomerDraft {
@@ -38,6 +59,7 @@ export interface CustomerDraft {
 }
 
 export interface StandardTextDraft {
+  id?: string;
   hotkey: string;
   category: string;
   template: string;
@@ -46,6 +68,13 @@ export interface StandardTextDraft {
   notes: string[];
   approvedGuidance: string;
   recommendationReason?: string;
+}
+
+export interface ApprovedResponseAssignmentDraft {
+  id: string;
+  responseId: string;
+  phaseId: string;
+  instruction: string;
 }
 
 export type StandardTextDecision = "unreviewed" | "approved" | "none";
@@ -86,6 +115,7 @@ export interface StudioDraft {
   phases: PhaseDraft[];
   objectives: ObjectiveDraft[];
   objectiveApprovalRequired: boolean;
+  evaluation?: { passingScore: number };
   compatibilityFacts: {
     address: string;
     medication: string;
@@ -96,7 +126,14 @@ export interface StudioDraft {
     rootCauseBelief?: string;
     conditionalFollowUp?: string;
   };
-  chat: { hotkeyProfile: "core" | "rx"; standardText: StandardTextDraft[]; standardTextDecision: StandardTextDecision; standardTextRecommendations?: StandardTextDraft[] };
+  chat: {
+    hotkeyProfile: "core" | "rx";
+    customerStarts?: boolean;
+    standardText: StandardTextDraft[];
+    standardTextDecision: StandardTextDecision;
+    standardTextRecommendations?: StandardTextDraft[];
+    approvedResponseAssignments?: ApprovedResponseAssignmentDraft[];
+  };
   voice: { selectedVoice: string; speed: number; experience?: VoiceExperienceDraft };
   sourceScenarios?: Partial<Record<Channel, ScenarioObject>>;
   sourceOverlay?: boolean;
@@ -121,6 +158,19 @@ export function defaultConditionalFollowUp(customer: CustomerDraft): string {
     ...customer.conditionalFollowUps,
     ...customer.revealOnlyWhenAsked.map((fact) => `Share only when asked: ${fact}`),
   ].join(" ");
+}
+
+function normalizedPassingScore(draft: StudioDraft): number {
+  const score = draft.evaluation?.passingScore;
+  return typeof score === "number" && Number.isFinite(score)
+    ? Math.round(score)
+    : 80;
+}
+
+function approvedResponseInstructionsForPhase(draft: StudioDraft, phaseId: string): string[] {
+  return (draft.chat.approvedResponseAssignments ?? [])
+    .filter((assignment) => assignment.phaseId === phaseId)
+    .map((assignment) => assignment.instruction);
 }
 
 interface GradingModel {
@@ -317,7 +367,10 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
     source: phase.guideSource ?? "manager_coaching_reminder",
     title: phase.guideTitle ?? `${index + 1}. ${phase.title}`,
     body: phase.guideBody ?? phase.learnerActions.join(" "),
-    bullets: phase.coachGuidance,
+    bullets: appendUniqueGuidance(
+      runtimeGuidanceBullets(phase),
+      channel === "chat" ? approvedResponseInstructionsForPhase(draft, phase.id) : [],
+    ),
   }));
   const standardTextGuideSections = channel === "chat" && draft.chat.standardTextDecision === "approved"
     ? draft.chat.standardText.map((item, index) => ({
@@ -348,17 +401,20 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
   }
   const frontend: ScenarioObject["frontend"] = { shared };
   if (channel === "chat") {
+    const customerStarts = draft.chat.customerStarts !== false;
     frontend.chat = {
+      customerStarts,
       customerDisplayName: draft.customer.name,
       guideTitle: "Coach Chewy Guidance",
       guideSections: [...guideSections, ...standardTextGuideSections],
-      standardText: draft.chat.standardTextDecision === "approved" ? draft.chat.standardText.map(({ hotkey, template, notes }) => ({ hotkey, template, notes })) : [],
+      standardText: draft.chat.standardTextDecision === "approved" ? draft.chat.standardText.map(({ id, hotkey, template, notes }) => ({ ...(id ? { id } : {}), hotkey, template, notes })) : [],
+      approvedResponseAssignments: draft.chat.approvedResponseAssignments ?? [],
       standardTextGuidance: draft.chat.standardTextDecision === "approved"
         ? draft.chat.standardText.map(composeStandardTextGuidance).join("\n\n")
         : "No approved Standard Text is required for this scenario.",
       hotkeyProfile: draft.chat.hotkeyProfile,
       initialTranscript: [{
-        role: "assistant",
+        role: customerStarts ? "assistant" : "system",
         label: draft.customer.name,
         scenarioPathHint: "frontend.chat.initialTranscript[0]",
         content: draft.customer.openingLine,
@@ -415,7 +471,15 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
     },
     simulation: {
       sourceTranscriptMetadata: { scenarioType: "Learning Objective Evaluation", sourceType: "creator_input", qualityBehavior: "", topic: draft.topic, selectedChannels: [channel], customerEmotion: draft.customer.tone, subtopic: draft.subtopic, sourceMaterial: `${draft.description} Approved customer facts: ${draft.customer.facts.join(" ")} Correct process: ${draft.correctProcess.join(" ")} Avoid: ${draft.prohibitedActions.join(" ")}` },
-      managerOnlyIdealResponses: draft.phases.map((phase, index) => ({ beat: index + 1, guidance: phase.managerGuidance ?? phase.coachGuidance.join(" "), idealAgentResponse: phase.learnerActions.join(" ") })),
+      managerOnlyIdealResponses: draft.phases.map((phase, index) => ({
+        beat: index + 1,
+        guidance: phase.managerGuidance ?? phase.coachGuidance.join(" "),
+        idealAgentResponse: phase.learnerActions.join(" "),
+        evaluationLinks: phase.evaluationLinks ?? [],
+        ...(phase.coachGuidanceHierarchy?.length
+          ? { coachGuidanceHierarchy: structuredClone(phase.coachGuidanceHierarchy) }
+          : {}),
+      })),
       approvedTranscript,
       stateModel: { chatStepProgression: chatProgression, voiceStepProgression: voiceProgression, behaviorTriggers: [] },
     },
@@ -439,7 +503,7 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
     },
     coaching: {
       summaryGuidance: `Evaluate only the approved learning objectives for ${draft.title}.`,
-      gradingModel: { mode: "focused_learning_objectives", evaluationMethod: "criteria_checklist", scoreAggregation: "average_objectives", passingScore: 80, objectives: draft.objectives },
+      gradingModel: { mode: "focused_learning_objectives", evaluationMethod: "criteria_checklist", scoreAggregation: "average_objectives", passingScore: normalizedPassingScore(draft), objectives: draft.objectives },
     },
     learnerGoal: draft.learnerGoal,
     conversationBetween: { aiPersonality: `${draft.customer.name} is ${draft.customer.tone}. ${behaviorRules.join(" ")}`, aiRole: `${draft.customer.name}, Conversation Partner`, aiStart: draft.customer.openingLine, participantRole: `${draft.agentType} Learner` },
@@ -481,11 +545,31 @@ function assertSupportedGuideSections(scenarios: ScenarioObject[]): void {
     for (const [index, section] of sections.entries()) {
       if (!section || typeof section !== "object") continue;
       const bullets = (section as Record<string, unknown>).bullets;
-      if (Array.isArray(bullets) && bullets.some((bullet) => typeof bullet !== "string")) {
-        throw new Error(`Guide section ${index + 1} uses structured bullets that this Builder cannot safely edit yet. Use a scenario with text-only Coach Chewy bullets.`);
+      if (Array.isArray(bullets) && bullets.some((bullet) => !isSupportedRuntimeGuidanceBullet(bullet))) {
+        throw new Error(`Guide section ${index + 1} contains a Coach Chewy bullet this Builder cannot safely edit. Use text bullets or structured bullets with text plus non-empty text children or a systemReference.`);
       }
     }
   }
+}
+
+function isSupportedRuntimeGuidanceBullet(value: unknown): boolean {
+  if (typeof value === "string") return Boolean(value.trim());
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const bullet = value as Record<string, unknown>;
+  if (!String(bullet.text || "").trim()) return false;
+  const hasChildren = Object.prototype.hasOwnProperty.call(bullet, "children");
+  const hasSystemReference = Object.prototype.hasOwnProperty.call(bullet, "systemReference");
+  const childrenAreValid = !hasChildren || (
+    Array.isArray(bullet.children)
+    && bullet.children.length > 0
+    && bullet.children.every((child) => typeof child === "string" && Boolean(child.trim()))
+  );
+  const systemReferenceIsValid = !hasSystemReference || (
+    Boolean(bullet.systemReference)
+    && typeof bullet.systemReference === "object"
+    && !Array.isArray(bullet.systemReference)
+  );
+  return (hasChildren || hasSystemReference) && childrenAreValid && systemReferenceIsValid;
 }
 
 function scenariosToDraft(scenarios: ScenarioObject[]): StudioDraft {
@@ -515,18 +599,24 @@ function scenariosToDraft(scenarios: ScenarioObject[]): StudioDraft {
     const partnerResponse = String(transcriptTurn.customer || step.customerResponse || "");
     const customerRemainsSilent = index === phaseCount - 1 && !partnerResponse.trim();
     const title = String(guide.title || beat.guidance || step.label || `Phase ${index + 1}`).replace(/^\d+\.\s*/, "");
+    const phaseId = snakeId(String(step.scenarioPathHint || title || `phase_${index + 1}`));
+    const metadataHierarchy = normalizeGuidanceHierarchy(beat.coachGuidanceHierarchy, phaseId);
+    const runtimeHierarchy = normalizeGuidanceHierarchy(guide.bullets, phaseId);
+    const hierarchy = metadataHierarchy.length ? metadataHierarchy : runtimeHierarchy;
     return {
-      id: snakeId(String(step.scenarioPathHint || title || `phase_${index + 1}`)),
+      id: phaseId,
       title,
       learnerActions: arrayOfStrings([beat.idealAgentResponse || guide.body]),
       partnerResponse,
-      coachGuidance: arrayOfStrings(guide.bullets).length > 0 ? arrayOfStrings(guide.bullets) : arrayOfStrings([beat.guidance]),
+      coachGuidance: hierarchy.length ? flattenGuidanceHierarchy(hierarchy) : arrayOfStrings([beat.guidance]),
+      ...(hierarchy.length ? { coachGuidanceHierarchy: hierarchy } : {}),
       ...(customerRemainsSilent ? { customerRemainsSilent: true } : {}),
       ...(typeof guide.sourceLabel === "string" ? { guideSourceLabel: guide.sourceLabel } : {}),
       ...(typeof guide.source === "string" ? { guideSource: guide.source } : {}),
       ...(typeof guide.title === "string" ? { guideTitle: guide.title } : {}),
       ...(typeof guide.body === "string" ? { guideBody: guide.body } : {}),
       ...(typeof beat.guidance === "string" ? { managerGuidance: beat.guidance } : {}),
+      evaluationLinks: normalizeEvaluationLinks(beat.evaluationLinks),
     };
   });
   const chatFrontend = chatScenario?.frontend?.chat as Record<string, unknown> | undefined;
@@ -576,6 +666,11 @@ function scenariosToDraft(scenarios: ScenarioObject[]): StudioDraft {
     phases,
     objectives,
     objectiveApprovalRequired: false,
+    evaluation: {
+      passingScore: typeof primary.coaching?.gradingModel?.passingScore === "number"
+        ? primary.coaching.gradingModel.passingScore
+        : 80,
+    },
     compatibilityFacts: {
       address: String(primary.facts?.address || ""),
       medication: String(primary.facts?.medication || ""),
@@ -588,9 +683,13 @@ function scenariosToDraft(scenarios: ScenarioObject[]): StudioDraft {
     },
     chat: {
       hotkeyProfile: importedHotkey === "rx" ? "rx" : importedHotkey === "core" ? "core" : primary.catalog?.agentType === "Rx" ? "rx" : "core",
+      customerStarts: typeof chatFrontend?.customerStarts === "boolean"
+        ? chatFrontend.customerStarts
+        : (chatFrontend?.initialTranscript as Array<Record<string, unknown>> | undefined)?.[0]?.role !== "system",
       standardText,
       standardTextDecision: hasStandardTextDecision ? (standardText.length > 0 ? "approved" : "none") : "unreviewed",
       standardTextRecommendations: [],
+      approvedResponseAssignments: normalizeApprovedResponseAssignments(chatFrontend?.approvedResponseAssignments),
     },
     voice: {
       selectedVoice: String(voiceScenario?.voice || voiceFrontend?.selectedVoice || voiceTuningVoice?.id || "marin"),
@@ -613,6 +712,95 @@ function stripChannelSuffix(id: string): string { return String(id || "scenario"
 function normalizeBaseId(id: string): string { return stripChannelSuffix(snakeId(id)) || "conversation_practice"; }
 function snakeId(value: string): string { return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80); }
 function arrayOfStrings(value: unknown): string[] { return Array.isArray(value) ? value.map((entry) => String(entry || "").trim()).filter(Boolean) : []; }
+function normalizeGuidanceHierarchy(value: unknown, phaseId: string): GuidanceBulletDraft[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, bulletIndex) => {
+    if (typeof entry === "string") {
+      const guidanceText = entry.trim();
+      return guidanceText ? [{ id: `${phaseId}_guidance_${bulletIndex + 1}`, text: guidanceText }] : [];
+    }
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    const guidanceText = String(record.text || record.body || "").trim();
+    if (!guidanceText) return [];
+    const children = (Array.isArray(record.children) ? record.children : []).flatMap((child, childIndex) => {
+      const childRecord = typeof child === "string" ? { text: child } : child;
+      if (!childRecord || typeof childRecord !== "object") return [];
+      const childValue = childRecord as Record<string, unknown>;
+      const childText = String(childValue.text || "").trim();
+      if (!childText) return [];
+      return [{
+        id: String(childValue.id || `${phaseId}_guidance_${bulletIndex + 1}_${childIndex + 1}`),
+        text: childText,
+        kind: childValue.kind === "caution" || /^(?:avoid|do not|don't|never)\b/i.test(childText) ? "caution" as const : "support" as const,
+        ...(childValue.kindOverride === true ? { kindOverride: true } : {}),
+      }];
+    });
+    const systemReference = record.systemReference && typeof record.systemReference === "object" && !Array.isArray(record.systemReference)
+      ? structuredClone(record.systemReference as Record<string, unknown>)
+      : undefined;
+    return [{
+      id: String(record.id || `${phaseId}_guidance_${bulletIndex + 1}`),
+      text: guidanceText,
+      ...(children.length ? { children } : {}),
+      ...(systemReference ? { systemReference } : {}),
+    }];
+  });
+}
+function flattenGuidanceHierarchy(value: GuidanceBulletDraft[]): string[] {
+  return value.flatMap((bullet) => [bullet.text, ...(bullet.children ?? []).map((child) => child.text)]);
+}
+function runtimeGuidanceBullets(phase: PhaseDraft): Array<string | Record<string, unknown>> {
+  const hierarchy = normalizeGuidanceHierarchy(phase.coachGuidanceHierarchy, phase.id);
+  if (!hierarchy.length) return phase.coachGuidance;
+  return hierarchy.map((bullet) => {
+    if (!bullet.children?.length && !bullet.systemReference) return bullet.text;
+    return {
+      text: bullet.text,
+      ...(bullet.children?.length ? { children: bullet.children.map((child) => child.text) } : {}),
+      ...(bullet.systemReference ? { systemReference: structuredClone(bullet.systemReference) } : {}),
+    };
+  });
+}
+function appendUniqueGuidance(
+  bullets: Array<string | Record<string, unknown>>,
+  additions: string[],
+): Array<string | Record<string, unknown>> {
+  const seen = new Set(bullets.map((bullet) => String(typeof bullet === "string" ? bullet : bullet.text || "").trim().toLowerCase()).filter(Boolean));
+  return [...bullets, ...additions.filter((addition) => {
+    const key = addition.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  })];
+}
+function normalizeEvaluationLinks(value: unknown): EvaluationLinkDraft[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    const objectiveId = String(record.objectiveId || "").trim();
+    const criterionIds = arrayOfStrings(record.criterionIds);
+    return objectiveId && criterionIds.length ? [{ objectiveId, criterionIds }] : [];
+  });
+}
+function normalizeApprovedResponseAssignments(value: unknown): ApprovedResponseAssignmentDraft[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    const responseId = String(record.responseId || "").trim();
+    const phaseId = String(record.phaseId || "").trim();
+    const instruction = String(record.instruction || "").trim();
+    if (!responseId || !phaseId || !instruction) return [];
+    return [{
+      id: String(record.id || `assignment_${index + 1}`).trim(),
+      responseId,
+      phaseId,
+      instruction,
+    }];
+  });
+}
 function normalizeStandardText(value: unknown, guidance: string): StandardTextDraft[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
@@ -624,6 +812,7 @@ function normalizeStandardText(value: unknown, guidance: string): StandardTextDr
     const approvedGuidance = guidanceForHotkey(guidance, hotkey);
     const parsed = parseStandardTextGuidance(approvedGuidance, hotkey);
     return [{
+      id: String(record.id || `response_${snakeId(hotkey) || "standard_text"}`),
       hotkey,
       category: String(record.category || parsed.category || "Imported approved Standard Text"),
       template,
@@ -707,7 +896,10 @@ function normalizeVoiceCompletion(value: Record<string, unknown>): VoiceCompleti
 }
 
 function assertCompatibleSiblingPair(scenarios: ScenarioObject[]): void {
-  const signatures = scenarios.map(sharedScenarioSignature);
+  const signatures = scenarios.map((scenario) => sharedScenarioSignature(
+    scenario,
+    scenarios.find((candidate) => candidate !== scenario),
+  ));
   if (JSON.stringify(canonicalize(signatures[0])) !== JSON.stringify(canonicalize(signatures[1]))) {
     throw new Error("This chat/voice pair contains channel-specific wording that V1 cannot safely merge for improvement. Improve each file separately or choose Create similar from JSON.");
   }
@@ -723,11 +915,13 @@ function canonicalize(value: unknown): unknown {
   );
 }
 
-function sharedScenarioSignature(scenario: ScenarioObject): unknown {
+function sharedScenarioSignature(scenario: ScenarioObject, sibling?: ScenarioObject): unknown {
   const channel = scenario.channels[0];
   const channelFrontend = (channel === "chat" ? scenario.frontend?.chat : scenario.frontend?.voice) as Record<string, unknown> | undefined;
   const opening = scenario.customer?.opening as Record<string, unknown> | undefined;
-  const guideSections = Array.isArray(channelFrontend?.guideSections) ? channelFrontend.guideSections as Array<Record<string, unknown>> : [];
+  const guideSections = (Array.isArray(channelFrontend?.guideSections) ? channelFrontend.guideSections as Array<Record<string, unknown>> : [])
+    .filter((section) => !String(section.sourceLabel || "").startsWith("Creator-approved Standard Text guidance"));
+  const removableApprovedInstructions = chatOnlyApprovedInstructionCounts(scenario, sibling, guideSections);
   const progression = (channel === "chat" ? scenario.simulation?.stateModel?.chatStepProgression : scenario.simulation?.stateModel?.voiceStepProgression) || [];
   return {
     title: scenario.title,
@@ -748,13 +942,80 @@ function sharedScenarioSignature(scenario: ScenarioObject): unknown {
     approvedTranscript: scenario.simulation?.approvedTranscript,
     managerOnlyIdealResponses: scenario.simulation?.managerOnlyIdealResponses,
     guideSections: guideSections
-      .filter((section) => !String(section.sourceLabel || "").startsWith("Creator-approved Standard Text guidance"))
-      .map((section) => ({ title: section.title, body: section.body, bullets: section.bullets })),
+      .map((section, index) => ({
+        title: section.title,
+        body: section.body,
+        bullets: Array.isArray(section.bullets)
+          ? removeCountedInstructions(section.bullets, removableApprovedInstructions.get(index))
+          : section.bullets,
+      })),
     progression: Array.isArray(progression) ? progression.map((step) => ({
       label: step.label,
       customerResponse: step.customerResponse,
     })) : [],
   };
+}
+
+function chatOnlyApprovedInstructionCounts(
+  scenario: ScenarioObject,
+  sibling: ScenarioObject | undefined,
+  chatGuideSections: Array<Record<string, unknown>>,
+): Map<number, Map<string, number>> {
+  if (scenario.channels[0] !== "chat" || sibling?.channels[0] !== "voice") return new Map();
+  const chatFrontend = scenario.frontend?.chat as Record<string, unknown> | undefined;
+  const voiceFrontend = sibling.frontend?.voice as Record<string, unknown> | undefined;
+  const assignments = Array.isArray(chatFrontend?.approvedResponseAssignments)
+    ? chatFrontend.approvedResponseAssignments as Array<Record<string, unknown>>
+    : [];
+  const progression = Array.isArray(scenario.simulation?.stateModel?.chatStepProgression)
+    ? scenario.simulation.stateModel.chatStepProgression
+    : [];
+  const voiceGuideSections = (Array.isArray(voiceFrontend?.guideSections)
+    ? voiceFrontend.guideSections as Array<Record<string, unknown>>
+    : []).filter((section) => !String(section.sourceLabel || "").startsWith("Creator-approved Standard Text guidance"));
+  const assignmentCounts = new Map<number, Map<string, number>>();
+
+  for (const assignment of assignments) {
+    const instruction = normalizedInstruction(assignment.instruction);
+    const phaseId = String(assignment.phaseId || "");
+    const phaseIndex = progression.findIndex((step) => String(step.scenarioPathHint || "") === phaseId);
+    if (!instruction || phaseIndex < 0) continue;
+    const sectionCounts = assignmentCounts.get(phaseIndex) ?? new Map<string, number>();
+    sectionCounts.set(instruction, (sectionCounts.get(instruction) ?? 0) + 1);
+    assignmentCounts.set(phaseIndex, sectionCounts);
+  }
+
+  const removable = new Map<number, Map<string, number>>();
+  for (const [phaseIndex, instructionCounts] of assignmentCounts) {
+    const chatBullets = Array.isArray(chatGuideSections[phaseIndex]?.bullets) ? chatGuideSections[phaseIndex].bullets as unknown[] : [];
+    const voiceBullets = Array.isArray(voiceGuideSections[phaseIndex]?.bullets) ? voiceGuideSections[phaseIndex].bullets as unknown[] : [];
+    for (const [instruction, assignmentCount] of instructionCounts) {
+      const chatCount = chatBullets.filter((bullet) => normalizedInstruction(bullet) === instruction).length;
+      const voiceCount = voiceBullets.filter((bullet) => normalizedInstruction(bullet) === instruction).length;
+      const extraCount = Math.min(assignmentCount, Math.max(0, chatCount - voiceCount));
+      if (extraCount === 0) continue;
+      const sectionCounts = removable.get(phaseIndex) ?? new Map<string, number>();
+      sectionCounts.set(instruction, extraCount);
+      removable.set(phaseIndex, sectionCounts);
+    }
+  }
+  return removable;
+}
+
+function removeCountedInstructions(bullets: unknown[], removals?: Map<string, number>): unknown[] {
+  if (!removals?.size) return bullets;
+  const remaining = new Map(removals);
+  return bullets.filter((bullet) => {
+    const instruction = normalizedInstruction(bullet);
+    const count = remaining.get(instruction) ?? 0;
+    if (count === 0) return true;
+    remaining.set(instruction, count - 1);
+    return false;
+  });
+}
+
+function normalizedInstruction(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 function normalizeSharedBehavior(value: unknown): unknown {
@@ -795,6 +1056,10 @@ function normalizeDraftLists(draft: StudioDraft): StudioDraft {
       ...phase,
       learnerActions: arrayOfStrings(phase.learnerActions),
       coachGuidance: arrayOfStrings(phase.coachGuidance),
+      ...(phase.coachGuidanceHierarchy !== undefined
+        ? { coachGuidanceHierarchy: normalizeGuidanceHierarchy(phase.coachGuidanceHierarchy, phase.id) }
+        : {}),
+      evaluationLinks: normalizeEvaluationLinks(phase.evaluationLinks),
     })),
     objectives: draft.objectives.map((objective) => ({
       ...objective,
@@ -803,6 +1068,7 @@ function normalizeDraftLists(draft: StudioDraft): StudioDraft {
     chat: {
       ...draft.chat,
       standardText: draft.chat.standardText.map((item) => ({
+        ...(item.id ? { id: item.id } : {}),
         hotkey: item.hotkey || "",
         category: item.category || "Approved Standard Text",
         template: item.template || "",
@@ -811,6 +1077,7 @@ function normalizeDraftLists(draft: StudioDraft): StudioDraft {
         notes: arrayOfStrings(item.notes),
         approvedGuidance: item.approvedGuidance || "",
       })),
+      approvedResponseAssignments: normalizeApprovedResponseAssignments(draft.chat.approvedResponseAssignments),
       standardTextRecommendations: (draft.chat.standardTextRecommendations ?? []).map((item) => ({
         ...item,
         notes: arrayOfStrings(item.notes),

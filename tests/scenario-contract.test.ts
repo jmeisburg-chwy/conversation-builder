@@ -215,6 +215,33 @@ test("rejects improving a sibling pair with divergent channel guidance", () => {
   );
 });
 
+test("accepts a sibling pair when an approved-response instruction duplicates shared guidance", () => {
+  const draft = focusedDraft();
+  const sharedInstruction = draft.phases[0].coachGuidance[0];
+  draft.chat.approvedResponseAssignments = [{
+    id: "acknowledge_response",
+    responseId: "approved_acknowledgement",
+    phaseId: draft.phases[0].id,
+    instruction: sharedInstruction,
+  }];
+
+  const files = composeScenarioFiles(draft);
+  const chatSections = files[0].scenario.frontend.chat?.guideSections as Array<Record<string, unknown>>;
+  const voiceSections = files[1].scenario.frontend.voice?.guideSections as Array<Record<string, unknown>>;
+
+  assert.deepEqual(chatSections[0].bullets, voiceSections[0].bullets);
+  assert.doesNotThrow(() => importScenarioJson(JSON.stringify(files.map((file) => file.scenario)), "improve"));
+});
+
+test("does not clamp an invalid passing score before validation can reject it", () => {
+  const draft = focusedDraft();
+  draft.evaluation = { passingScore: 101 };
+
+  const files = composeScenarioFiles(draft);
+
+  assert.equal(files[0].scenario.coaching.gradingModel.passingScore, 101);
+});
+
 test("preserves compatibility facts when improving a focused Rx scenario", () => {
   const original = focusedDraft();
   original.agentType = "Rx";
@@ -282,14 +309,14 @@ test("preserves authoritative Factory facts, guidance, voice experience, and cus
   }
 });
 
-test("rejects structured guide bullets instead of stringifying them", () => {
+test("rejects malformed runtime guide-bullet hierarchy instead of stringifying it", () => {
   const [file] = composeScenarioFiles({ ...focusedDraft(), channels: ["voice"] });
   const sections = file.scenario.frontend.voice?.guideSections as Array<Record<string, unknown>>;
-  sections[0].bullets = [{ text: "Parent guidance", children: ["Nested detail"] }];
+  sections[0].bullets = [{ text: "Parent guidance", children: [{ text: "Nested detail", kind: "support" }] }];
 
   assert.throws(
     () => importScenarioJson(JSON.stringify(file.scenario), "improve"),
-    /structured bullets.*cannot safely edit/i,
+    /Coach Chewy bullet.*cannot safely edit/i,
   );
 });
 

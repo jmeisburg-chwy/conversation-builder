@@ -159,6 +159,28 @@ test("reports missing creator-owned content before offering downloads", async ()
   assert.equal(payload.files, undefined);
 });
 
+test("rejects passing scores outside the displayed 1-100 range", async () => {
+  for (const passingScore of [0, 101]) {
+    const invalid = draft();
+    invalid.evaluation = { passingScore };
+
+    const response = await createValidateHandler()(request({ draft: invalid }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 422);
+    assert.deepEqual(
+      payload.issues.find((issue: { code: string }) => issue.code === "invalid_passing_score"),
+      {
+        code: "invalid_passing_score",
+        path: "draft.evaluation.passingScore",
+        message: "Passing score must be between 1 and 100.",
+        fix: "Choose a passing score from 1 through 100.",
+      },
+    );
+    assert.equal(payload.files, undefined);
+  }
+});
+
 test("requires a Standard Text decision for chat files", async () => {
   const incomplete = draft();
   incomplete.chat.standardTextDecision = "unreviewed";

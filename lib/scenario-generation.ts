@@ -233,9 +233,18 @@ function parseRequest(raw: string): GenerateRequest {
     situation: value.situation.trim(),
     learnerGoal: cleanOptional(value.learnerGoal),
     correctProcess: cleanOptional(value.correctProcess),
-    agentType: value.agentType === "Rx" ? "Rx" : "Core",
+    agentType: inferredAgentType(value),
     sourceDraft,
   };
+}
+
+const RX_SOURCE_PATTERN = /\b(rx|pharmacy|prescription|medication|clinic|veterinar(?:y|ian))\b/iu;
+
+function inferredAgentType(value: Partial<GenerateRequest>): "Core" | "Rx" {
+  const material = [value.situation, value.learnerGoal, value.correctProcess]
+    .filter((entry): entry is string => typeof entry === "string")
+    .join(" ");
+  return value.agentType === "Rx" || RX_SOURCE_PATTERN.test(material) ? "Rx" : "Core";
 }
 
 function parseProviderOutput(raw: string): GeneratedContent {
@@ -271,6 +280,9 @@ function assertGeneratedContent(value: GeneratedContent): void {
 
 function normalizeDraft(content: GeneratedContent, input: GenerateRequest): StudioDraft {
   const preserveImportedSettings = input.mode === "improve" && input.sourceDraft;
+  const authoringAgentType = preserveImportedSettings
+    ? input.sourceDraft!.agentType
+    : input.agentType;
   const generatedBaseId = slug(content.title);
   const baseId = preserveImportedSettings
     ? input.sourceDraft!.baseId
@@ -290,7 +302,7 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
     description: content.description.trim(),
     learnerGoal: content.learnerGoal.trim(),
     channels: orderedChannels(input.channels),
-    agentType: content.agentType,
+    agentType: authoringAgentType,
     topic: content.topic.trim(),
     subtopic: content.subtopic.trim(),
     teamAudience: content.teamAudience.trim(),
@@ -317,14 +329,17 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
         ...(sourcePhase?.managerGuidance !== undefined ? { managerGuidance: sourcePhase.managerGuidance } : {}),
       };
     }),
-    objectives: content.objectives,
+    objectives: content.objectives.map((objective) => ({
+      ...objective,
+      criteria: objective.criteria.map(normalizeGeneratedCriterion),
+    })),
     objectiveApprovalRequired: Boolean(input.sourceDraft?.objectiveApprovalRequired),
     compatibilityFacts: preserveImportedSettings
       ? input.sourceDraft!.compatibilityFacts ?? content.compatibilityFacts
       : content.compatibilityFacts,
     chat: preserveImportedSettings
       ? input.sourceDraft!.chat
-      : { hotkeyProfile: content.agentType === "Rx" ? "rx" : "core", standardText: [], standardTextDecision: "unreviewed", standardTextRecommendations },
+      : { hotkeyProfile: authoringAgentType === "Rx" ? "rx" : "core", standardText: [], standardTextDecision: "unreviewed", standardTextRecommendations },
     voice: preserveImportedSettings
       ? input.sourceDraft!.voice
       : { selectedVoice: "marin", speed: 1, experience: createDefaultVoiceExperience(content.customer.tone) },
@@ -332,6 +347,44 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
       ? { sourceScenarios: input.sourceDraft!.sourceScenarios, sourceOverlay: true }
       : {}),
   };
+}
+
+const GENERATED_IMPERATIVE_FORMS = new Map([
+  ["acknowledges", "Acknowledge"], ["asks", "Ask"], ["avoids", "Avoid"], ["checks", "Check"],
+  ["clarifies", "Clarify"], ["communicates", "Communicate"], ["completes", "Complete"], ["confirms", "Confirm"],
+  ["connects", "Connect"], ["continues", "Continue"], ["describes", "Describe"], ["determines", "Determine"],
+  ["directs", "Direct"], ["distinguishes", "Distinguish"], ["does", "Do"], ["ends", "End"],
+  ["explains", "Explain"], ["focuses", "Focus"], ["gives", "Give"], ["highlights", "Highlight"],
+  ["identifies", "Identify"], ["includes", "Include"], ["introduces", "Introduce"], ["keeps", "Keep"],
+  ["maintains", "Maintain"], ["mentions", "Mention"], ["obtains", "Obtain"], ["offers", "Offer"],
+  ["pauses", "Pause"], ["personalizes", "Personalize"], ["positions", "Position"], ["presents", "Present"],
+  ["protects", "Protect"], ["provides", "Provide"], ["reads", "Read"], ["reassures", "Reassure"],
+  ["recaps", "Recap"], ["recognizes", "Recognize"], ["remains", "Remain"], ["requests", "Request"],
+  ["requires", "Require"], ["responds", "Respond"], ["restates", "Restate"], ["reviews", "Review"],
+  ["selects", "Select"], ["shares", "Share"], ["shows", "Show"], ["states", "State"],
+  ["stops", "Stop"], ["takes", "Take"], ["thanks", "Thank"], ["updates", "Update"],
+  ["uses", "Use"], ["verifies", "Verify"], ["waits", "Wait"],
+]);
+
+const GENERATED_IMPERATIVE_BASES = new Set(
+  [...GENERATED_IMPERATIVE_FORMS.values()].map((value) => value.toLowerCase()),
+);
+
+function normalizeGeneratedCriterion(value: string): string {
+  const criterion = value.trim();
+  const words = criterion.match(/^([A-Za-z-]+)(?:\s+([A-Za-z-]+))?(.*)$/);
+  if (!words) return criterion;
+  const first = words[1].toLowerCase();
+  if (GENERATED_IMPERATIVE_BASES.has(first) || first === "never") return criterion;
+
+  const direct = GENERATED_IMPERATIVE_FORMS.get(first);
+  if (direct) return `${direct}${criterion.slice(words[1].length)}`;
+
+  const second = String(words[2] || "").toLowerCase();
+  const adverbial = first.endsWith("ly") ? GENERATED_IMPERATIVE_FORMS.get(second) : undefined;
+  if (adverbial) return `${adverbial} ${words[1].toLowerCase()}${words[3] || ""}`;
+
+  return `Show this behavior: ${criterion}`;
 }
 
 function errorResponse(status: number, code: string, message: string, details?: unknown): Response {
@@ -442,6 +495,7 @@ Use fictional names and details. Never invent policy, refunds, delivery guarante
 When a street address is needed, use the visibly fictional placeholder 123 Example Street, Exampletown, PA 00000.
 Treat supplied correct-process details as the authority. Surface uncertainty in assumptions.
 Make each objective observable and each phase response-ordered. Keep customer responses natural and concise.
+Begin every objective criterion with a neutral imperative action such as Acknowledge, Ask, Explain, Confirm, Avoid, or Recap.
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.
 Repeat every prohibited action in neutral imperative wording in both an objective criterion and the relevant Coach Chewy guidance.

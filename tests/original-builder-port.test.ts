@@ -11,6 +11,10 @@ import {
   saveStandaloneDraft,
   standaloneToAuthoringDraft,
 } from "../public/builder-studio/src/standaloneAdapter.js";
+import {
+  actionableBlockingIssues,
+  standalonePublishChecks,
+} from "../public/builder-studio/app.js";
 
 const root = new URL("../", import.meta.url);
 
@@ -24,6 +28,7 @@ test("ports the original complete Review/Edit surface into the standalone Builde
   assert.match(html, /id="reviewPractice"/);
   assert.match(html, /id="hotkeyLibrary"/);
   assert.match(html, /id="reviewFinalCheck"/);
+  assert.doesNotMatch(html, /id="deidentificationConfirmed"|By creating a draft, you confirm/i);
 });
 
 test("adapts the original final stage to local save and download without Test or Publish", () => {
@@ -46,6 +51,48 @@ test("bridges the original UI to standalone persistence and the existing backend
   assert.match(script, /\/api\/builder\/generate/);
   assert.match(script, /\/api\/builder\/validate/);
   assert.match(script, /localStorage/);
+  assert.doesNotMatch(script, /agentType:\s*"Core"/);
+});
+
+test("keeps standalone bootstrap safe after removing the simulator preview", () => {
+  const script = readFileSync(new URL("public/builder-studio/app.js", root), "utf8");
+
+  assert.match(
+    script,
+    /function updatePreviewButtonLabel\(options = \{\}\) \{\s+if \(!elements\.playPreviewButton\) return;/,
+  );
+});
+
+test("maps standalone validation paths back to the original Review/Edit controls", () => {
+  const [action] = actionableBlockingIssues({
+    issues: [{
+      severity: "FAIL",
+      code: "non_imperative_criterion",
+      fieldPath: "draft.objectives[1].criteria[2]",
+      message: "Observable criteria must begin with an imperative action.",
+    }],
+  });
+
+  assert.equal(action.reviewFieldPath, "evaluation.objectives.1.criteria.2.text");
+  assert.equal(action.actionLabel, "Review objectives");
+  assert.equal(action.message, "Add at least one evaluation criterion.");
+});
+
+test("marks Personal information as needing attention for standalone privacy issues", () => {
+  assert.deepEqual(standalonePublishChecks({
+    fail: 1,
+    issues: [{ code: "privacy_street_address" }],
+  }), {
+    authoritative: "attention",
+    privacy: "attention",
+  });
+  assert.deepEqual(standalonePublishChecks({
+    fail: 1,
+    issues: [{ code: "required_value" }],
+  }), {
+    authoritative: "attention",
+    privacy: "passed",
+  });
 });
 
 test("persists an original Review/Edit draft and validates simulator-ready downloads after an edit", async () => {

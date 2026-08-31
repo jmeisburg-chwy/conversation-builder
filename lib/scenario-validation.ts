@@ -123,9 +123,13 @@ export function parseStudioDraft(draft: unknown): StudioDraft | null {
     || !isStringArray(value.correctProcess) || !isStringArray(value.prohibitedActions)
     || !Array.isArray(value.phases) || !value.phases.every(isPhaseDraft)
     || !Array.isArray(value.objectives) || !value.objectives.every(isObjectiveDraft)
+    || (value.evaluation !== undefined && (!value.evaluation || typeof value.evaluation !== "object"
+      || typeof value.evaluation.passingScore !== "number" || !Number.isFinite(value.evaluation.passingScore)))
     || !value.chat || (value.chat.hotkeyProfile !== "core" && value.chat.hotkeyProfile !== "rx")
+    || (value.chat.customerStarts !== undefined && typeof value.chat.customerStarts !== "boolean")
     || !Array.isArray(value.chat.standardText) || !value.chat.standardText.every(isStandardTextDraft) || !isStandardTextDecision(value.chat.standardTextDecision)
     || (value.chat.standardTextRecommendations !== undefined && (!Array.isArray(value.chat.standardTextRecommendations) || !value.chat.standardTextRecommendations.every(isStandardTextDraft)))
+    || (value.chat.approvedResponseAssignments !== undefined && (!Array.isArray(value.chat.approvedResponseAssignments) || !value.chat.approvedResponseAssignments.every(isApprovedResponseAssignmentDraft)))
     || !value.voice || typeof value.voice.selectedVoice !== "string" || typeof value.voice.speed !== "number" || !Number.isFinite(value.voice.speed)
     || (value.voice.experience !== undefined && !isVoiceExperienceDraft(value.voice.experience))
     || (value.objectiveApprovalRequired !== undefined && typeof value.objectiveApprovalRequired !== "boolean")
@@ -185,6 +189,14 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
   requireText("draft.customer.openingLine", draft.customer.openingLine, "Opening line");
   requireText("draft.customer.closingLine", draft.customer.closingLine, "Closing line");
   requireLines("draft.correctProcess", draft.correctProcess, "Correct process");
+  if (draft.evaluation && (draft.evaluation.passingScore < 1 || draft.evaluation.passingScore > 100)) {
+    issues.push({
+      code: "invalid_passing_score",
+      path: "draft.evaluation.passingScore",
+      message: "Passing score must be between 1 and 100.",
+      fix: "Choose a passing score from 1 through 100.",
+    });
+  }
   if (draft.channels.length === 0 || draft.channels.some((channel) => channel !== "chat" && channel !== "voice")) {
     issues.push({ code: "channel_required", path: "draft.channels", message: "Choose at least one valid practice format.", fix: "Choose Chat, Voice, or both." });
   }
@@ -282,7 +294,44 @@ function isPhaseDraft(value: unknown): boolean {
     && typeof phase.partnerResponse === "string" && isStringArray(phase.coachGuidance)
     && ["guideSourceLabel", "guideSource", "guideTitle", "guideBody", "managerGuidance"]
       .every((key) => phase[key] === undefined || typeof phase[key] === "string")
+    && (phase.evaluationLinks === undefined || (Array.isArray(phase.evaluationLinks) && phase.evaluationLinks.every(isEvaluationLinkDraft)))
+    && (phase.coachGuidanceHierarchy === undefined || (
+      Array.isArray(phase.coachGuidanceHierarchy)
+      && phase.coachGuidanceHierarchy.every(isGuidanceBulletDraft)
+    ))
     && (phase.customerRemainsSilent === undefined || typeof phase.customerRemainsSilent === "boolean");
+}
+
+function isGuidanceBulletDraft(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const bullet = value as Record<string, unknown>;
+  return typeof bullet.id === "string"
+    && typeof bullet.text === "string"
+    && (bullet.children === undefined || (
+      Array.isArray(bullet.children)
+      && bullet.children.length > 0
+      && bullet.children.every(isGuidanceChildDraft)
+    ))
+    && (bullet.systemReference === undefined || (
+      Boolean(bullet.systemReference)
+      && typeof bullet.systemReference === "object"
+      && !Array.isArray(bullet.systemReference)
+    ));
+}
+
+function isGuidanceChildDraft(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const child = value as Record<string, unknown>;
+  return typeof child.id === "string"
+    && typeof child.text === "string"
+    && (child.kind === "support" || child.kind === "caution")
+    && (child.kindOverride === undefined || typeof child.kindOverride === "boolean");
+}
+
+function isEvaluationLinkDraft(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const link = value as Record<string, unknown>;
+  return typeof link.objectiveId === "string" && isStringArray(link.criterionIds);
 }
 
 function isObjectiveDraft(value: unknown): boolean {
@@ -294,10 +343,17 @@ function isObjectiveDraft(value: unknown): boolean {
 function isStandardTextDraft(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
-  return typeof item.hotkey === "string" && typeof item.category === "string" && typeof item.template === "string"
+  return (item.id === undefined || typeof item.id === "string")
+    && typeof item.hotkey === "string" && typeof item.category === "string" && typeof item.template === "string"
     && typeof item.insertionMoment === "string" && typeof item.customization === "string"
     && isStringArray(item.notes) && typeof item.approvedGuidance === "string"
     && (item.recommendationReason === undefined || typeof item.recommendationReason === "string");
+}
+
+function isApprovedResponseAssignmentDraft(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const assignment = value as Record<string, unknown>;
+  return ["id", "responseId", "phaseId", "instruction"].every((key) => typeof assignment[key] === "string");
 }
 
 function isVoiceExperienceDraft(value: unknown): boolean {

@@ -135,6 +135,39 @@ test("requires de-identification confirmation before calling the provider", asyn
   assert.equal(called, false);
 });
 
+test("infers Rx from the original two-question Build answers and keeps it authoritative", async () => {
+  let providerInput: Record<string, unknown> | undefined;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body)) as {
+        input: Array<{ role: string; content: Array<{ text: string }> }>;
+      };
+      providerInput = JSON.parse(payload.input.find(({ role }) => role === "user")!.content[0].text);
+      return providerResponse({
+        ...generated,
+        agentType: "Core",
+        topic: "Pharmacy Support",
+        subtopic: "Prescription refill",
+      });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional pet parent needs help with a delayed prescription refill from Chewy Pharmacy.",
+    learnerGoal: "Explain the medication refill status and the approved next step.",
+    correctProcess: "Confirm the prescription details and set accurate expectations.",
+    agentType: undefined,
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(providerInput?.agentType, "Rx");
+  assert.equal(payload.draft.agentType, "Rx");
+  assert.equal(payload.draft.chat.hotkeyProfile, "rx");
+});
+
 test("requires a JSON content type before accepting generation input", async () => {
   let called = false;
   const handler = createGenerateHandler({
@@ -369,6 +402,33 @@ test("sends one strict, tool-free, non-stored request and returns a normalized d
   assert.equal(payload.draft.chat.standardTextRecommendations.length <= 3, true);
   assert.equal(payload.draft.voice.selectedVoice, "marin");
   assert.deepEqual(payload.assumptions, generated.assumptions);
+});
+
+test("normalizes generated objective criteria to neutral imperative wording", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      objectives: [{
+        ...generated.objectives[0],
+        criteria: [
+          "Acknowledges the customer's concern clearly.",
+          "Clearly explains the expected delivery window.",
+          "Does not guarantee the delivery date.",
+        ],
+      }],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload.draft.objectives[0].criteria, [
+    "Acknowledge the customer's concern clearly.",
+    "Explain clearly the expected delivery window.",
+    "Do not guarantee the delivery date.",
+  ]);
 });
 
 test("replaces sensitive-looking details invented by the provider before returning the draft", async () => {

@@ -9,6 +9,80 @@ function objectiveCriterion(objectiveId, criterion, index) {
   return { id: slug(typeof criterion === "object" && criterion ? criterion.id : "", `${objectiveId}_criterion_${index + 1}`), text: text(value) };
 }
 
+function phaseEvaluationLinks(value) {
+  return listOf(value).flatMap((link) => {
+    const objectiveId = text(link?.objectiveId);
+    const criterionIds = list(link?.criterionIds);
+    return objectiveId && criterionIds.length ? [{ objectiveId, criterionIds }] : [];
+  });
+}
+
+function downloadablePhaseEvaluationLinks(value, sourceObjectives, standaloneObjectives) {
+  return phaseEvaluationLinks(value).map((link) => {
+    const sourceObjectiveIndex = sourceObjectives.findIndex((objective) =>
+      text(objective?.id) === link.objectiveId || slug(objective?.id, "") === slug(link.objectiveId, "")
+    );
+    const sourceObjective = sourceObjectives[sourceObjectiveIndex];
+    const standaloneObjective = standaloneObjectives[sourceObjectiveIndex];
+    if (!sourceObjective || !standaloneObjective) return link;
+    const criterionIdsBySourceId = new Map(
+      listOf(sourceObjective?.criteria).map((criterion, index) => [
+        text(typeof criterion === "object" && criterion ? criterion.id : ""),
+        `${standaloneObjective.id}_criterion_${index + 1}`,
+      ]).filter(([sourceId]) => sourceId)
+    );
+    return {
+      objectiveId: standaloneObjective.id,
+      criterionIds: link.criterionIds.map((criterionId) => criterionIdsBySourceId.get(criterionId) || criterionId),
+    };
+  });
+}
+
+function approvedResponseAssignments(value) {
+  return listOf(value).flatMap((assignment, index) => {
+    const responseId = text(assignment?.responseId);
+    const phaseId = text(assignment?.phaseId);
+    const instruction = text(assignment?.instruction);
+    return responseId && phaseId && instruction ? [{
+      id: slug(assignment?.id, `assignment_${index + 1}`),
+      responseId,
+      phaseId,
+      instruction,
+    }] : [];
+  });
+}
+
+function guidanceHierarchy(value, phaseId) {
+  return listOf(value).flatMap((bullet, bulletIndex) => {
+    const candidate = typeof bullet === "object" && bullet ? bullet : { text: bullet };
+    const bulletText = text(candidate.text ?? candidate.body);
+    if (!bulletText) return [];
+    const children = listOf(candidate.children).flatMap((child, childIndex) => {
+      const childCandidate = typeof child === "object" && child ? child : { text: child };
+      const childText = text(childCandidate.text);
+      if (!childText) return [];
+      return [{
+        id: text(childCandidate.id, `${phaseId}_guidance_${bulletIndex + 1}_${childIndex + 1}`),
+        text: childText,
+        kind: childCandidate.kind === "caution" ? "caution" : "support",
+        ...(childCandidate.kindOverride === true ? { kindOverride: true } : {}),
+      }];
+    });
+    return [{
+      id: text(candidate.id, `${phaseId}_guidance_${bulletIndex + 1}`),
+      text: bulletText,
+      ...(children.length ? { children } : {}),
+      ...(candidate.systemReference && typeof candidate.systemReference === "object"
+        ? { systemReference: structuredClone(candidate.systemReference) }
+        : {}),
+    }];
+  });
+}
+
+function flattenedGuidance(hierarchy) {
+  return hierarchy.flatMap((bullet) => [bullet.text, ...listOf(bullet.children).map((child) => text(child?.text))]).filter(Boolean);
+}
+
 export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
   const objectives = listOf(draft?.objectives).map((objective, objectiveIndex) => {
     const id = slug(objective?.id, `objective_${objectiveIndex + 1}`);
@@ -20,27 +94,35 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
     };
   });
   const sourcePhases = listOf(draft?.phases);
-  const phases = sourcePhases.map((phase, index) => ({
-    id: slug(phase?.id, `phase_${index + 1}`),
-    title: text(phase?.title, `Phase ${index + 1}`),
-    purpose: list(phase?.learnerActions).join(" "),
-    partnerTurn: index === 0
-      ? text(draft?.customer?.openingLine, phase?.partnerResponse)
-      : text(sourcePhases[index - 1]?.partnerResponse),
-    strongLearnerResponse: list(phase?.learnerActions).join(" "),
-    coachGuidance: {
-      title: text(phase?.guideTitle, phase?.title),
-      bullets: list(phase?.coachGuidance).map((guidance, guidanceIndex) => ({
-        id: `${slug(phase?.id, `phase_${index + 1}`)}_guidance_${guidanceIndex + 1}`,
-        text: guidance,
-      })),
-    },
-    advanceWhen: list(phase?.learnerActions).join(" "),
-    evaluationLinks: objectives.flatMap((objective) => {
-      const criterion = objective.criteria[index] || objective.criteria[0];
-      return criterion ? [{ objectiveId: objective.id, criterionIds: [criterion.id] }] : [];
-    }),
-  }));
+  const phases = sourcePhases.map((phase, index) => {
+    const phaseId = slug(phase?.id, `phase_${index + 1}`);
+    const hierarchy = guidanceHierarchy(phase?.coachGuidanceHierarchy, phaseId);
+    return {
+      id: phaseId,
+      title: text(phase?.title, `Phase ${index + 1}`),
+      purpose: list(phase?.learnerActions).join(" "),
+      partnerTurn: index === 0
+        ? text(draft?.customer?.openingLine, phase?.partnerResponse)
+        : text(sourcePhases[index - 1]?.partnerResponse),
+      strongLearnerResponse: list(phase?.learnerActions).join(" "),
+      coachGuidance: {
+        title: text(phase?.guideTitle, phase?.title),
+        bullets: hierarchy.length
+          ? hierarchy
+          : list(phase?.coachGuidance).map((guidance, guidanceIndex) => ({
+              id: `${phaseId}_guidance_${guidanceIndex + 1}`,
+              text: guidance,
+            })),
+      },
+      advanceWhen: list(phase?.learnerActions).join(" "),
+      evaluationLinks: phaseEvaluationLinks(phase?.evaluationLinks).length
+        ? phaseEvaluationLinks(phase?.evaluationLinks)
+        : objectives.flatMap((objective) => {
+            const criterion = objective.criteria[index] || objective.criteria[0];
+            return criterion ? [{ objectiveId: objective.id, criterionIds: [criterion.id] }] : [];
+          }),
+    };
+  });
   const material = [
     `What the conversation is about:\n${text(creatorInput.conversationAbout, draft?.description)}`,
     `How the Learner should handle the conversation:\n${text(creatorInput.learnerApproach, draft?.learnerGoal)}`,
@@ -102,7 +184,7 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
     evaluation: {
       mode: "focused_learning_objectives",
       criteria: objectives.flatMap((objective) => objective.criteria.map((criterion) => criterion.text)),
-      passingScore: 80,
+      passingScore: Number.isFinite(draft?.evaluation?.passingScore) ? draft.evaluation.passingScore : 80,
       objectives,
     },
     voice: {
@@ -114,23 +196,24 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
     },
     chat: {
       hotkeyProfile: draft?.chat?.hotkeyProfile === "rx" ? "rx" : "core",
-      customerStarts: true,
+      customerStarts: draft?.chat?.customerStarts !== false,
       openingLine: text(draft?.customer?.openingLine),
       standardText: listOf(draft?.chat?.standardText).map((item, index) => ({
-        id: slug(item?.hotkey, `response_${index + 1}`),
+        id: slug(item?.id, `response_${slug(item?.hotkey, String(index + 1))}`),
         hotkey: text(item?.hotkey),
         category: text(item?.category),
         template: text(item?.template),
         notes: list(item?.notes),
       })),
-      approvedResponseAssignments: [],
+      approvedResponseAssignments: approvedResponseAssignments(draft?.chat?.approvedResponseAssignments),
     },
   };
 }
 
 export function authoringToStandaloneDraft(draft) {
   const phases = listOf(draft?.flow?.phases);
-  const objectives = listOf(draft?.evaluation?.objectives).map((objective, index) => ({
+  const sourceObjectives = listOf(draft?.evaluation?.objectives);
+  const objectives = sourceObjectives.map((objective, index) => ({
     id: slug(objective?.id, `objective_${index + 1}`),
     label: text(objective?.label, `Objective ${index + 1}`),
     description: text(objective?.description, draft?.scenario?.learnerGoal),
@@ -140,6 +223,7 @@ export function authoringToStandaloneDraft(draft) {
     listOf(bullet?.children).filter((child) => child?.kind === "caution").map((child) => text(child?.text))
   )).filter(Boolean);
   const standardText = listOf(draft?.chat?.standardText).map((item) => ({
+    id: slug(item?.id, `response_${slug(item?.hotkey, "standard_text")}`),
     hotkey: text(item?.hotkey),
     category: text(item?.category, "Approved response"),
     template: text(item?.template),
@@ -173,18 +257,27 @@ export function authoringToStandaloneDraft(draft) {
     },
     correctProcess: phases.map((phase) => text(phase?.strongLearnerResponse)).filter(Boolean),
     prohibitedActions: cautions,
-    phases: phases.map((phase, index) => ({
-      id: slug(phase?.id, `phase_${index + 1}`),
-      title: text(phase?.title, `Phase ${index + 1}`),
-      learnerActions: [text(phase?.strongLearnerResponse)].filter(Boolean),
-      partnerResponse: text(phases[index + 1]?.partnerTurn, draft?.flow?.closingPartnerTurn),
-      coachGuidance: listOf(phase?.coachGuidance?.bullets).flatMap((bullet) => [text(bullet?.text), ...listOf(bullet?.children).map((child) => text(child?.text))]).filter(Boolean),
-      guideTitle: text(phase?.coachGuidance?.title, phase?.title),
-      guideBody: text(phase?.coachGuidance?.bullets?.[0]?.text, phase?.strongLearnerResponse),
-      customerRemainsSilent: index === phases.length - 1 && !text(draft?.flow?.closingPartnerTurn),
-    })),
+    phases: phases.map((phase, index) => {
+      const phaseId = slug(phase?.id, `phase_${index + 1}`);
+      const hierarchy = guidanceHierarchy(phase?.coachGuidance?.bullets, phaseId);
+      return {
+        id: phaseId,
+        title: text(phase?.title, `Phase ${index + 1}`),
+        learnerActions: [text(phase?.strongLearnerResponse)].filter(Boolean),
+        partnerResponse: text(phases[index + 1]?.partnerTurn, draft?.flow?.closingPartnerTurn),
+        coachGuidance: flattenedGuidance(hierarchy),
+        coachGuidanceHierarchy: hierarchy,
+        guideTitle: text(phase?.coachGuidance?.title, phase?.title),
+        guideBody: text(phase?.coachGuidance?.bullets?.[0]?.text, phase?.strongLearnerResponse),
+        customerRemainsSilent: index === phases.length - 1 && !text(draft?.flow?.closingPartnerTurn),
+        evaluationLinks: downloadablePhaseEvaluationLinks(phase?.evaluationLinks, sourceObjectives, objectives),
+      };
+    }),
     objectives,
     objectiveApprovalRequired: false,
+    evaluation: {
+      passingScore: Number.isFinite(draft?.evaluation?.passingScore) ? draft.evaluation.passingScore : 80,
+    },
     compatibilityFacts: {
       address: text(draft?.facts?.address),
       medication: text(draft?.facts?.medication),
@@ -197,8 +290,10 @@ export function authoringToStandaloneDraft(draft) {
     },
     chat: {
       hotkeyProfile: draft?.chat?.hotkeyProfile === "rx" ? "rx" : "core",
+      customerStarts: draft?.chat?.customerStarts !== false,
       standardText,
       standardTextDecision: standardText.length ? "approved" : "none",
+      approvedResponseAssignments: approvedResponseAssignments(draft?.chat?.approvedResponseAssignments),
     },
     voice: {
       selectedVoice: text(draft?.voice?.selectedVoice, "marin"),
