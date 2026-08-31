@@ -203,6 +203,18 @@ test("returns an actionable client error for malformed input", async () => {
   assert.equal((await response.json()).error.code, "invalid_request");
 });
 
+test("accepts the new-scenario browser payload with a null source draft", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(generated),
+  });
+
+  const response = await handler(request({ ...validBody, sourceDraft: null }));
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).draft.baseId, "late_dog_food_order");
+});
+
 test("returns a configuration error without exposing or calling an absent key", async () => {
   let called = false;
   const handler = createGenerateHandler({

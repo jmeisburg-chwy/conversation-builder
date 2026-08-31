@@ -154,8 +154,8 @@ function parseRequest(raw: string): GenerateRequest {
   if (!isMode(value.mode) || channels.length === 0 || !nonempty(value.situation)) {
     throw new Error("invalid_request");
   }
-  const sourceDraft = value.sourceDraft === undefined ? undefined : parseStudioDraft(value.sourceDraft);
-  if (value.sourceDraft !== undefined && !sourceDraft) throw new Error("invalid_request");
+  const sourceDraft = value.sourceDraft == null ? undefined : parseStudioDraft(value.sourceDraft);
+  if (value.sourceDraft != null && !sourceDraft) throw new Error("invalid_request");
   return {
     mode: value.mode,
     deidentificationConfirmed: value.deidentificationConfirmed === true,
