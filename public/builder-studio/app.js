@@ -128,6 +128,7 @@ const elements = {
   buildIntakeStatus: $("#buildIntakeStatus"),
   customerSituationInput: $("#customerSituationInput"),
   learnerApproachInput: $("#learnerApproachInput"),
+  deidentificationConfirmedInput: $("#deidentificationConfirmed"),
   sourceGroundingMount: $("#sourceGroundingMount"),
   sourceGroundingDetails: $("#sourceGroundingDetails"),
   sourceNameInput: $("#sourceNameInput"),
@@ -1339,13 +1340,17 @@ function commitObjectiveLabelMutation(objectiveId) {
 export async function requestGeneratedStudioDraftFromInputs({
   conversationAboutInput,
   learnerApproachInput,
-  channels = ["chat", "voice"]
+  deidentificationConfirmedInput,
+  channels = ["chat", "voice"],
+  request = requestJson
 }) {
+  const deidentificationConfirmed = deidentificationConfirmedInput?.checked === true;
   const creatorInput = {
     conversationAbout: String(conversationAboutInput?.value || ""),
-    learnerApproach: String(learnerApproachInput?.value || "")
+    learnerApproach: String(learnerApproachInput?.value || ""),
+    deidentificationConfirmed
   };
-  const response = await requestJson("/api/builder/generate", {
+  const response = await request("/api/builder/generate", {
     method: "POST",
     body: JSON.stringify({
       mode: "new",
@@ -1353,7 +1358,7 @@ export async function requestGeneratedStudioDraftFromInputs({
       situation: creatorInput.conversationAbout,
       learnerGoal: creatorInput.learnerApproach,
       correctProcess: creatorInput.learnerApproach,
-      deidentificationConfirmed: true
+      deidentificationConfirmed
     })
   });
   if (!response?.draft) throw new Error("We couldn’t create a safe draft this time. Try again.");
@@ -1394,9 +1399,11 @@ export async function waitForGeneratedStudioDraft(
 export async function runCreateDraftBuild({
   conversationAboutInput,
   learnerApproachInput,
+  deidentificationConfirmedInput,
   createDraftButton,
   reportStatus = setGlobalStatus,
-  completeDraftCreation = async () => {}
+  completeDraftCreation = async () => {},
+  requestDraft = requestGeneratedStudioDraftFromInputs
 }) {
   if (createDraftButton.disabled) return { status: "ignored" };
   const requiredInputs = [
@@ -1409,13 +1416,19 @@ export async function runCreateDraftBuild({
     missing[0].focus();
     return { status: "invalid" };
   }
+  if (deidentificationConfirmedInput?.checked !== true) {
+    reportStatus("Confirm that the conversation details are fictional or de-identified.", "error");
+    deidentificationConfirmedInput?.focus();
+    return { status: "invalid" };
+  }
   const idleButtonText = createDraftButton.textContent;
   createDraftButton.disabled = true;
   createDraftButton.textContent = "Creating draft…";
   try {
-    const draft = await requestGeneratedStudioDraftFromInputs({
+    const draft = await requestDraft({
       conversationAboutInput,
-      learnerApproachInput
+      learnerApproachInput,
+      deidentificationConfirmedInput
     });
     await completeDraftCreation(draft);
     return { status: "created", draft };
@@ -1450,6 +1463,7 @@ function setBuildIntakeControlsDisabled(disabled) {
   [
     elements.customerSituationInput,
     elements.learnerApproachInput,
+    elements.deidentificationConfirmedInput,
     elements.buildConversationContinueButton,
     elements.editBuildConversationButton,
     elements.createDraftButton,
@@ -1810,14 +1824,42 @@ export async function savePersistentDraft({
   };
 }
 
-async function saveDraft({ quiet = false } = {}) {
-  if (!state.draft) return;
-  state.draft = normalizePhaseAuthoringDraft(state.draft);
-  state.draftId = state.draft.draftId;
-  if (state.currentDraftActive) state.currentDraftUpdatedAt = new Date().toISOString();
-  saveStandaloneDraft(window.localStorage, state.draft);
-  updateSavedState({ draftId: state.draftId });
-  if (!quiet) showToast("Draft saved in this browser.");
+export async function saveDraft({
+  quiet = false,
+  draftState = state,
+  getStorage = () => browserWindow?.localStorage,
+  reportStatus = (message) => {
+    if (elements.publishStatus) elements.publishStatus.textContent = message;
+  },
+  notify = showToast
+} = {}) {
+  if (!draftState.draft) return { saved: false };
+  draftState.draft = normalizePhaseAuthoringDraft(draftState.draft);
+  draftState.draftId = draftState.draft.draftId;
+  if (draftState.currentDraftActive) {
+    draftState.currentDraftUpdatedAt = new Date().toISOString();
+  }
+  try {
+    const result = saveStandaloneDraft(getStorage(), draftState.draft);
+    draftState.savedDraft = clone(draftState.draft);
+    if (!quiet) notify("Draft saved in this browser.");
+    return { saved: true, savedAt: result.savedAt };
+  } catch (error) {
+    const message = "Draft could not be saved in this browser. Validation and JSON download can continue, but download your JSON before leaving.";
+    reportStatus(message);
+    notify(message);
+    return { saved: false, error };
+  }
+}
+
+export function loadSavedDraftSafely({
+  getStorage = () => browserWindow?.localStorage
+} = {}) {
+  try {
+    return loadStandaloneDraft(getStorage());
+  } catch {
+    return null;
+  }
 }
 
 function clearDraftConflict() {
@@ -1898,6 +1940,12 @@ function normalizePhaseAuthoringDraft(draft) {
   const beforePhasesById = new Map(beforePhases.map((phase) => [phase?.id, phase]));
   normalized.flow.phases = (normalized.flow?.phases || []).map((phase) => ({
     ...phase,
+    chatAdvanceRequirements: (() => {
+      const authored = beforePhasesById.get(phase.id);
+      return authored && Object.hasOwn(authored, "chatAdvanceRequirements")
+        ? clone(authored.chatAdvanceRequirements)
+        : clone(phase.chatAdvanceRequirements || []);
+    })(),
     evaluationLinks: (() => {
       const authored = beforePhasesById.get(phase.id);
       const links = authored && Object.hasOwn(authored, "evaluationLinks")
@@ -2035,7 +2083,7 @@ export function formatUpdatedAt(value, locales = undefined) {
 
 export function stepPassingScore(value, delta) {
   const parsed = Number(value);
-  const current = Number.isFinite(parsed) ? parsed : 80;
+  const current = String(value ?? "").trim() && Number.isFinite(parsed) ? parsed : 100;
   const step = Number(delta) < 0 ? -1 : 1;
   return Math.min(100, Math.max(1, current + step));
 }
@@ -3088,10 +3136,18 @@ export function reviewFindingTargets(draft, findings = blockingPhaseEvaluationFi
       const firstCriterionId = firstLink?.criterionIds?.[0];
       const firstObjective = objectives[0];
       const firstAvailableCriterionId = criterionId(firstObjective?.criteria?.[0]);
+      const chatRequirementMatch = field.match(/^chatAdvanceRequirements(?:\.(\d+))?/);
+      const chatRequirement = chatRequirementMatch
+        ? phase.chatAdvanceRequirements?.[Number(chatRequirementMatch[1] || 0)]
+        : null;
       const focusKey = field.startsWith("partnerTurn")
         ? `partner-turn:${phase.id}`
         : field.startsWith("strongLearnerResponse")
           ? `strong-response:${phase.id}`
+          : field.startsWith("chatAdvanceRequirements")
+            ? chatRequirement
+              ? `chat-requirement-phrases:${phase.id}:${chatRequirement.id}`
+              : `add-chat-requirement:${phase.id}`
           : field.startsWith("evaluationLinks")
             ? firstLink && firstCriterionId
               ? `criterion-text:${phase.id}:${firstLink.objectiveId}:${firstCriterionId}`
@@ -3441,6 +3497,7 @@ function initializeFreshConversation() {
   renderCreateSummary();
   elements.customerSituationInput.value = "";
   elements.learnerApproachInput.value = "";
+  elements.deidentificationConfirmedInput.checked = false;
   setBuildIntakeStatus("");
   setBuildIntakeStep("conversation");
   renderSourceGrounding();
@@ -4313,6 +4370,57 @@ export function addPhase(phases, phase) {
   return insertPhase(items, phase, items.length);
 }
 
+function normalizedChatAdvancePhrases(value) {
+  const phrases = Array.isArray(value)
+    ? value
+    : String(value ?? "").split(/\r?\n/);
+  return [...new Set(phrases
+    .map((phrase) => String(phrase ?? "").trim().toLowerCase())
+    .filter(Boolean))];
+}
+
+export function updatePhaseStrongLearnerResponse(phase, response) {
+  const next = clone(phase || {});
+  const nextResponse = String(response ?? "");
+  if (String(next.strongLearnerResponse ?? "") === nextResponse) return next;
+  next.strongLearnerResponse = nextResponse;
+  next.chatAdvanceRequirements = [];
+  return next;
+}
+
+export function addChatAdvanceRequirement(
+  phase,
+  { createId = guidanceItemId } = {}
+) {
+  const next = clone(phase || {});
+  next.chatAdvanceRequirements = [
+    ...(Array.isArray(next.chatAdvanceRequirements) ? next.chatAdvanceRequirements : []),
+    { id: createId("chat_requirement"), phrases: [] }
+  ];
+  return next;
+}
+
+export function editChatAdvanceRequirementPhrases(phase, requirementId, phrases) {
+  const next = clone(phase || {});
+  next.chatAdvanceRequirements = (Array.isArray(next.chatAdvanceRequirements)
+    ? next.chatAdvanceRequirements
+    : []
+  ).map((requirement) => requirement.id === requirementId
+    ? { ...requirement, phrases: normalizedChatAdvancePhrases(phrases) }
+    : requirement
+  );
+  return next;
+}
+
+export function removeChatAdvanceRequirement(phase, requirementId) {
+  const next = clone(phase || {});
+  next.chatAdvanceRequirements = (Array.isArray(next.chatAdvanceRequirements)
+    ? next.chatAdvanceRequirements
+    : []
+  ).filter((requirement) => requirement.id !== requirementId);
+  return next;
+}
+
 export function insertPhase(phases, phase, index) {
   const next = clone(Array.isArray(phases) ? phases : []);
   if (next.length >= 12 || !phase) return next;
@@ -4327,6 +4435,11 @@ export function duplicatePhase(phases, index, { createId = guidanceItemId } = {}
   if (next.length >= 12 || index < 0 || index >= next.length) return next;
   const duplicate = clone(next[index]);
   duplicate.id = createId("phase");
+  duplicate.chatAdvanceRequirements = (duplicate.chatAdvanceRequirements || []).map((requirement) => ({
+    ...requirement,
+    id: createId("chat_requirement"),
+    phrases: clone(requirement.phrases || [])
+  }));
   if (duplicate.coachGuidance) {
     if (duplicate.coachGuidance.id) duplicate.coachGuidance.id = createId("guidance_group");
     duplicate.coachGuidance.bullets = (duplicate.coachGuidance.bullets || []).map((bullet) => ({
@@ -4342,7 +4455,7 @@ export function duplicatePhase(phases, index, { createId = guidanceItemId } = {}
   return next;
 }
 
-function createBlankPhase(number, { createId = guidanceItemId } = {}) {
+export function createBlankPhase(number, { createId = guidanceItemId } = {}) {
   const title = `Phase ${number}`;
   return {
     id: createId("phase"),
@@ -4353,6 +4466,7 @@ function createBlankPhase(number, { createId = guidanceItemId } = {}) {
       bullets: []
     },
     strongLearnerResponse: "",
+    chatAdvanceRequirements: [],
     evaluationLinks: []
   };
 }
@@ -5129,6 +5243,7 @@ export function createConversationPhaseEditorCoordinator({
       let closingPartnerReview = null;
       let guidanceReview = null;
       let strongReview = null;
+      let chatRequirementsReview = null;
       const title = labeledControl("Title", phase.title, `phase-title:${phase.id}`, "input");
       title.label.className = "visually-hidden";
       const titleCitationPaths = phaseCitationPaths(phase.id, "title");
@@ -5622,6 +5737,123 @@ export function createConversationPhaseEditorCoordinator({
         `flow.phases.${phaseIndex}.coachGuidance`
       );
 
+      const chatRequirementsSection = editorDocument.createElement("section");
+      chatRequirementsSection.className = "phase-guidance";
+      const updateChatRequirementsSummary = () => {
+        if (!chatRequirementsReview) return;
+        const index = phaseIndexForId(phase.id);
+        const requirements = currentDraft.flow.phases[index]?.chatAdvanceRequirements || [];
+        chatRequirementsReview.preview.textContent = requirements.length
+          ? "Every required concept must match before Chat advances."
+          : "Needs review — add required Learner phrases.";
+        if (chatRequirementsReview.count) {
+          chatRequirementsReview.count.textContent = `${requirements.length} ${requirements.length === 1 ? "concept" : "concepts"}`;
+        }
+      };
+      const renderChatRequirementsEditor = () => {
+        chatRequirementsSection.innerHTML = "";
+        const index = phaseIndexForId(phase.id);
+        if (index < 0) return;
+        const requirements = currentDraft.flow.phases[index].chatAdvanceRequirements || [];
+        const explanation = editorDocument.createElement("p");
+        explanation.className = "phase-guidance-empty";
+        explanation.textContent = "Add one group for each required Learner concept. Put alternative phrases for the same concept on separate lines; every group is required.";
+        chatRequirementsSection.append(explanation);
+        requirements.forEach((requirement, requirementIndex) => {
+          const item = editorDocument.createElement("article");
+          item.className = "phase-guidance-item";
+          item.dataset.chatRequirementId = requirement.id;
+          const phrases = labeledControl(
+            `Required concept ${requirementIndex + 1} phrases (one per line)`,
+            (requirement.phrases || []).join("\n"),
+            `chat-requirement-phrases:${phase.id}:${requirement.id}`
+          );
+          phrases.input.addEventListener("input", runMountedOperation(phrases.input, () => {
+            const currentIndex = phaseIndexForId(phase.id);
+            if (currentIndex < 0) return;
+            currentDraft.flow.phases[currentIndex] = editChatAdvanceRequirementPhrases(
+              currentDraft.flow.phases[currentIndex],
+              requirement.id,
+              phrases.input.value
+            );
+            projectLegacy();
+            notifyCommit();
+            updateChatRequirementsSummary();
+            refreshPhaseFindings(phase.id);
+          }));
+          wirePhaseBlur(phrases.input, phase.id);
+          const actions = editorDocument.createElement("div");
+          actions.className = "guidance-actions";
+          actions.append(phaseAction(
+            "Remove",
+            `remove-chat-requirement:${phase.id}:${requirement.id}`,
+            `Remove required Chat concept ${requirementIndex + 1} from phase ${phaseIndex + 1}`,
+            () => {
+              const currentIndex = phaseIndexForId(phase.id);
+              if (currentIndex < 0) return;
+              currentDraft.flow.phases[currentIndex] = removeChatAdvanceRequirement(
+                currentDraft.flow.phases[currentIndex],
+                requirement.id
+              );
+              projectLegacy();
+              notifyCommit();
+              renderChatRequirementsEditor();
+              updateChatRequirementsSummary();
+              refreshPhaseFindings(phase.id);
+              const remaining = currentDraft.flow.phases[currentIndex].chatAdvanceRequirements || [];
+              const nextRequirement = remaining[Math.min(requirementIndex, remaining.length - 1)];
+              focusPhaseEditorControl(
+                container,
+                nextRequirement
+                  ? `chat-requirement-phrases:${phase.id}:${nextRequirement.id}`
+                  : `add-chat-requirement:${phase.id}`
+              );
+              onToast("Required Chat concept removed.");
+            },
+            false,
+            true,
+            "minus"
+          ));
+          item.append(phrases.field, actions);
+          chatRequirementsSection.append(item);
+        });
+        const addRequirement = phaseAction(
+          "Add required concept",
+          `add-chat-requirement:${phase.id}`,
+          `Add required Chat concept to phase ${phaseIndex + 1}`,
+          () => {
+            const currentIndex = phaseIndexForId(phase.id);
+            if (currentIndex < 0) return;
+            currentDraft.flow.phases[currentIndex] = addChatAdvanceRequirement(
+              currentDraft.flow.phases[currentIndex]
+            );
+            const added = currentDraft.flow.phases[currentIndex].chatAdvanceRequirements.at(-1);
+            projectLegacy();
+            notifyCommit();
+            renderChatRequirementsEditor();
+            updateChatRequirementsSummary();
+            refreshPhaseFindings(phase.id);
+            focusPhaseEditorControl(
+              container,
+              `chat-requirement-phrases:${phase.id}:${added.id}`
+            );
+            onToast("Required Chat concept added.");
+          }
+        );
+        addRequirement.className = "button secondary compact-button phase-list-add";
+        chatRequirementsSection.append(addRequirement);
+      };
+      const includesChat = currentDraft.scenario?.channels?.includes("chat");
+      if (includesChat) {
+        renderChatRequirementsEditor();
+        appendPhaseFindings(
+          chatRequirementsSection,
+          phase.id,
+          phaseIndex,
+          `flow.phases.${phaseIndex}.chatAdvanceRequirements`
+        );
+      }
+
       const strong = labeledControl(
         "Example of a strong Learner response",
         phase.strongLearnerResponse,
@@ -5633,10 +5865,13 @@ export function createConversationPhaseEditorCoordinator({
         const index = phaseIndexForId(phase.id);
         if (index < 0) return;
         const before = clone(currentDraft.flow.phases);
-        currentDraft.flow.phases[index] = {
-          ...currentDraft.flow.phases[index],
-          strongLearnerResponse: strong.input.value
-        };
+        const hadChatRequirements = Boolean(
+          currentDraft.flow.phases[index].chatAdvanceRequirements?.length
+        );
+        currentDraft.flow.phases[index] = updatePhaseStrongLearnerResponse(
+          currentDraft.flow.phases[index],
+          strong.input.value
+        );
         strongReview.preview.textContent = strong.input.value.trim() || "No strong response yet.";
         syncPhaseEdit(
           before,
@@ -5647,6 +5882,12 @@ export function createConversationPhaseEditorCoordinator({
           `${phase.id}:strongLearnerResponse`,
           strong.input
         );
+        if (hadChatRequirements && includesChat) {
+          renderChatRequirementsEditor();
+          updateChatRequirementsSummary();
+          refreshPhaseFindings(phase.id);
+          onToast("Required Chat phrases cleared because the strong response changed.");
+        }
       }));
       wirePhaseBlur(strong.input, phase.id);
       renderFieldCitations(
@@ -5734,6 +5975,20 @@ export function createConversationPhaseEditorCoordinator({
         iconName: "shield-check",
         content: strong.field
       });
+      if (includesChat) {
+        const requirements = phase.chatAdvanceRequirements || [];
+        chatRequirementsReview = phaseReviewSection({
+          phaseId: phase.id,
+          key: "chat-requirements",
+          label: "Chat advance requirements",
+          preview: requirements.length
+            ? "Every required concept must match before Chat advances."
+            : "Needs review — add required Learner phrases.",
+          count: `${requirements.length} ${requirements.length === 1 ? "concept" : "concepts"}`,
+          iconName: "square-check",
+          content: chatRequirementsSection
+        });
+      }
       if (closingPartner) {
         closingPartnerReview = phaseReviewSection({
           phaseId: phase.id,
@@ -5750,6 +6005,7 @@ export function createConversationPhaseEditorCoordinator({
         partnerReview.details,
         guidanceReview.details,
         strongReview.details,
+        ...(chatRequirementsReview ? [chatRequirementsReview.details] : []),
         ...(closingPartnerReview ? [closingPartnerReview.details] : []),
         evaluates
       );
@@ -7219,7 +7475,7 @@ async function getRealtimeSecret() {
   const session = await requestJson("/api/builder/preview-session", {
     method: "POST",
     body: JSON.stringify({
-      deidentificationConfirmed: true,
+      deidentificationConfirmed: state.draft?.source?.anonymized === true,
       expectedPublicationId: state.loadMode === "editable"
         ? state.expectedBasePublicationId
         : null,
@@ -7986,6 +8242,10 @@ function creatorFieldPathForIssue(issue, reviewSection, draft = null) {
   standaloneMatch = path.match(/^draft\.objectives\.(\d+)\.(label|description)$/i);
   if (standaloneMatch) return `evaluation.objectives.${standaloneMatch[1]}.${standaloneMatch[2]}`;
   if (/^draft\.objectives(?:\.|$)/i.test(path)) return "evaluation.objectives";
+  standaloneMatch = path.match(/^draft\.phases\.(\d+)\.chatAdvanceRequirements(?:\.(.*))?$/i);
+  if (standaloneMatch) {
+    return `flow.phases.${standaloneMatch[1]}.chatAdvanceRequirements${standaloneMatch[2] ? `.${standaloneMatch[2]}` : ""}`;
+  }
   standaloneMatch = path.match(/^draft\.phases\.(\d+)\.(title|id)$/i);
   if (standaloneMatch) return `flow.phases.${standaloneMatch[1]}.${standaloneMatch[2]}`;
   standaloneMatch = path.match(/^draft\.phases\.(\d+)\.learnerActions(?:\.|$)/i);
@@ -8147,6 +8407,12 @@ function finalCheckCreatorAction(reviewFieldPath, reviewSection) {
     if (field === "stronglearnerresponse") {
       return {
         message: `Add an example of a strong Learner response in Phase ${phaseNumber}.`,
+        actionLabel,
+      };
+    }
+    if (/^chatadvancerequirements(?:\.|$)/.test(field)) {
+      return {
+        message: `Add the required Chat phrases for Phase ${phaseNumber}.`,
         actionLabel,
       };
     }
@@ -8993,7 +9259,7 @@ async function runValidation() {
       headers: { "Accept": "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({
         draft: standaloneDraft,
-        deidentificationConfirmed: true,
+        deidentificationConfirmed: state.draft?.source?.anonymized === true,
         objectiveApproval: {
           required: true,
           approved: true,
@@ -9106,7 +9372,7 @@ async function publishScenario() {
               ? state.expectedBasePublicationId
               : null,
             ...(publishingRevision ? { releaseNote: state.releaseNote.trim() } : {}),
-            deidentificationConfirmed: true,
+            deidentificationConfirmed: state.draft?.source?.anonymized === true,
             draft: normalizePhaseAuthoringDraft(state.draft),
             scenarios: composed.scenarios
           }),
@@ -9420,6 +9686,11 @@ function wireControls() {
       setBuildIntakeStep(missing[1], { focus: true });
       return;
     }
+    if (elements.deidentificationConfirmedInput.checked !== true) {
+      setBuildIntakeStatus("Confirm that the conversation details are fictional or de-identified.", "error");
+      elements.deidentificationConfirmedInput.focus();
+      return;
+    }
     setBuildIntakeStatus("");
     let result;
     let acknowledgementPromise;
@@ -9436,6 +9707,7 @@ function wireControls() {
       result = await runCreateDraftBuild({
         conversationAboutInput: elements.customerSituationInput,
         learnerApproachInput: elements.learnerApproachInput,
+        deidentificationConfirmedInput: elements.deidentificationConfirmedInput,
         createDraftButton: elements.createDraftButton,
         reportStatus: setBuildIntakeStatus,
         completeDraftCreation: async (draft) => {
@@ -9665,7 +9937,7 @@ async function bootstrap() {
   } catch {
     state.hotkeys = [];
   }
-  const saved = loadStandaloneDraft(window.localStorage);
+  const saved = loadSavedDraftSafely();
   if (saved?.draft) {
     state.draft = normalizeStudioDraft(saved.draft);
     state.sourceGrounding = clone(state.draft.sourceGrounding);

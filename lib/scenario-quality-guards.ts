@@ -1,4 +1,11 @@
-import { customerFollowUpConflictsWithLearner as sharedCustomerFollowUpConflictsWithLearner } from "../public/builder-studio/src/scenarioQualityGuards.js";
+import {
+  customerBehaviorRuleConflictsWithLearner as sharedCustomerBehaviorRuleConflictsWithLearner,
+  customerBehaviorRuleHasNegativeLearnerPolarity as sharedCustomerBehaviorRuleHasNegativeLearnerPolarity,
+  customerBehaviorRuleIsNegativeGuardrail as sharedCustomerBehaviorRuleIsNegativeGuardrail,
+  customerBehaviorRuleToNegativeGuardrail as sharedCustomerBehaviorRuleToNegativeGuardrail,
+  customerFollowUpConflictsWithLearner as sharedCustomerFollowUpConflictsWithLearner,
+} from "../public/builder-studio/src/scenarioQualityGuards.js";
+import type { ChatAdvanceRequirementDraft } from "./scenario-contract";
 
 function normalizeComparableText(value: string): string {
   return value
@@ -7,6 +14,96 @@ function normalizeComparableText(value: string): string {
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+const GENERIC_CHAT_GATE_PHRASES = new Set([
+  "can help",
+  "customer",
+  "hello",
+  "help",
+  "help you",
+  "hi",
+  "issue",
+  "ok",
+  "okay",
+  "process",
+  "thank",
+  "thank you",
+  "thanks",
+]);
+
+const PROHIBITED_OPTION_ACTION = /^(?:approv(?:e|ed|ing)|choos(?:e|ing)|creat(?:e|ed|ing)|giv(?:e|ing)|issu(?:e|ed|ing)|offer(?:ed|ing)?|process(?:ed|ing)?|provid(?:e|ed|ing)|select(?:ed|ing)?|send(?:ing)?|use|using)\s+(.+)$/i;
+
+export type ChatAdvanceRequirementQualityCode =
+  | "chat_advance_requirement_alternatives"
+  | "blank_chat_advance_phrase"
+  | "generic_chat_advance_phrase"
+  | "overlapping_chat_advance_phrase"
+  | "prohibited_chat_advance_phrase";
+
+export interface ChatAdvanceRequirementQualityFinding {
+  code: ChatAdvanceRequirementQualityCode;
+  requirementIndex: number;
+  phraseIndex?: number;
+}
+
+function overlapsByRiseSubstring(left: string, right: string): boolean {
+  return Boolean(left && right && (left.includes(right) || right.includes(left)));
+}
+
+function prohibitedGateConcepts(action: string): string[] {
+  const normalized = normalizeComparableText(action)
+    .replace(/^(?:do not|dont|never|avoid)\s+/, "")
+    .trim();
+  if (!normalized) return [];
+
+  const concepts = [normalized];
+  const optionAction = normalized.match(PROHIBITED_OPTION_ACTION);
+  if (optionAction) {
+    concepts.push(...optionAction[1]
+      .split(/\s+(?:and|or)\s+/)
+      .map((candidate) => candidate.replace(/^(?:a|an|the)\s+/, "").trim())
+      .filter(Boolean));
+  }
+  return [...new Set(concepts)];
+}
+
+export function findChatAdvanceRequirementQualityFindings(
+  requirements: ChatAdvanceRequirementDraft[],
+  prohibitedActions: string[],
+): ChatAdvanceRequirementQualityFinding[] {
+  const findings: ChatAdvanceRequirementQualityFinding[] = [];
+  const priorPhrases: Array<{ requirementIndex: number; normalized: string }> = [];
+  const prohibitedConcepts = prohibitedActions.flatMap(prohibitedGateConcepts);
+
+  requirements.forEach((requirement, requirementIndex) => {
+    const normalizedPhrases = requirement.phrases.map((phrase) => normalizeComparableText(phrase));
+    if (new Set(normalizedPhrases.filter(Boolean)).size < 2) {
+      findings.push({ code: "chat_advance_requirement_alternatives", requirementIndex });
+    }
+
+    normalizedPhrases.forEach((normalized, phraseIndex) => {
+      if (!normalized) {
+        findings.push({ code: "blank_chat_advance_phrase", requirementIndex, phraseIndex });
+        return;
+      }
+      if (GENERIC_CHAT_GATE_PHRASES.has(normalized)) {
+        findings.push({ code: "generic_chat_advance_phrase", requirementIndex, phraseIndex });
+      }
+      if (prohibitedConcepts.some((concept) => overlapsByRiseSubstring(normalized, concept))) {
+        findings.push({ code: "prohibited_chat_advance_phrase", requirementIndex, phraseIndex });
+      }
+      if (priorPhrases.some((prior) =>
+        prior.requirementIndex !== requirementIndex
+        && overlapsByRiseSubstring(prior.normalized, normalized)
+      )) {
+        findings.push({ code: "overlapping_chat_advance_phrase", requirementIndex, phraseIndex });
+      }
+      priorPhrases.push({ requirementIndex, normalized });
+    });
+  });
+
+  return findings;
 }
 
 export function repeatsOpening(openingLine: string, partnerResponse: string): boolean {
@@ -20,6 +117,22 @@ export function customerFollowUpConflictsWithLearner(
   learnerActions: string[],
 ): boolean {
   return sharedCustomerFollowUpConflictsWithLearner(followUp, learnerActions);
+}
+
+export function customerBehaviorRuleConflictsWithLearner(rule: string): boolean {
+  return sharedCustomerBehaviorRuleConflictsWithLearner(rule);
+}
+
+export function customerBehaviorRuleIsNegativeGuardrail(rule: string): boolean {
+  return sharedCustomerBehaviorRuleIsNegativeGuardrail(rule);
+}
+
+export function customerBehaviorRuleHasNegativeLearnerPolarity(rule: string): boolean {
+  return sharedCustomerBehaviorRuleHasNegativeLearnerPolarity(rule);
+}
+
+export function customerBehaviorRuleToNegativeGuardrail(rule: string): string {
+  return sharedCustomerBehaviorRuleToNegativeGuardrail(rule);
 }
 
 const OUTCOME_ACTION_SOURCE = String.raw`(?:advis(?:e|es|ed|ing)|appl(?:y|ies|ied|ying)|approv(?:e|es|ed|ing)|arrang(?:e|es|ed|ing)|cancel(?:s|ed|ing)?|clos(?:e|es|ed|ing)|complet(?:e|es|ed|ing)|confirm(?:s|ed|ing)?|continu(?:e|es|ed|ing)|creat(?:e|es|ed|ing)|declin(?:e|es|ed|ing)|den(?:y|ies|ied|ying)|document(?:s|ed|ing)?|escalat(?:e|es|ed|ing)|explain(?:s|ed|ing)?|fil(?:e|es|ed|ing)|implement(?:s|ed|ing)?|initiat(?:e|es|ed|ing)|issu(?:e|es|ed|ing)|locat(?:e|es|ed|ing)|monitor(?:s|ed|ing)?|notif(?:y|ies|ied|ying)|offer(?:s|ed|ing)?|open(?:s|ed|ing)?|plac(?:e|es|ed|ing)|process(?:es|ed|ing)?|provid(?:e|es|ed|ing)|refund(?:s|ed|ing)?|replac(?:e|es|ed|ing)|requir(?:e|es|ed|ing)|reship(?:s|ped|ping)?|retain(?:s|ed|ing)?|return(?:s|ed|ing)?|schedul(?:e|es|ed|ing)|send(?:s|ing)?|sent|shar(?:e|es|ed|ing)|stat(?:e|es|ed|ing)|submit(?:s|ted|ting)?|tell(?:s|ing)?|told|transfer(?:s|red|ring)?|updat(?:e|es|ed|ing))`;

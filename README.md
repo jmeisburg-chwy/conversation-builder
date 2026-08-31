@@ -8,7 +8,7 @@ A standalone Chewy ChatGPT Site for creating Articulate Rise Conversation Simula
 2. Generate a guarded first draft with Coach Chewy, then review and edit the setup, partner behavior, response flow, guidance, and objectives.
 3. Validate and download separate chat and voice files for manual testing in Articulate Rise.
 
-Drafts stay only in the open browser tab. This Site does not publish scenarios, write to AWS, or keep a server-side draft library.
+Drafts are saved in this browser so authors can leave to test, return, revise, and download again. This Site does not publish scenarios, write to AWS, or keep a server-side draft library.
 
 ## Local setup
 

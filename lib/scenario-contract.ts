@@ -14,6 +14,11 @@ export interface EvaluationLinkDraft {
   criterionIds: string[];
 }
 
+export interface ChatAdvanceRequirementDraft {
+  id: string;
+  phrases: string[];
+}
+
 export interface GuidanceChildDraft {
   id: string;
   text: string;
@@ -32,6 +37,7 @@ export interface PhaseDraft {
   id: string;
   title: string;
   learnerActions: string[];
+  chatAdvanceRequirements?: ChatAdvanceRequirementDraft[];
   partnerResponse: string;
   coachGuidance: string[];
   guideSourceLabel?: string;
@@ -164,7 +170,7 @@ function normalizedPassingScore(draft: StudioDraft): number {
   const score = draft.evaluation?.passingScore;
   return typeof score === "number" && Number.isFinite(score)
     ? Math.round(score)
-    : 80;
+    : 100;
 }
 
 function approvedResponseInstructionsForPhase(draft: StudioDraft, phaseId: string): string[] {
@@ -274,7 +280,17 @@ function buildChatMatchPhrases(learnerActions: string[]): string[] {
   return uniqueStrings(phrases).slice(0, 24);
 }
 
-function buildChatMatch(learnerActions: string[]): Record<string, unknown> {
+function buildChatMatch(
+  chatAdvanceRequirements: ChatAdvanceRequirementDraft[] | undefined,
+  learnerActions: string[],
+): Record<string, unknown> {
+  const requiredConditions = (chatAdvanceRequirements ?? []).flatMap((requirement) => {
+    const phrases = uniqueStrings(requirement.phrases).map((phrase) => phrase.toLowerCase());
+    return phrases.length ? [{ op: "contains_any", phrases }] : [];
+  });
+  if (requiredConditions.length) {
+    return { all: requiredConditions, any: [] };
+  }
   return {
     all: [],
     any: [{ op: "contains_any", phrases: buildChatMatchPhrases(learnerActions) }],
@@ -418,14 +434,14 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
   ]);
   const chatProgression = channel === "chat" ? draft.phases.flatMap((phase, index) => phase.customerRemainsSilent ? [] : [{
     id: index,
-    label: `Handling step ${index + 1}`,
-    match: buildChatMatch(phase.learnerActions),
+    label: phase.title,
+    match: buildChatMatch(phase.chatAdvanceRequirements, phase.learnerActions),
     customerResponse: phase.partnerResponse,
     scenarioPathHint: `chatConfig.stepProgression[${index}]`,
   }]) : [];
   const voiceProgression = channel === "voice" ? draft.phases.flatMap((phase, index) => phase.customerRemainsSilent ? [] : [{
     id: index,
-    label: `Handling step ${index + 1}`,
+    label: phase.title,
     trigger: `Use after the learner completes this approved customer-support action: ${phase.learnerActions.join(" ")}`,
     customerResponse: phase.partnerResponse,
   }]) : [];
@@ -441,17 +457,35 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
       }];
     }),
   ];
-  const guideSections = draft.phases.map((phase, index) => ({
-    sourceLabel: phase.guideSourceLabel ?? `Creator-approved guidance ${index + 1}`,
-    channel,
-    source: phase.guideSource ?? "manager_coaching_reminder",
-    title: phase.guideTitle ?? `${index + 1}. ${phase.title}`,
-    body: phase.guideBody ?? phase.learnerActions.join(" "),
-    bullets: appendUniqueGuidance(
+  const guideSections = draft.phases.map((phase, index) => {
+    const body = phase.guideBody ?? phase.learnerActions.join(" ");
+    const bullets = appendUniqueGuidance(
       runtimeGuidanceBullets(phase),
       channel === "chat" ? approvedResponseInstructionsForPhase(draft, phase.id) : [],
-    ),
-  }));
+    ).filter((bullet) => {
+      const bulletText = typeof bullet === "string"
+        ? bullet
+        : bullet && typeof bullet === "object" && "text" in bullet
+          ? String(bullet.text)
+          : "";
+      const hasNestedOrReferencedGuidance = typeof bullet === "object"
+        && bullet !== null
+        && (
+          (Array.isArray(bullet.children) && bullet.children.length > 0)
+          || Boolean(bullet.systemReference)
+        );
+      return hasNestedOrReferencedGuidance
+        || bulletText.trim().toLowerCase() !== body.trim().toLowerCase();
+    });
+    return {
+      sourceLabel: phase.guideSourceLabel ?? `Creator-approved guidance ${index + 1}`,
+      channel,
+      source: phase.guideSource ?? "manager_coaching_reminder",
+      title: phase.guideTitle ?? `${index + 1}. ${phase.title}`,
+      body,
+      bullets,
+    };
+  });
   const standardTextGuideSections = channel === "chat" && draft.chat.standardTextDecision === "approved"
     ? draft.chat.standardText.map((item, index) => ({
         sourceLabel: `Creator-approved Standard Text guidance ${index + 1}`,
@@ -466,10 +500,18 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
       }))
     : [];
   const evaluationCriteria = draft.objectives.flatMap((objective) => objective.criteria);
+  const learnerPracticeDescription = draft.learnerGoal
+    .replace(/^practice(?:\s+how\s+to)?\s+/i, "")
+    .replace(/^./, (character) => character.toLowerCase());
+  const learnerBriefingAbout = /\b(?:you|your)\b/i.test(draft.description)
+    ? draft.description
+    : /^practice(?:\s+how\s+to)?\s+/i.test(draft.description)
+      ? `You will practice ${draft.description.replace(/^practice(?:\s+how\s+to)?\s+/i, "").replace(/^./, (character) => character.toLowerCase())}`
+      : `You will practice this conversation: ${draft.description}`;
   const shared = {
     introInstructions: ["Review the scenario briefing before starting.", "Use Coach Chewy guidance without reading it aloud."],
     learnerBriefing: {
-      about: draft.description,
+      about: learnerBriefingAbout,
       objectives: draft.objectives.map((objective) => objective.label),
       evaluationFocus: ["This activity uses Learning objective evaluation.", "Each objective is checked against its observable criteria."],
       goals: [...draft.correctProcess, ...draft.prohibitedActions.map((action) => `Avoid: ${action}`)],
@@ -534,7 +576,7 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
       description: draft.description,
       skillFocus: draft.objectives[0]?.label || draft.subtopic,
       title: draft.title,
-      practiceDescription: `Practice ${draft.learnerGoal}`,
+      practiceDescription: `Practice how to ${learnerPracticeDescription}`,
       tags: [snakeId(draft.topic), snakeId(draft.subtopic), draft.agentType.toLowerCase(), channel, "manager_generated", "dynamic_customer_responder"].filter(Boolean),
       teamAudience: draft.teamAudience,
       difficulty: "beginner",
@@ -550,7 +592,21 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
       estimatedDurationMinutes: 6,
     },
     simulation: {
-      sourceTranscriptMetadata: { scenarioType: "Learning Objective Evaluation", sourceType: "creator_input", qualityBehavior: "", topic: draft.topic, selectedChannels: [channel], customerEmotion: draft.customer.tone, subtopic: draft.subtopic, sourceMaterial: `${draft.description} Approved customer facts: ${draft.customer.facts.join(" ")} Correct process: ${draft.correctProcess.join(" ")} Avoid: ${draft.prohibitedActions.join(" ")}` },
+      sourceTranscriptMetadata: {
+        scenarioType: "Learning Objective Evaluation",
+        sourceType: "creator_input",
+        qualityBehavior: "",
+        topic: draft.topic,
+        selectedChannels: [channel],
+        customerEmotion: draft.customer.tone,
+        subtopic: draft.subtopic,
+        sourceMaterial: [
+          draft.description,
+          `Approved customer facts: ${draft.customer.facts.join(" ")}`,
+          `Correct process: ${draft.correctProcess.join(" ")}`,
+          ...(draft.prohibitedActions.length ? [`Avoid: ${draft.prohibitedActions.join(" ")}`] : []),
+        ].join(" "),
+      },
       managerOnlyIdealResponses: draft.phases.map((phase, index) => ({
         beat: index + 1,
         guidance: phase.managerGuidance ?? phase.coachGuidance.join(" "),
@@ -589,7 +645,7 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
     conversationBetween: { aiPersonality: `${draft.customer.name} is ${draft.customer.tone}. ${behaviorRules.join(" ")}`, aiRole: `${draft.customer.name}, Conversation Partner`, aiStart: draft.customer.openingLine, participantRole: `${draft.agentType} Learner` },
     frontend,
     customer: { opening: { chat: channel === "chat" ? draft.customer.openingLine : "", voice: channel === "voice" ? draft.customer.openingLine : "" }, persona: { name: draft.customer.name, tone: draft.customer.tone, goal: draft.customer.goal }, behavior: { rules: behaviorRules, conditionalFollowUps: [...draft.customer.facts.map((fact) => `Approved customer fact: ${fact}`), ...draft.customer.conditionalFollowUps], allowedObjections: draft.customer.objections, softeningRule: `Become satisfied after the learner completes: ${draft.correctProcess.join(" ")}`, closingRule: terminalSilenceRule(draft) ?? `Use this closing only after the learner completes the scenario: ${draft.customer.closingLine}` } },
-    managerPreview: { testRevision: "Standalone Conversation Builder draft", latestSuggestion: "Test this JSON in the matching Articulate Rise simulator.", updatedAt: now },
+    managerPreview: { testRevision: "Standalone Conversation Builder validated export", latestSuggestion: "Test this JSON in the matching Articulate Rise simulator.", updatedAt: now },
   };
   if (channel === "chat") scenario.chatConfig = { hotkeyProfile: draft.chat.hotkeyProfile, stepProgression: chatProgression };
   if (channel === "voice") scenario.voice = draft.voice.selectedVoice;
@@ -687,6 +743,7 @@ function scenariosToDraft(scenarios: ScenarioObject[]): StudioDraft {
       id: phaseId,
       title,
       learnerActions: arrayOfStrings([beat.idealAgentResponse || guide.body]),
+      chatAdvanceRequirements: chatAdvanceRequirementsFromStep(step, phaseId),
       partnerResponse,
       coachGuidance: hierarchy.length ? flattenGuidanceHierarchy(hierarchy) : arrayOfStrings([beat.guidance]),
       ...(hierarchy.length ? { coachGuidanceHierarchy: hierarchy } : {}),
@@ -749,7 +806,7 @@ function scenariosToDraft(scenarios: ScenarioObject[]): StudioDraft {
     evaluation: {
       passingScore: typeof primary.coaching?.gradingModel?.passingScore === "number"
         ? primary.coaching.gradingModel.passingScore
-        : 80,
+        : 100,
     },
     compatibilityFacts: {
       address: String(primary.facts?.address || ""),
@@ -792,6 +849,23 @@ function stripChannelSuffix(id: string): string { return String(id || "scenario"
 function normalizeBaseId(id: string): string { return stripChannelSuffix(snakeId(id)) || "conversation_practice"; }
 function snakeId(value: string): string { return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80); }
 function arrayOfStrings(value: unknown): string[] { return Array.isArray(value) ? value.map((entry) => String(entry || "").trim()).filter(Boolean) : []; }
+function normalizeChatAdvanceRequirements(value: unknown, phaseId: string): ChatAdvanceRequirementDraft[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    const phrases = uniqueStrings(arrayOfStrings(record.phrases).map((phrase) => phrase.toLowerCase()));
+    if (!phrases.length) return [];
+    return [{ id: snakeId(String(record.id || `${phaseId}_requirement_${index + 1}`)), phrases }];
+  });
+}
+function chatAdvanceRequirementsFromStep(step: Record<string, unknown>, phaseId: string): ChatAdvanceRequirementDraft[] {
+  const match = step.match && typeof step.match === "object" && !Array.isArray(step.match)
+    ? step.match as Record<string, unknown>
+    : {};
+  const all = normalizeChatAdvanceRequirements(match.all, phaseId);
+  return all;
+}
 function normalizeGuidanceHierarchy(value: unknown, phaseId: string): GuidanceBulletDraft[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry, bulletIndex) => {
@@ -1144,6 +1218,7 @@ function normalizeDraftLists(draft: StudioDraft): StudioDraft {
       ...phase,
       learnerActions: arrayOfStrings(phase.learnerActions),
       coachGuidance: arrayOfStrings(phase.coachGuidance),
+      chatAdvanceRequirements: normalizeChatAdvanceRequirements(phase.chatAdvanceRequirements, phase.id),
       ...(phase.coachGuidanceHierarchy !== undefined
         ? { coachGuidanceHierarchy: normalizeGuidanceHierarchy(phase.coachGuidanceHierarchy, phase.id) }
         : {}),

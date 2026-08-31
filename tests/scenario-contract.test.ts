@@ -39,15 +39,25 @@ function focusedDraft(): StudioDraft {
         id: "acknowledge_delay",
         title: "Acknowledge and clarify",
         learnerActions: ["Acknowledge Jordan's concern and confirm which order is delayed."],
+        chatAdvanceRequirements: [
+          { id: "acknowledgement", phrases: ["sorry", "understand", "concern"] },
+          { id: "delayed_order", phrases: ["delayed order", "late order", "order is delayed"] },
+        ],
         partnerResponse: "Yes, it's Milo's food order.",
         coachGuidance: ["Use Jordan's and Milo's names naturally."],
+        evaluationLinks: [{ objectiveId: "set_clear_expectations", criterionIds: ["set_clear_expectations_criterion_1"] }],
       },
       {
         id: "set_expectations",
         title: "Set expectations",
         learnerActions: ["Explain that the order is expected tomorrow by end of day without guaranteeing it."],
+        chatAdvanceRequirements: [
+          { id: "expected_date", phrases: ["expected tomorrow", "arrive tomorrow"] },
+          { id: "end_of_day", phrases: ["end of day"] },
+        ],
         partnerResponse: "Okay, I can wait until tomorrow.",
         coachGuidance: ["Use expected rather than guaranteed timing."],
+        evaluationLinks: [{ objectiveId: "set_clear_expectations", criterionIds: ["set_clear_expectations_criterion_2"] }],
       },
     ],
     objectives: [
@@ -126,13 +136,164 @@ test("composes Rise-compatible Chat step match conditions", () => {
   };
 
   assert.equal(Array.isArray(step?.match), false);
-  assert.deepEqual(match.all, []);
-  assert.equal(match.any?.length, 1);
-  assert.equal(match.any?.[0]?.op, "contains_any");
-  assert.equal(match.any?.[0]?.phrases.includes("concern"), true);
-  assert.equal((match.any?.[0]?.phrases.length ?? 0) > 0, true);
-  assert.equal(step?.label, "Handling step 1");
+  assert.deepEqual(match.all, [
+    { op: "contains_any", phrases: ["sorry", "understand", "concern"] },
+    { op: "contains_any", phrases: ["delayed order", "late order", "order is delayed"] },
+  ]);
+  assert.deepEqual(match.any, []);
+  assert.equal(step?.label, "Acknowledge and clarify");
   assert.equal(step?.scenarioPathHint, "chatConfig.stepProgression[0]");
+});
+
+type RiseMatchCondition = { op: string; phrases: string[] };
+type RiseStep = { match?: { all?: RiseMatchCondition[]; any?: RiseMatchCondition[] } };
+
+function riseStepMatches(message: string, step: RiseStep): boolean {
+  const normalized = message.toLowerCase();
+  const conditionMatches = (condition: RiseMatchCondition) =>
+    condition.op === "contains_any"
+      && condition.phrases.some((phrase: string) => normalized.includes(phrase.toLowerCase()));
+  const all = Array.isArray(step.match?.all) ? step.match.all : [];
+  const any = Array.isArray(step.match?.any) ? step.match.any : [];
+  return (!all.length || all.every(conditionMatches)) && (!any.length || any.some(conditionMatches));
+}
+
+test("requires every positive concept before advancing a Chat phase", () => {
+  const draft = focusedDraft();
+  draft.baseId = "refund_for_torn_dog_food_bag";
+  draft.channels = ["chat"];
+  draft.phases = [
+    {
+      id: "acknowledge_and_empathize",
+      title: "Acknowledge and empathize",
+      learnerActions: ["Acknowledge the torn bag and express empathy."],
+      chatAdvanceRequirements: [
+        { id: "empathy", phrases: ["sorry", "understand how frustrating", "apologize"] },
+        { id: "damaged_item", phrases: ["torn bag", "ripped bag", "damaged bag"] },
+      ],
+      partnerResponse: "The bag is torn and unusable.",
+      coachGuidance: ["Recognize the damaged bag and empathize."],
+      evaluationLinks: [{ objectiveId: "set_clear_expectations", criterionIds: ["set_clear_expectations_criterion_1"] }],
+    },
+    {
+      id: "confirm_refund_preference",
+      title: "Confirm the refund preference",
+      learnerActions: ["Confirm that the customer wants a refund."],
+      chatAdvanceRequirements: [
+        { id: "confirmation", phrases: ["just to confirm", "do you want", "you prefer"] },
+        { id: "refund", phrases: ["refund", "money back"] },
+      ],
+      partnerResponse: "Yes, I want a refund.",
+      coachGuidance: ["Confirm the customer's preferred resolution."],
+      evaluationLinks: [{ objectiveId: "set_clear_expectations", criterionIds: ["set_clear_expectations_criterion_1"] }],
+    },
+    {
+      id: "complete_refund",
+      title: "Complete the refund and set expectations",
+      learnerActions: ["Confirm the $24.99 refund to the original payment card and the 3–5 business-day timeline."],
+      chatAdvanceRequirements: [
+        { id: "completion", phrases: ["refund has been issued", "completed the refund"] },
+        { id: "amount", phrases: ["$24.99", "24.99"] },
+        { id: "destination", phrases: ["original payment card", "original card"] },
+        { id: "timeline", phrases: ["3–5 business days", "3-5 business days", "3 to 5 business days"] },
+      ],
+      partnerResponse: "Thank you for resolving this.",
+      coachGuidance: ["State the exact amount, destination, and timeline."],
+      evaluationLinks: [{ objectiveId: "set_clear_expectations", criterionIds: ["set_clear_expectations_criterion_2"] }],
+    },
+  ];
+
+  const [file] = composeScenarioFiles(draft);
+  const steps = file.scenario.chatConfig!.stepProgression;
+
+  assert.equal(riseStepMatches("I'm sorry about the torn bag.", steps[0]), true);
+  assert.equal(riseStepMatches("What issue caused this?", steps[0]), false);
+  assert.equal(riseStepMatches("Just to confirm, you want a refund?", steps[1]), true);
+  assert.equal(riseStepMatches("I can offer store credit.", steps[1]), false);
+  assert.equal(riseStepMatches("I've completed the refund of $24.99 to your original payment card. It will post in 3–5 business days.", steps[2]), true);
+  assert.equal(riseStepMatches("Thank you.", steps[2]), false);
+});
+
+test("marks legacy any-only Chat gates as needing explicit review after import", () => {
+  const [file] = composeScenarioFiles({ ...focusedDraft(), channels: ["chat"] });
+  const legacy = structuredClone(file.scenario);
+  const permissive = {
+    all: [],
+    any: [{ op: "contains_any", phrases: ["issue", "customer", "thank", "help"] }],
+  };
+  legacy.chatConfig!.stepProgression[0].match = permissive;
+  legacy.simulation.stateModel.chatStepProgression[0].match = permissive;
+
+  const imported = importScenarioJson(JSON.stringify(legacy), "improve");
+
+  assert.deepEqual(imported.draft.phases[0].chatAdvanceRequirements, []);
+});
+
+test("exports standalone metadata and guidance without draft or duplicate-copy contradictions", () => {
+  const [chat] = composeScenarioFiles({ ...focusedDraft(), channels: ["chat"] }, { now: "2026-08-31T12:00:00.000Z" });
+  const scenario = chat.scenario;
+  const guideSections = scenario.frontend.chat?.guideSections as Array<{ body?: string; bullets?: string[] }>;
+
+  assert.equal(scenario.status, "published");
+  assert.equal(scenario.managerPreview.testRevision, "Standalone Conversation Builder validated export");
+  assert.match(String(scenario.catalog.practiceDescription), /^Practice how to /);
+  assert.match(String(scenario.frontend.shared.learnerBriefing.about), /^You will practice /);
+  assert.match(String(scenario.frontend.shared.learnerBriefing.about), /resolving a delayed order without overpromising/i);
+  assert.doesNotMatch(String(scenario.simulation.sourceTranscriptMetadata.sourceMaterial), /Avoid:\s*$/);
+  assert.equal(guideSections.every((section) => !section.body || !section.bullets?.includes(section.body)), true);
+});
+
+test("does not duplicate 'how to' in the learner-facing practice description", () => {
+  const draft = focusedDraft();
+  draft.channels = ["chat"];
+  draft.learnerGoal = "Practice how to set accurate delivery expectations.";
+
+  const [chat] = composeScenarioFiles(draft);
+
+  assert.equal(
+    chat.scenario.catalog.practiceDescription,
+    "Practice how to set accurate delivery expectations.",
+  );
+});
+
+test("keeps nested Coach Chewy cautions visible when the parent repeats the guide body", () => {
+  const draft = focusedDraft();
+  draft.channels = ["chat"];
+  draft.phases[0].guideBody = "Recognize the delayed order.";
+  draft.phases[0].coachGuidance = ["Recognize the delayed order."];
+  draft.phases[0].coachGuidanceHierarchy = [{
+    id: "acknowledge_parent",
+    text: "Recognize the delayed order.",
+    children: [{
+      id: "acknowledge_caution",
+      text: "Do not guarantee the delivery date.",
+      kind: "caution",
+    }],
+  }];
+
+  const [file] = composeScenarioFiles(draft);
+  const [section] = file.scenario.frontend.chat?.guideSections as Array<{
+    body: string;
+    bullets: Array<string | { text: string; children: string[] }>;
+  }>;
+
+  assert.equal(section.body, "Recognize the delayed order.");
+  assert.deepEqual(section.bullets, [{
+    text: "Recognize the delayed order.",
+    children: ["Do not guarantee the delivery date."],
+  }]);
+});
+
+test("defaults missing authored and imported passing scores to 100", () => {
+  const authored = focusedDraft();
+  delete authored.evaluation;
+
+  const [file] = composeScenarioFiles(authored);
+  assert.equal(file.scenario.coaching.gradingModel.passingScore, 100);
+
+  delete file.scenario.coaching.gradingModel.passingScore;
+  const imported = importScenarioJson(JSON.stringify(file.scenario), "improve");
+  assert.equal(imported.draft.evaluation?.passingScore, 100);
 });
 
 test("rejects Chat step matching that the Rise runtime cannot evaluate", () => {
@@ -469,11 +630,12 @@ test("removes unfinished blank list rows from downloaded scenario content", () =
 
   const [file] = composeScenarioFiles({ ...draft, channels: ["chat"] });
   const match = file.scenario.chatConfig?.stepProgression[0].match as {
+    all: Array<{ phrases: string[] }>;
     any: Array<{ phrases: string[] }>;
   };
 
   assert.equal(file.scenario.evaluationCriteria.includes(""), false);
-  assert.equal(match.any[0].phrases.includes(""), false);
+  assert.equal([...match.all, ...match.any].every((condition) => !condition.phrases.includes("")), true);
   assert.equal(JSON.stringify(file.scenario.frontend.chat).includes('"bullets":["'), true);
   assert.doesNotMatch(JSON.stringify(file.scenario), /""\s*,\s*""/);
 });

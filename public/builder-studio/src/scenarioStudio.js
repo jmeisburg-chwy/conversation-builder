@@ -814,7 +814,7 @@ function createBaseDraft(sourceInput = {}) {
         ? normalizeEvaluationMode(source.evaluationMode)
         : "focused_learning_objectives",
       criteria: [...correct, ...avoid],
-      passingScore: 80,
+      passingScore: 100,
       objectives: [
         {
           id: source.customerCare ? "approved_customer_support" : "approved_conversation_path",
@@ -1090,10 +1090,23 @@ function phasesFromLegacyFields({ correct, customerResponses, guidanceSections, 
         ? cleanText(openingLine)
         : cleanText(customerResponses[index - 1]),
       strongLearnerResponse,
+      chatAdvanceRequirements: [],
       coachGuidance: normalizePhaseGuidance(coachGuidance, id, index, strongLearnerResponse),
       advanceWhen: strongLearnerResponse,
       evaluationLinks: []
     };
+  });
+}
+
+function normalizeChatAdvanceRequirements(value, phaseId) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((requirement, index) => {
+    if (!isPlainObject(requirement)) return [];
+    const phrases = [...new Set(cleanList(requirement.phrases).map((phrase) => phrase.toLowerCase()))];
+    return [{
+      id: slugify(cleanText(requirement.id, `${phaseId}_requirement_${index + 1}`)),
+      phrases,
+    }];
   });
 }
 
@@ -1116,6 +1129,7 @@ function normalizeConversationPhases(value, fallback, openingLine) {
       purpose: cleanText(candidate.purpose),
       partnerTurn: cleanText(candidate.partnerTurn, fallbackPartnerTurn),
       strongLearnerResponse,
+      chatAdvanceRequirements: normalizeChatAdvanceRequirements(candidate.chatAdvanceRequirements, id),
       coachGuidance: normalizePhaseGuidance(
         candidate.coachGuidance,
         id,
@@ -1135,13 +1149,17 @@ function normalizeConversationPhases(value, fallback, openingLine) {
   });
 }
 
-function fallbackEvaluationLinks(phase, objectives, phaseIndex) {
+function fallbackEvaluationLinks(phase, objectives, phaseIndex, phaseCount) {
   return objectives.flatMap((objective) => {
     const matching = objective.criteria.filter((criterion) =>
       criterion.text === phase.strongLearnerResponse
     );
-    const criterion = matching[0] || objective.criteria[phaseIndex] || objective.criteria[0];
-    return criterion ? [{ objectiveId: objective.id, criterionIds: [criterion.id] }] : [];
+    const assigned = matching.length
+      ? matching
+      : objective.criteria.filter((_criterion, criterionIndex) =>
+          Math.min(criterionIndex, Math.max(0, phaseCount - 1)) === phaseIndex
+        );
+    return assigned.length ? [{ objectiveId: objective.id, criterionIds: assigned.map((criterion) => criterion.id) }] : [];
   });
 }
 
@@ -1153,7 +1171,7 @@ function normalizePhaseEvaluationLinks(phases, objectives) {
           objectiveId: slugify(link.objectiveId),
           criterionIds: link.criterionIds.map((id) => slugify(id))
         }))
-      : fallbackEvaluationLinks(phase, objectives, phaseIndex)
+      : fallbackEvaluationLinks(phase, objectives, phaseIndex, phases.length)
   }));
 }
 
@@ -1388,8 +1406,9 @@ export function normalizeStudioDraft(input = {}) {
     )
   );
   const projectedCorrect = phases.map((phase) => {
-    const expected = phaseExpectedCriteria(objectives, phase);
-    return expected.length ? expected.join(" ") : phase.strongLearnerResponse;
+    const strongLearnerResponse = cleanText(phase.strongLearnerResponse);
+    if (strongLearnerResponse) return strongLearnerResponse;
+    return phaseExpectedCriteria(objectives, phase).join(" ");
   });
   const projectedCustomerResponses = phases.map((phase, index) =>
     phases[index + 1]?.partnerTurn || closingPartnerTurn
@@ -1536,7 +1555,7 @@ export function normalizeStudioDraft(input = {}) {
       mode: evaluationMode,
       criteria: evaluationCriteria,
       passingScore: Math.round(
-        clampNumber(incomingEvaluation.passingScore, 0, 100, 80)
+        clampNumber(incomingEvaluation.passingScore, 0, 100, 100)
       ),
       objectives,
       ...(isPlainObject(incomingEvaluation.approval)
@@ -1698,7 +1717,7 @@ export function createStudioDraftFromGeneration(generated, creatorInput = {}, op
           ? objective.criteria.map((criterion) => criterion?.text).filter(Boolean)
           : []
       ),
-      passingScore: 80,
+      passingScore: 100,
       objectives
     },
     sourceGrounding: emptySourceGrounding()
@@ -1888,6 +1907,14 @@ function buildChatMatchPhrases(step) {
   return [...new Set(phrases.map((phrase) => cleanText(phrase).toLowerCase()).filter(Boolean))].slice(0, 24);
 }
 
+function buildGroupedChatMatch(requirements, fallbackStep) {
+  const all = normalizeChatAdvanceRequirements(requirements, "phase")
+    .map((requirement) => ({ op: "contains_any", phrases: requirement.phrases }));
+  return all.length
+    ? { all, any: [] }
+    : { all: [], any: [{ op: "contains_any", phrases: buildChatMatchPhrases(fallbackStep) }] };
+}
+
 function buildProgression(draft, channel) {
   return draft.handling.correct.map((step, index) => {
     const customerResponse =
@@ -1899,15 +1926,7 @@ function buildProgression(draft, channel) {
       return {
         id: index,
         label: `Handling step ${index + 1}`,
-        match: {
-          all: [],
-          any: [
-            {
-              op: "contains_any",
-              phrases: buildChatMatchPhrases(step)
-            }
-          ]
-        },
+        match: buildGroupedChatMatch(draft.flow?.phases?.[index]?.chatAdvanceRequirements, step),
         customerResponse,
         scenarioPathHint: `chatConfig.stepProgression[${index}]`
       };

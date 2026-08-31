@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createGenerateHandler } from "../lib/scenario-generation";
+import { createValidateHandler } from "../lib/scenario-validation";
+import { objectiveFingerprint } from "../lib/objective-approval";
 import type { StudioDraft } from "../lib/scenario-contract";
+import { authoringToStandaloneDraft, standaloneToAuthoringDraft } from "../public/builder-studio/src/standaloneAdapter.js";
+import { normalizeStudioDraft } from "../public/builder-studio/src/scenarioStudio.js";
 
 const validBody = {
   mode: "new",
@@ -61,6 +65,10 @@ const generated = {
       id: "acknowledge_and_clarify",
       title: "Acknowledge and clarify",
       learnerActions: ["Acknowledge the concern and confirm the delayed order."],
+      chatAdvanceRequirements: [
+        { id: "acknowledgement", phrases: ["sorry", "understand", "concern"] },
+        { id: "delayed_order", phrases: ["delayed order", "late order"] },
+      ],
       partnerResponse: "Yes, it is Milo's food order.",
       coachGuidance: ["Use the customer and pet names naturally."],
       customerRemainsSilent: false,
@@ -541,6 +549,240 @@ test("normalizes generated objective criteria to neutral imperative wording", as
     "Explain clearly the expected delivery window.",
     "Do not guarantee the delivery date.",
   ]);
+});
+
+test("removes learner actions from generated customer rules and preserves negative guardrails", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        behaviorRules: [
+          "Do not offer store credit.",
+          "The learner must not offer a replacement.",
+          "The agent should avoid offering a discount.",
+          "The learner must avoid guaranteeing delivery.",
+          "Issue a full refund to the original payment card only.",
+          "Explain the refund timeline to the customer.",
+          "Inform the customer that the refund will post in 3–5 business days.",
+          "Remain disappointed until the learner confirms the refund.",
+        ],
+      },
+      prohibitedActions: [],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload.draft.customer.behaviorRules, [
+    "Remain disappointed until the learner confirms the refund.",
+  ]);
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not offer store credit.",
+    "Do not offer a replacement.",
+    "Avoid offering a discount.",
+    "Avoid guaranteeing delivery.",
+  ]);
+});
+
+test("migrates contracted and modal learner prohibitions into prohibited actions", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        behaviorRules: [
+          "The agent can't offer store credit.",
+          "The learner may not offer a replacement.",
+          "The representative could not guarantee the timeline.",
+          "Remain disappointed until the learner confirms the refund.",
+        ],
+      },
+      prohibitedActions: [],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload.draft.customer.behaviorRules, [
+    "Remain disappointed until the learner confirms the refund.",
+  ]);
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not offer store credit.",
+    "Do not offer a replacement.",
+    "Do not guarantee the timeline.",
+  ]);
+});
+
+test("rejects any negative learner rule when it cannot be migrated safely", async () => {
+  for (const rule of [
+    "The learner is prohibited from offering store credit.",
+    "The learner isn't allowed to offer store credit.",
+    "The agent isn’t permitted to guarantee delivery.",
+    "The agent aren't supposed to guarantee delivery.",
+    "The representative wasn't permitted to offer a replacement.",
+    "The learner weren't authorized to issue store credit.",
+    "The agent needn't offer a discount.",
+  ]) {
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          behaviorRules: [
+            rule,
+            "Remain disappointed until the learner confirms the refund.",
+          ],
+        },
+        prohibitedActions: [],
+      }),
+    });
+
+    const response = await handler(request(validBody));
+    const payload = await response.json();
+
+    assert.equal(response.status, 502, rule);
+    assert.equal(payload.error.code, "generation_unavailable", rule);
+  }
+});
+
+for (const [apostropheStyle, rule] of [
+  [
+    "ASCII",
+    "The learner who has thoroughly reviewed all approved account and customer information isn't allowed to offer store credit.",
+  ],
+  [
+    "curly",
+    "The learner who has thoroughly reviewed all approved account and customer information isn’t allowed to offer store credit.",
+  ],
+] as const) {
+  test(`rejects a long ${apostropheStyle} n't learner rule instead of silently removing it`, async () => {
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          behaviorRules: [rule],
+        },
+        prohibitedActions: [],
+      }),
+    });
+
+    const response = await handler(request(validBody));
+    const payload = await response.json();
+
+    assert.equal(response.status, 502);
+    assert.equal(payload.error.code, "generation_unavailable");
+  });
+}
+
+test("normalizes generic objective IDs and subject-led or gerund criteria", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      objectives: [{
+        ...generated.objectives[0],
+        id: "obj1",
+        label: "Refund Process Accuracy",
+        criteria: [
+          "Issuing a full refund to the original payment card.",
+          "The agent informs the customer when the refund will post.",
+          "Processing the approved refund without changing the destination.",
+        ],
+      }],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.draft.objectives[0].id, "refund_process_accuracy");
+  assert.deepEqual(payload.draft.objectives[0].criteria, [
+    "Issue a full refund to the original payment card.",
+    "Inform the customer when the refund will post.",
+    "Process the approved refund without changing the destination.",
+  ]);
+  assert.doesNotMatch(JSON.stringify(payload.draft.objectives), /Show this behavior:/);
+});
+
+test("rejects generated Chat gates that use weak or prohibited evidence", async () => {
+  for (const phases of [
+    [{
+      ...generated.phases[0],
+      chatAdvanceRequirements: [{ id: "courtesy", phrases: ["thank", "help"] }],
+    }],
+    [{
+      ...generated.phases[0],
+      chatAdvanceRequirements: [{ id: "resolution", phrases: ["store credit", "replacement"] }],
+    }],
+  ]) {
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse({
+        ...generated,
+        prohibitedActions: ["Do not offer store credit or a replacement."],
+        phases,
+      }),
+    });
+
+    const response = await handler(request(validBody));
+    const payload = await response.json();
+
+    assert.equal(response.status, 502);
+    assert.equal(payload.error.code, "generation_unavailable");
+  }
+});
+
+test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {
+  const generate = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      objectives: [{
+        id: "obj1",
+        label: "Refund Process Accuracy",
+        description: "Complete and explain the approved refund.",
+        criteria: [
+          "Issues the approved refund.",
+          "Informs the customer when the refund will post.",
+          "Processing the refund without changing its destination.",
+        ],
+      }],
+    }),
+  });
+  const generatedResponse = await generate(request(validBody));
+  const generatedPayload = await generatedResponse.json();
+  const authoring = normalizeStudioDraft(standaloneToAuthoringDraft(generatedPayload.draft));
+  const downloadableDraft = authoringToStandaloneDraft(authoring);
+  const validate = createValidateHandler();
+  const validationResponse = await validate(new Request("http://localhost/api/builder/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      draft: downloadableDraft,
+      deidentificationConfirmed: true,
+      objectiveApproval: {
+        required: true,
+        approved: true,
+        fingerprint: objectiveFingerprint(downloadableDraft.objectives),
+      },
+    }),
+  }));
+  const validationPayload = await validationResponse.json();
+
+  assert.equal(generatedResponse.status, 200);
+  assert.equal(validationResponse.status, 200, JSON.stringify(validationPayload.issues));
+  assert.equal(validationPayload.ok, true);
 });
 
 test("replaces sensitive-looking details invented by the provider before returning the draft", async () => {

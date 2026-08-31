@@ -490,6 +490,33 @@ body[data-builder-view="workflow"] .studio-brand p {
   margin-top: 0;
 }
 
+.build-deidentification-confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--blue-200);
+  border-radius: 9px;
+  background: var(--blue-50);
+  cursor: pointer;
+}
+
+.build-deidentification-confirmation input {
+  margin-top: 3px;
+}
+
+.build-deidentification-confirmation span,
+.build-deidentification-confirmation strong,
+.build-deidentification-confirmation small {
+  display: block;
+}
+
+.build-deidentification-confirmation small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .build-intake-recap {
   display: flex;
   align-items: center;

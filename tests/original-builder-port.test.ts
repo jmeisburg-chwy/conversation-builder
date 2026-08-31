@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import * as builderApp from "../public/builder-studio/app.js";
+
 import { objectiveFingerprint } from "../lib/objective-approval";
 import { createValidateHandler } from "../lib/scenario-validation";
 import type { StudioDraft } from "../lib/scenario-contract";
@@ -12,8 +14,17 @@ import {
   standaloneToAuthoringDraft,
 } from "../public/builder-studio/src/standaloneAdapter.js";
 import {
+  addChatAdvanceRequirement,
   actionableBlockingIssues,
+  createBlankPhase,
+  duplicatePhase,
+  editChatAdvanceRequirementPhrases,
+  reviewFindingTargets,
+  runCreateDraftBuild,
+  saveDraft,
+  stepPassingScore,
   standalonePublishChecks,
+  updatePhaseStrongLearnerResponse,
 } from "../public/builder-studio/app.js";
 
 const root = new URL("../", import.meta.url);
@@ -33,7 +44,62 @@ test("ports the original complete Review/Edit surface into the standalone Builde
   assert.match(script, /Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid\./);
   assert.match(script, /Final Conversation Partner response/);
   assert.match(script, /closing-partner-turn:/);
-  assert.doesNotMatch(html, /id="deidentificationConfirmed"|By creating a draft, you confirm/i);
+  assert.match(script, /Chat advance requirements/);
+  assert.match(script, /Add required concept/);
+  assert.match(html, /id="deidentificationConfirmed"/);
+  assert.match(html, /I confirm these conversation details are fictional or de-identified\./i);
+});
+
+test("requires a real de-identification confirmation before generation", async () => {
+  let requestCount = 0;
+  let focused = false;
+  const statuses: string[] = [];
+  const confirmation = {
+    checked: false,
+    focus: () => { focused = true; },
+  };
+  const createDraftButton = { disabled: false, textContent: "Create draft" };
+  const inputs = {
+    conversationAboutInput: { value: "A fictional late-order conversation.", focus() {} },
+    learnerApproachInput: { value: "Acknowledge the concern and explain the approved next step.", focus() {} },
+  };
+
+  const blocked = await runCreateDraftBuild({
+    ...inputs,
+    deidentificationConfirmedInput: confirmation,
+    createDraftButton,
+    reportStatus: (message: string) => statuses.push(message),
+    requestDraft: async () => {
+      requestCount += 1;
+      return {};
+    },
+  });
+
+  assert.equal(blocked.status, "invalid");
+  assert.equal(requestCount, 0);
+  assert.equal(focused, true);
+  assert.equal(statuses.at(-1), "Confirm that the conversation details are fictional or de-identified.");
+
+  confirmation.checked = true;
+  const created = await runCreateDraftBuild({
+    ...inputs,
+    deidentificationConfirmedInput: confirmation,
+    createDraftButton,
+    reportStatus: (message: string) => statuses.push(message),
+    requestDraft: async ({ deidentificationConfirmedInput }: { deidentificationConfirmedInput: { checked: boolean } }) => {
+      requestCount += 1;
+      assert.equal(deidentificationConfirmedInput.checked, true);
+      return { scenario: { title: "Generated" } };
+    },
+  });
+
+  assert.equal(created.status, "created");
+  assert.equal(requestCount, 1);
+});
+
+test("uses 100 as the missing-score baseline in Review/Edit", () => {
+  assert.equal(stepPassingScore("", 1), 100);
+  assert.equal(stepPassingScore("", -1), 99);
 });
 
 test("adapts the original final stage to local save and download without Test or Publish", () => {
@@ -57,6 +123,70 @@ test("bridges the original UI to standalone persistence and the existing backend
   assert.match(script, /\/api\/builder\/validate/);
   assert.match(script, /localStorage/);
   assert.doesNotMatch(script, /agentType:\s*"Core"/);
+});
+
+test("reports browser storage failures without blocking quiet autosave callers", async () => {
+  const failures = [
+    {
+      name: "QuotaExceededError",
+      getStorage: () => ({
+        setItem() {
+          throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+        },
+      }),
+    },
+    {
+      name: "SecurityError",
+      getStorage: () => {
+        throw new DOMException("Storage access denied", "SecurityError");
+      },
+    },
+  ];
+
+  for (const failure of failures) {
+    const warnings: string[] = [];
+    const toasts: string[] = [];
+    const draftState = {
+      draft: {},
+      draftId: "",
+      currentDraftActive: true,
+      currentDraftUpdatedAt: "",
+      savedDraft: null,
+    };
+
+    let callerContinued = false;
+    const result = await saveDraft({
+      quiet: true,
+      draftState,
+      getStorage: failure.getStorage,
+      reportStatus: (message: string) => warnings.push(message),
+      notify: (message: string) => toasts.push(message),
+    });
+    callerContinued = true;
+
+    assert.equal(result.saved, false, failure.name);
+    assert.equal(result.error?.name, failure.name);
+    assert.equal(callerContinued, true);
+    assert.deepEqual(warnings, [
+      "Draft could not be saved in this browser. Validation and JSON download can continue, but download your JSON before leaving.",
+    ]);
+    assert.deepEqual(toasts, warnings);
+  }
+});
+
+test("treats blocked browser storage as an empty bootstrap instead of throwing", () => {
+  const loadSavedDraftSafely = (builderApp as unknown as {
+    loadSavedDraftSafely?: (options: { getStorage: () => Storage }) => unknown;
+  }).loadSavedDraftSafely;
+  assert.equal(typeof loadSavedDraftSafely, "function");
+
+  const result = loadSavedDraftSafely!({
+    getStorage() {
+      throw new DOMException("Storage access denied", "SecurityError");
+    },
+  });
+
+  assert.equal(result, null);
 });
 
 test("keeps standalone bootstrap safe after removing the simulator preview", () => {
@@ -138,6 +268,119 @@ test("routes a one-phase repeated opening to an editable closing response", () =
   });
 });
 
+test("clears stale Chat advance requirements when the strong response changes", () => {
+  const phase = {
+    id: "resolve_delay",
+    title: "Resolve the delay",
+    partnerTurn: "My order is late. Can you help?",
+    strongLearnerResponse: "Acknowledge the concern.",
+    chatAdvanceRequirements: [
+      { id: "acknowledgement", phrases: ["sorry", "understand the concern"] },
+    ],
+    coachGuidance: { title: "Resolve the delay", bullets: [] },
+    evaluationLinks: [],
+  };
+
+  assert.deepEqual(
+    updatePhaseStrongLearnerResponse(phase, "Acknowledge the concern."),
+    phase,
+  );
+  assert.deepEqual(
+    updatePhaseStrongLearnerResponse(phase, "Confirm the expected delivery date."),
+    {
+      ...phase,
+      strongLearnerResponse: "Confirm the expected delivery date.",
+      chatAdvanceRequirements: [],
+    },
+  );
+  assert.equal(phase.chatAdvanceRequirements.length, 1);
+});
+
+test("lets authors complete blank Chat gates and duplicates groups with independent IDs", () => {
+  const blank = createBlankPhase(2, { createId: (prefix: string) => `${prefix}_new` });
+  assert.deepEqual(blank.chatAdvanceRequirements, []);
+
+  const withGroup = addChatAdvanceRequirement(blank, {
+    createId: () => "required_resolution",
+  });
+  const completed = editChatAdvanceRequirementPhrases(
+    withGroup,
+    "required_resolution",
+    "Expected tomorrow\n delivery window \nEXPECTED TOMORROW",
+  );
+  assert.deepEqual(completed.chatAdvanceRequirements, [{
+    id: "required_resolution",
+    phrases: ["expected tomorrow", "delivery window"],
+  }]);
+
+  let nextId = 0;
+  const phases = duplicatePhase([completed], 0, {
+    createId: (prefix: string) => `${prefix}_${++nextId}`,
+  });
+  assert.equal(phases.length, 2);
+  assert.notEqual(
+    phases[0].chatAdvanceRequirements[0].id,
+    phases[1].chatAdvanceRequirements[0].id,
+  );
+  assert.deepEqual(
+    phases[1].chatAdvanceRequirements[0].phrases,
+    ["expected tomorrow", "delivery window"],
+  );
+});
+
+test("routes Chat gate findings to the matching phrase editor or visible add control", () => {
+  const draft = {
+    flow: {
+      phases: [{
+        id: "resolve_delay",
+        chatAdvanceRequirements: [{
+          id: "delivery_window",
+          phrases: ["expected tomorrow", "delivery window"],
+        }],
+        coachGuidance: { bullets: [] },
+        evaluationLinks: [],
+      }],
+    },
+    evaluation: { objectives: [] },
+  };
+  const [phraseTarget] = reviewFindingTargets(draft, [{
+    id: "specific-phrase",
+    fieldPath: "flow.phases.0.chatAdvanceRequirements.0.phrases.0",
+  }]);
+  assert.equal(
+    phraseTarget.focusKey,
+    "chat-requirement-phrases:resolve_delay:delivery_window",
+  );
+
+  const [missingAction] = actionableBlockingIssues({
+    issues: [{
+      severity: "FAIL",
+      code: "chat_advance_requirements_required",
+      path: "draft.phases[0].chatAdvanceRequirements",
+      message: "Each Chat phase needs explicit positive evidence before it can advance.",
+    }],
+  }, {
+    draft: {
+      ...draft,
+      flow: {
+        phases: [{
+          ...draft.flow.phases[0],
+          chatAdvanceRequirements: [],
+        }],
+      },
+    },
+  });
+  assert.equal(
+    missingAction.reviewFieldPath,
+    "flow.phases.0.chatAdvanceRequirements",
+  );
+  assert.equal(missingAction.message, "Add the required Chat phrases for Phase 1.");
+  assert.deepEqual(missingAction.reviewTarget, {
+    phaseId: "resolve_delay",
+    focusKey: "add-chat-requirement:resolve_delay",
+  });
+});
+
 test("marks Personal information as needing attention for standalone privacy issues", () => {
   assert.deepEqual(standalonePublishChecks({
     fail: 1,
@@ -185,8 +428,19 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
       id: "resolve_delay",
       title: "Resolve the delay",
       learnerActions: ["Acknowledge the concern and explain the expected delivery window."],
+      chatAdvanceRequirements: [
+        {
+          id: "acknowledgement",
+          phrases: ["i am sorry the order is late", "i understand the delay is frustrating"],
+        },
+        {
+          id: "delivery_window",
+          phrases: ["the order is expected tomorrow", "delivery is expected tomorrow by end of day"],
+        },
+      ],
       partnerResponse: "That answers my question. Thank you.",
-      coachGuidance: ["Use expected rather than guaranteed timing."],
+      coachGuidance: ["Use expected timing language and the approved delivery date."],
+      evaluationLinks: [{ objectiveId: "set_clear_expectations", criterionIds: ["set_clear_expectations_criterion_1"] }],
     }],
     objectives: [{
       id: "set_clear_expectations",
@@ -236,7 +490,7 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
   }));
   const payload = await response.json();
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 200, JSON.stringify(payload));
   assert.equal(payload.ok, true);
   assert.deepEqual(payload.files.map((file: { filename: string }) => file.filename), [
     "late_order_recovery_chat.json",
@@ -249,10 +503,60 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
   assert.equal(payload.files[0].scenario.coaching.gradingModel.mode, "focused_learning_objectives");
 
   const firstChatJson = JSON.stringify(payload.files[0].scenario);
-  restored!.draft.flow.phases[0].strongLearnerResponse =
-    "Acknowledge the concern and state the expected delivery window.";
+  restored!.draft.flow.phases[0] = updatePhaseStrongLearnerResponse(
+    restored!.draft.flow.phases[0],
+    "Acknowledge the concern and state the expected delivery window.",
+  );
   saveStandaloneDraft(storage, restored!.draft);
+  const stale = loadStandaloneDraft(storage);
+  assert.deepEqual(stale?.draft.flow.phases[0].chatAdvanceRequirements, []);
+
+  const staleRoundTrip = authoringToStandaloneDraft(stale?.draft);
+  const staleResponse = await createValidateHandler()(new Request("http://localhost/api/builder/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      draft: staleRoundTrip,
+      deidentificationConfirmed: true,
+      objectiveApproval: {
+        required: true,
+        approved: true,
+        fingerprint: objectiveFingerprint(staleRoundTrip.objectives),
+      },
+    }),
+  }));
+  const stalePayload = await staleResponse.json();
+  assert.equal(staleResponse.status, 422);
+  assert.equal(
+    stalePayload.issues.some((issue: { code: string }) =>
+      issue.code === "chat_advance_requirements_required"
+    ),
+    true,
+  );
+
+  let revisedPhase = addChatAdvanceRequirement(stale!.draft.flow.phases[0], {
+    createId: () => "acknowledgement",
+  });
+  revisedPhase = editChatAdvanceRequirementPhrases(
+    revisedPhase,
+    "acknowledgement",
+    "i am sorry the order is late\ni understand the delay is frustrating",
+  );
+  revisedPhase = addChatAdvanceRequirement(revisedPhase, {
+    createId: () => "delivery_window",
+  });
+  revisedPhase = editChatAdvanceRequirementPhrases(
+    revisedPhase,
+    "delivery_window",
+    "the order is expected tomorrow\ndelivery is expected tomorrow by end of day",
+  );
+  stale!.draft.flow.phases[0] = revisedPhase;
+  saveStandaloneDraft(storage, stale!.draft);
   const revised = loadStandaloneDraft(storage);
+  assert.deepEqual(
+    revised?.draft.flow.phases[0].chatAdvanceRequirements,
+    revisedPhase.chatAdvanceRequirements,
+  );
   const revisedRoundTrip = authoringToStandaloneDraft(revised?.draft);
   const revisedResponse = await createValidateHandler()(new Request("http://localhost/api/builder/validate", {
     method: "POST",
@@ -273,6 +577,7 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
   assert.equal(revisedResponse.status, 200);
   assert.notEqual(JSON.stringify(revisedPayload.files[0].scenario), firstChatJson);
   assert.equal(Array.isArray(revisedMatch), false);
-  assert.equal(revisedMatch.any[0].op, "contains_any");
-  assert.equal(revisedMatch.any[0].phrases.length > 0, true);
+  assert.equal(revisedMatch.all.every((condition: { op: string }) => condition.op === "contains_any"), true);
+  assert.equal(revisedMatch.all.every((condition: { phrases: string[] }) => condition.phrases.length > 0), true);
+  assert.deepEqual(revisedMatch.any, []);
 });

@@ -9,7 +9,9 @@ import {
   type ValidationIssue,
 } from "./scenario-contract";
 import {
+  customerBehaviorRuleConflictsWithLearner,
   customerFollowUpConflictsWithLearner,
+  findChatAdvanceRequirementQualityFindings,
   findNondeterministicResolutionStep,
   repeatsOpening,
 } from "./scenario-quality-guards";
@@ -203,6 +205,15 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       fix: "Replace general options or next steps with the exact authorized action and expected result.",
     });
   }
+  draft.correctProcess.forEach((action, index) => {
+    if (!VAGUE_PROCESS_REFERENCE_PATTERN.test(action)) return;
+    issues.push({
+      code: "vague_process_reference",
+      path: `draft.correctProcess[${index}]`,
+      message: "The learner action refers to a process or policy without stating the approved action.",
+      fix: "Replace the placeholder with the exact approved action, amount, destination, and timing that apply.",
+    });
+  });
   if (draft.evaluation && (draft.evaluation.passingScore < 1 || draft.evaluation.passingScore > 100)) {
     issues.push({
       code: "invalid_passing_score",
@@ -240,7 +251,65 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       });
     }
     requireLines(`draft.phases[${index}].learnerActions`, phase?.learnerActions, "Learner action");
+    phase.learnerActions.forEach((action, actionIndex) => {
+      if (!VAGUE_PROCESS_REFERENCE_PATTERN.test(action)) return;
+      issues.push({
+        code: "vague_process_reference",
+        path: `draft.phases[${index}].learnerActions[${actionIndex}]`,
+        message: "The learner action refers to a process or policy without stating the approved action.",
+        fix: "Replace the placeholder with the exact approved action, amount, destination, and timing that apply.",
+      });
+    });
     requireLines(`draft.phases[${index}].coachGuidance`, phase?.coachGuidance, "Coach Chewy guidance");
+    if (draft.channels.includes("chat") && !phase.customerRemainsSilent) {
+      const requirements = phase.chatAdvanceRequirements ?? [];
+      if (!requirements.length) {
+        issues.push({
+          code: "chat_advance_requirements_required",
+          path: `draft.phases[${index}].chatAdvanceRequirements`,
+          message: "Each Chat phase needs explicit positive evidence before it can advance.",
+          fix: "Regenerate the phase with one required phrase group for each independent learner concept.",
+        });
+      }
+      const requirementIds = new Set<string>();
+      requirements.forEach((requirement, requirementIndex) => {
+        if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(requirement.id) || requirementIds.has(requirement.id)) {
+          issues.push({
+            code: "invalid_chat_advance_requirement",
+            path: `draft.phases[${index}].chatAdvanceRequirements[${requirementIndex}].id`,
+            message: "Every Chat advance requirement needs a unique lower_snake_case ID.",
+            fix: "Regenerate the phase with unique requirement IDs.",
+          });
+        }
+        requirementIds.add(requirement.id);
+      });
+      findChatAdvanceRequirementQualityFindings(requirements, draft.prohibitedActions).forEach((finding) => {
+        const path = `draft.phases[${index}].chatAdvanceRequirements[${finding.requirementIndex}]${finding.phraseIndex === undefined ? "" : `.phrases[${finding.phraseIndex}]`}`;
+        const details: Record<typeof finding.code, { message: string; fix: string }> = {
+          chat_advance_requirement_alternatives: {
+            message: "Each required Chat concept needs at least two nonblank natural phrase alternatives.",
+            fix: "Add a second distinct way the Learner can express this same positive concept.",
+          },
+          blank_chat_advance_phrase: {
+            message: "A Chat advance phrase cannot be blank.",
+            fix: "Replace the blank entry with a natural positive learner phrase.",
+          },
+          generic_chat_advance_phrase: {
+            message: "This Chat advance phrase is too generic or incidental to prove the required behavior.",
+            fix: "Use a specific positive phrase tied to the required learner concept.",
+          },
+          overlapping_chat_advance_phrase: {
+            message: "One learner phrase can satisfy more than one required Chat concept.",
+            fix: "Use non-overlapping evidence so each required concept must be demonstrated separately.",
+          },
+          prohibited_chat_advance_phrase: {
+            message: "A prohibited action or option cannot count as positive Chat evidence.",
+            fix: "Replace it with evidence of the approved learner behavior.",
+          },
+        };
+        issues.push({ code: finding.code, path, ...details[finding.code] });
+      });
+    }
   });
   const phaseIds = draft.phases.map((phase) => phase.id);
   phaseIds.forEach((id, index) => {
@@ -271,6 +340,21 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       issues.push({ code: "duplicate_objective_id", path: `draft.objectives[${index}].id`, message: "Each objective needs a unique ID.", fix: "Give this objective a different lower_snake_case ID." });
     }
   });
+  const linkedCriterionIds = new Set(
+    draft.phases.flatMap((phase) => phase.evaluationLinks ?? []).flatMap((link) => link.criterionIds),
+  );
+  draft.objectives.forEach((objective, objectiveIndex) => {
+    objective.criteria.forEach((_criterion, criterionIndex) => {
+      const criterionId = `${objective.id}_criterion_${criterionIndex + 1}`;
+      if (linkedCriterionIds.has(criterionId)) return;
+      issues.push({
+        code: "unlinked_objective_criterion",
+        path: `draft.objectives[${objectiveIndex}].criteria[${criterionIndex}]`,
+        message: "This observable criterion is not linked to a Conversation Phase.",
+        fix: "Link the criterion to the phase where the Learner demonstrates it.",
+      });
+    });
+  });
   const objectiveCoverage = draft.objectives.flatMap((objective) => objective.criteria);
   const guideCoverage = draft.phases.flatMap((phase) => [phase.guideBody || "", ...phase.learnerActions, ...phase.coachGuidance]);
   draft.prohibitedActions.forEach((action, index) => {
@@ -289,6 +373,15 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       path: `draft.customer.conditionalFollowUps[${index}]`,
       message: "This follow-up assigns the Learner's discovery question to the Conversation Partner.",
       fix: "Rewrite it as the Conversation Partner's reaction or answer after the Learner asks the question.",
+    });
+  });
+  draft.customer.behaviorRules.forEach((rule, index) => {
+    if (!customerBehaviorRuleConflictsWithLearner(rule)) return;
+    issues.push({
+      code: "customer_role_conflict",
+      path: `draft.customer.behaviorRules[${index}]`,
+      message: "This rule assigns a Chewy-agent action to the Conversation Partner.",
+      fix: "Rewrite it as the Conversation Partner's reaction, disclosure boundary, or emotional response.",
     });
   });
   if (draft.channels.includes("chat")) {
@@ -329,12 +422,24 @@ function isPhaseDraft(value: unknown): boolean {
     && typeof phase.partnerResponse === "string" && isStringArray(phase.coachGuidance)
     && ["guideSourceLabel", "guideSource", "guideTitle", "guideBody", "managerGuidance"]
       .every((key) => phase[key] === undefined || typeof phase[key] === "string")
+    && (phase.chatAdvanceRequirements === undefined || (
+      Array.isArray(phase.chatAdvanceRequirements)
+      && phase.chatAdvanceRequirements.every(isChatAdvanceRequirementDraft)
+    ))
     && (phase.evaluationLinks === undefined || (Array.isArray(phase.evaluationLinks) && phase.evaluationLinks.every(isEvaluationLinkDraft)))
     && (phase.coachGuidanceHierarchy === undefined || (
       Array.isArray(phase.coachGuidanceHierarchy)
       && phase.coachGuidanceHierarchy.every(isGuidanceBulletDraft)
     ))
     && (phase.customerRemainsSilent === undefined || typeof phase.customerRemainsSilent === "boolean");
+}
+
+function isChatAdvanceRequirementDraft(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const requirement = value as Record<string, unknown>;
+  return typeof requirement.id === "string"
+    && Array.isArray(requirement.phrases)
+    && isStringArray(requirement.phrases);
 }
 
 function isGuidanceBulletDraft(value: unknown): boolean {
@@ -445,12 +550,14 @@ function relatedToken(left: string, right: string): boolean {
 }
 
 const BOUNDARY_PATTERN = /\b(?:avoid|do not|must not|never|refrain|unsupported|without)\b|\brather than\b|\binstead of\b/i;
+const VAGUE_PROCESS_REFERENCE_PATTERN = /\b(?:as\s+per|per|according\s+to)\s+(?:(?:the|an)\s+)?(?:(?:correct|approved)\s+)?(?:process|policy|procedure|guidance)\b/i;
 const IMPERATIVE_ACTIONS = new Set([
   "acknowledge", "ask", "avoid", "check", "clarify", "communicate", "complete", "confirm", "connect", "continue",
   "describe", "determine", "direct", "distinguish", "do", "end", "explain", "focus", "give", "highlight", "identify",
   "include", "introduce", "keep", "maintain", "mention", "never", "obtain", "offer", "pause", "personalize", "position",
-  "present", "protect", "provide", "read", "reassure", "recap", "recognize", "remain", "request", "require", "respond",
+  "present", "process", "protect", "provide", "read", "reassure", "recap", "recognize", "remain", "request", "require", "respond",
   "restate", "review", "select", "share", "show", "state", "stop", "take", "thank", "update", "use", "verify", "wait",
+  "inform", "issue",
   "warm-transfer",
 ]);
 

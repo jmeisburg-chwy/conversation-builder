@@ -9,6 +9,10 @@ import type {
 } from "./scenario-contract";
 import { createDefaultVoiceExperience } from "./scenario-contract";
 import {
+  customerBehaviorRuleConflictsWithLearner,
+  customerBehaviorRuleHasNegativeLearnerPolarity,
+  customerBehaviorRuleToNegativeGuardrail,
+  findChatAdvanceRequirementQualityFindings,
   hasDeterministicResolutionText,
   isNondeterministicResolutionText,
 } from "./scenario-quality-guards";
@@ -307,6 +311,19 @@ function assertGeneratedContent(value: GeneratedContent): void {
   if (!value.customer || !nonempty(value.customer.name) || !nonempty(value.customer.openingLine)) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.correctProcess) || value.correctProcess.length === 0) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.phases) || value.phases.length === 0) throw new Error("invalid_generated_content");
+  if (value.phases.some((phase) => {
+    if (!Array.isArray(phase.chatAdvanceRequirements) || phase.chatAdvanceRequirements.length === 0) return true;
+    if (phase.chatAdvanceRequirements.some((requirement) =>
+      !requirement
+      || typeof requirement.id !== "string"
+      || !Array.isArray(requirement.phrases)
+      || requirement.phrases.some((phrase) => typeof phrase !== "string")
+    )) return true;
+    return findChatAdvanceRequirementQualityFindings(
+      phase.chatAdvanceRequirements,
+      value.prohibitedActions,
+    ).length > 0;
+  })) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.objectives) || value.objectives.length === 0) throw new Error("invalid_generated_content");
   if (!value.compatibilityFacts || !["address", "medication", "urgency", "medicationOrProduct", "clinic", "keyQuestion", "rootCauseBelief", "conditionalFollowUp"].every((key) => typeof value.compatibilityFacts[key as keyof StudioDraft["compatibilityFacts"]] === "string")) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.assumptions)) throw new Error("invalid_generated_content");
@@ -330,6 +347,21 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
       ? recommendImportedStandardText(input.sourceDraft.chat.standardText, input.sourceDraft.chat.hotkeyProfile)
       : recommendStandardText(content)
     : [];
+  const conflictingCustomerRules = content.customer.behaviorRules.filter(customerBehaviorRuleConflictsWithLearner);
+  const guardrailMigrations = conflictingCustomerRules.map((rule) => ({
+    rule,
+    guardrail: customerBehaviorRuleToNegativeGuardrail(rule),
+  }));
+  if (guardrailMigrations.some(({ rule, guardrail }) =>
+    !guardrail && customerBehaviorRuleHasNegativeLearnerPolarity(rule)
+  )) {
+    throw new Error("invalid_generated_content");
+  }
+  const migratedCustomerGuardrails = guardrailMigrations.map(({ guardrail }) => guardrail).filter(nonempty);
+  const customer = {
+    ...content.customer,
+    behaviorRules: content.customer.behaviorRules.filter((rule) => !customerBehaviorRuleConflictsWithLearner(rule)),
+  };
   return {
     baseId,
     title: content.title.trim(),
@@ -340,7 +372,7 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
     topic: content.topic.trim(),
     subtopic: content.subtopic.trim(),
     teamAudience: content.teamAudience.trim(),
-    customer: content.customer,
+    customer,
     correctProcess: input.mode === "new" && input.correctProcess
       ? [input.correctProcess]
       : input.sourceDraft?.objectiveApprovalRequired
@@ -350,8 +382,12 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
       ? uniqueStrings([
           ...(input.mode === "similar" ? sanitizeSimilarSourceLines(input.sourceDraft.prohibitedActions) : input.sourceDraft.prohibitedActions),
           ...content.prohibitedActions,
+          ...migratedCustomerGuardrails,
         ])
-      : content.prohibitedActions,
+      : uniqueStrings([
+          ...content.prohibitedActions,
+          ...migratedCustomerGuardrails,
+        ]),
     phases: content.phases.map((phase, index) => {
       const sourcePhase = preserveImportedSettings
         ? input.sourceDraft!.phases?.find((candidate) => candidate.id === phase.id) || input.sourceDraft!.phases?.[index]
@@ -365,11 +401,11 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
         ...(sourcePhase?.managerGuidance !== undefined ? { managerGuidance: sourcePhase.managerGuidance } : {}),
       };
     }),
-    objectives: content.objectives.map((objective) => ({
-      ...objective,
-      criteria: objective.criteria.map(normalizeGeneratedCriterion),
-    })),
+    objectives: normalizeGeneratedObjectives(content.objectives),
     objectiveApprovalRequired: Boolean(input.sourceDraft?.objectiveApprovalRequired),
+    evaluation: preserveImportedSettings && input.sourceDraft!.evaluation
+      ? structuredClone(input.sourceDraft!.evaluation)
+      : { passingScore: 100 },
     compatibilityFacts: preserveImportedSettings
       ? input.sourceDraft!.compatibilityFacts ?? content.compatibilityFacts
       : content.compatibilityFacts,
@@ -391,7 +427,7 @@ const GENERATED_IMPERATIVE_FORMS = new Map([
   ["connects", "Connect"], ["continues", "Continue"], ["describes", "Describe"], ["determines", "Determine"],
   ["directs", "Direct"], ["distinguishes", "Distinguish"], ["does", "Do"], ["ends", "End"],
   ["explains", "Explain"], ["focuses", "Focus"], ["gives", "Give"], ["highlights", "Highlight"],
-  ["identifies", "Identify"], ["includes", "Include"], ["introduces", "Introduce"], ["keeps", "Keep"],
+  ["identifies", "Identify"], ["includes", "Include"], ["informs", "Inform"], ["introduces", "Introduce"], ["issues", "Issue"], ["keeps", "Keep"],
   ["maintains", "Maintain"], ["mentions", "Mention"], ["obtains", "Obtain"], ["offers", "Offer"],
   ["pauses", "Pause"], ["personalizes", "Personalize"], ["positions", "Position"], ["presents", "Present"],
   ["protects", "Protect"], ["provides", "Provide"], ["reads", "Read"], ["reassures", "Reassure"],
@@ -402,12 +438,23 @@ const GENERATED_IMPERATIVE_FORMS = new Map([
   ["uses", "Use"], ["verifies", "Verify"], ["waits", "Wait"],
 ]);
 
+const GENERATED_GERUND_FORMS = new Map([
+  ["acknowledging", "Acknowledge"], ["asking", "Ask"], ["avoiding", "Avoid"], ["checking", "Check"],
+  ["clarifying", "Clarify"], ["communicating", "Communicate"], ["confirming", "Confirm"], ["explaining", "Explain"],
+  ["identifying", "Identify"], ["informing", "Inform"], ["issuing", "Issue"], ["offering", "Offer"],
+  ["processing", "Process"], ["providing", "Provide"], ["recapping", "Recap"], ["stating", "State"],
+  ["thanking", "Thank"], ["verifying", "Verify"],
+]);
+
 const GENERATED_IMPERATIVE_BASES = new Set(
-  [...GENERATED_IMPERATIVE_FORMS.values()].map((value) => value.toLowerCase()),
+  [...GENERATED_IMPERATIVE_FORMS.values(), ...GENERATED_GERUND_FORMS.values()].map((value) => value.toLowerCase()),
 );
 
 function normalizeGeneratedCriterion(value: string): string {
-  const criterion = value.trim();
+  const criterion = value.trim().replace(
+    /^\s*(?:(?:the\s+)?(?:learner|agent|representative)\s+)(?:(?:must|should|will|can)\s+)?/i,
+    "",
+  );
   const words = criterion.match(/^([A-Za-z-]+)(?:\s+([A-Za-z-]+))?(.*)$/);
   if (!words) return criterion;
   const first = words[1].toLowerCase();
@@ -416,11 +463,34 @@ function normalizeGeneratedCriterion(value: string): string {
   const direct = GENERATED_IMPERATIVE_FORMS.get(first);
   if (direct) return `${direct}${criterion.slice(words[1].length)}`;
 
+  const gerund = GENERATED_GERUND_FORMS.get(first);
+  if (gerund) return `${gerund}${criterion.slice(words[1].length)}`;
+
   const second = String(words[2] || "").toLowerCase();
   const adverbial = first.endsWith("ly") ? GENERATED_IMPERATIVE_FORMS.get(second) : undefined;
   if (adverbial) return `${adverbial} ${words[1].toLowerCase()}${words[3] || ""}`;
 
-  return `Show this behavior: ${criterion}`;
+  return criterion;
+}
+
+function normalizeGeneratedObjectives(objectives: ObjectiveDraft[]): ObjectiveDraft[] {
+  const usedIds = new Set<string>();
+  return objectives.map((objective, index) => {
+    const genericId = /^(?:obj(?:ective)?)[_-]?\d+$/i.test(objective.id.trim());
+    const baseId = slug(genericId ? objective.label : objective.id) || `objective_${index + 1}`;
+    let id = baseId;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${baseId}_${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(id);
+    return {
+      ...objective,
+      id,
+      criteria: objective.criteria.map(normalizeGeneratedCriterion),
+    };
+  });
 }
 
 function errorResponse(status: number, code: string, message: string, details?: unknown): Response {
@@ -538,8 +608,11 @@ If the supplied correct-process details do not state one exact authorized action
 Make each objective observable and each phase response-ordered. Keep customer responses natural and concise.
 Each phase.partnerResponse is the new Conversation Partner turn after the Learner completes that phase. It must never repeat customer.openingLine.
 Write customer.conditionalFollowUps only as Conversation Partner reactions, objections, or questions. Never assign the Learner's discovery question or Chewy-agent action to the Conversation Partner.
+Write customer.behaviorRules only as Conversation Partner reactions, emotional shifts, disclosure boundaries, or role constraints. Never tell the Conversation Partner to issue, process, offer, explain, inform, or perform any Chewy-agent action.
 Write one deterministic approved resolution. Never substitute phrases such as available next steps, approved process, locating the package or replacement, or initiate resolution for the exact authorized action and expected outcome.
+Never write placeholders such as as per correct process, per approved policy, or according to the approved process. Use the supplied exact amount, destination, timing, and authorized action wherever those details are relevant.
 Begin every objective criterion with a neutral imperative action such as Acknowledge, Ask, Explain, Confirm, Avoid, or Recap.
+For every phase, create chatAdvanceRequirements with one independently required positive concept per entry. Give each entry two or more short natural learner phrases that express only that concept. A Chat phase advances only when every entry matches. Never use a prohibited option, incidental courtesy, or generic word such as issue, customer, process, thank, or help as positive evidence.
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.
 Repeat every prohibited action in neutral imperative wording in both an objective criterion and the relevant Coach Chewy guidance.
@@ -580,8 +653,28 @@ const GENERATED_CONTENT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "title", "learnerActions", "partnerResponse", "coachGuidance", "customerRemainsSilent"],
-        properties: { id: { type: "string", pattern: "^[a-z0-9]+(?:_[a-z0-9]+)*$" }, title: { type: "string" }, learnerActions: stringArray, partnerResponse: { type: "string" }, coachGuidance: stringArray, customerRemainsSilent: { type: "boolean" } },
+        required: ["id", "title", "learnerActions", "chatAdvanceRequirements", "partnerResponse", "coachGuidance", "customerRemainsSilent"],
+        properties: {
+          id: { type: "string", pattern: "^[a-z0-9]+(?:_[a-z0-9]+)*$" },
+          title: { type: "string" },
+          learnerActions: stringArray,
+          chatAdvanceRequirements: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id", "phrases"],
+              properties: {
+                id: { type: "string", pattern: "^[a-z0-9]+(?:_[a-z0-9]+)*$" },
+                phrases: { type: "array", minItems: 2, items: { type: "string" } },
+              },
+            },
+          },
+          partnerResponse: { type: "string" },
+          coachGuidance: stringArray,
+          customerRemainsSilent: { type: "boolean" },
+        },
       },
     },
     objectives: {

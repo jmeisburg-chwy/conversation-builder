@@ -36,8 +36,16 @@ function draft(): StudioDraft {
       id: "acknowledge_and_clarify",
       title: "Acknowledge and clarify",
       learnerActions: ["Acknowledge the concern and confirm the delayed order."],
+      chatAdvanceRequirements: [
+        { id: "acknowledgement", phrases: ["sorry", "understand", "concern"] },
+        { id: "delayed_order", phrases: ["delayed order", "late order"] },
+      ],
       partnerResponse: "Yes, it is Milo's food order.",
       coachGuidance: ["Use the customer and pet names naturally.", "Avoid guaranteeing delivery."],
+      evaluationLinks: [{
+        objectiveId: "set_clear_expectations",
+        criterionIds: ["set_clear_expectations_criterion_1", "set_clear_expectations_criterion_2"],
+      }],
     }],
     objectives: [{
       id: "set_clear_expectations",
@@ -204,6 +212,88 @@ test("blocks a customer follow-up that performs the Learner's discovery question
   assert.equal(payload.files, undefined);
 });
 
+test("blocks customer behavior rules that assign Chewy-agent actions to the Conversation Partner", async () => {
+  const invalid = draft();
+  invalid.customer.behaviorRules.push(
+    "Issue a full refund to the original payment card only.",
+    "Inform the customer that the refund will post in 3–5 business days.",
+  );
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(
+    payload.issues.filter((issue: { code: string }) => issue.code === "customer_role_conflict")
+      .map((issue: { path: string }) => issue.path),
+    ["draft.customer.behaviorRules[1]", "draft.customer.behaviorRules[2]"],
+  );
+});
+
+test("requires grouped Chat evidence and complete criterion-to-phase coverage", async () => {
+  const invalid = draft();
+  invalid.phases[0].chatAdvanceRequirements = [];
+  invalid.phases[0].evaluationLinks = [{
+    objectiveId: "set_clear_expectations",
+    criterionIds: ["set_clear_expectations_criterion_1"],
+  }];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "chat_advance_requirements_required"), true);
+  assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "unlinked_objective_criterion"), true);
+});
+
+test("blocks weak, overlapping, blank, and prohibited Chat gate evidence", async () => {
+  const invalid = draft();
+  invalid.prohibitedActions = ["Do not offer store credit or a replacement."];
+  invalid.phases[0].chatAdvanceRequirements = [
+    { id: "refund_concept", phrases: ["refund", "money back"] },
+    { id: "refund_completion", phrases: ["refund has been issued", "completed the refund"] },
+    { id: "generic_courtesy", phrases: ["thank", "help"] },
+    { id: "prohibited_option", phrases: ["store credit", "replacement"] },
+    { id: "blank_alternative", phrases: [" ", "apologize"] },
+  ];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+  const codes = new Set(payload.issues.map((issue: { code: string }) => issue.code));
+
+  assert.equal(response.status, 422);
+  assert.equal(codes.has("overlapping_chat_advance_phrase"), true);
+  assert.equal(codes.has("generic_chat_advance_phrase"), true);
+  assert.equal(codes.has("prohibited_chat_advance_phrase"), true);
+  assert.equal(codes.has("blank_chat_advance_phrase"), true);
+  assert.equal(codes.has("chat_advance_requirement_alternatives"), true);
+});
+
+test("matches Rise substring semantics for morphological Chat gate collisions", async () => {
+  const invalid = draft();
+  invalid.prohibitedActions = ["Do not issue a refund."];
+  invalid.phases[0].chatAdvanceRequirements = [
+    { id: "refund_request", phrases: ["refund", "money back"] },
+    { id: "refund_completion", phrases: ["refunded", "reimbursed"] },
+  ];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+  const refundedIssues = payload.issues.filter((issue: { path: string }) =>
+    issue.path === "draft.phases[0].chatAdvanceRequirements[1].phrases[0]"
+  );
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    refundedIssues.some((issue: { code: string }) => issue.code === "overlapping_chat_advance_phrase"),
+    true,
+  );
+  assert.equal(
+    refundedIssues.some((issue: { code: string }) => issue.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
+});
+
 test("matches customer-role conflicts by delivery subject instead of the shared check verb", async () => {
   for (const followUp of [
     "What have you already checked for the package?",
@@ -361,6 +451,48 @@ test("accepts an exact resolution even when process wording introduces it", asyn
     assert.equal(response.status, 200, `${exactStep}: ${JSON.stringify(payload.issues)}`);
     assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "nondeterministic_resolution"), false);
   }
+});
+
+test("blocks vague process or policy placeholders inside phase learner actions", async (t) => {
+  for (const learnerAction of [
+    "Explain the refund process as per correct process.",
+    "Explain the refund timeline per approved policy.",
+  ]) {
+    await t.test(learnerAction, async () => {
+      const invalid = draft();
+      invalid.correctProcess = ["Issue a full refund to the original payment card and explain that it will post within 3–5 business days."];
+      invalid.phases[0].learnerActions = [learnerAction];
+
+      const response = await createValidateHandler()(request({ draft: invalid }));
+      const payload = await response.json();
+
+      assert.equal(response.status, 422);
+      assert.deepEqual(
+        payload.issues.find((issue: { code: string }) => issue.code === "vague_process_reference"),
+        {
+          code: "vague_process_reference",
+          path: "draft.phases[0].learnerActions[0]",
+          message: "The learner action refers to a process or policy without stating the approved action.",
+          fix: "Replace the placeholder with the exact approved action, amount, destination, and timing that apply.",
+        },
+      );
+    });
+  }
+});
+
+test("blocks a vague process placeholder inside the top-level correct process", async () => {
+  const invalid = draft();
+  invalid.correctProcess = ["Explain the refund process as per correct process."];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string; path: string }) =>
+      issue.code === "vague_process_reference" && issue.path === "draft.correctProcess[0]"),
+    true,
+  );
 });
 
 test("assesses the correct process as a whole instead of flagging setup steps", async () => {
@@ -549,6 +681,14 @@ test("allows imperative criteria that contain you or your after the opening acti
     "Explain why saying thank you alone does not complete the required step.",
     "Avoid guaranteeing delivery.",
   ];
+  valid.phases[0].evaluationLinks = [{
+    objectiveId: "set_clear_expectations",
+    criterionIds: [
+      "set_clear_expectations_criterion_1",
+      "set_clear_expectations_criterion_2",
+      "set_clear_expectations_criterion_3",
+    ],
+  }];
 
   const response = await createValidateHandler()(request({ draft: valid }));
   const payload = await response.json();
