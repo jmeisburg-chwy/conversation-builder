@@ -1276,6 +1276,99 @@ test("deterministically compiles the final corrective draft's Chat gates", async
   ]);
 });
 
+test("adds a missing approved operational criterion to the final phase before compiling gates", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          openingLine: "The dog food bag arrived torn and unusable.",
+        },
+        phases: [
+          {
+            ...generated.phases[0],
+            id: "confirm_refund_preference",
+            learnerActions: ["Acknowledge the torn bag and ask whether Jamie wants a full refund."],
+            chatAdvanceRequirements: [{
+              id: "refund_preference",
+              phrases: ["like a refund", "want a refund"],
+            }],
+            partnerResponse: "I want a full refund.",
+          },
+          {
+            ...generated.phases[0],
+            id: "explain_refund_timeline",
+            learnerActions: ["Explain that the refund will post within 3-5 business days."],
+            chatAdvanceRequirements: [{
+              id: "refund_timeline",
+              phrases: ["3-5 business days", "3–5 business days"],
+            }],
+            partnerResponse: "Thank you for resolving this.",
+          },
+        ],
+        objectives: [{
+          ...generated.objectives[0],
+          id: "refund_resolution",
+          criteria: ["Issue a full refund of $32.49 to the original payment card."],
+        }],
+        prohibitedActions: ["Do not offer store credit, a replacement, or an exchange."],
+      });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.deepEqual(payload.draft.phases[1].learnerActions, [
+    "Explain that the refund will post within 3-5 business days.",
+    "Issue a full refund of $32.49 to the original payment card.",
+  ]);
+  assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements, [
+    { id: "refund_destination", phrases: ["original card", "original payment card"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+  ]);
+});
+
+test("does not auto-repair an operational criterion performed in multiple phases", async () => {
+  const operationalPhases = [
+    {
+      ...generated.phases[0],
+      id: "issue_refund",
+      learnerActions: ["Issue the $32.49 refund to the original payment card."],
+      chatAdvanceRequirements: [{ id: "refund_completion", phrases: ["issued the", "processed the"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "process_refund_again",
+      learnerActions: ["Process the $32.49 refund to the original payment card."],
+      chatAdvanceRequirements: [{ id: "refund_completion", phrases: ["issued the", "processed the"] }],
+    },
+  ];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      phases: operationalPhases,
+      objectives: [{
+        ...generated.objectives[0],
+        id: "refund_resolution",
+        criteria: ["Issue a full refund of $32.49 to the original payment card."],
+      }],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error.code, "generation_unavailable");
+});
+
 test("compiles an exact non-range timeline instead of a generic deadline", () => {
   const requirements = compileSafeChatAdvanceRequirements({
     ...generated.phases[0],

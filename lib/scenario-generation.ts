@@ -215,10 +215,23 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
             continue;
           }
           if (caught instanceof RepairableGeneratedContentError
-            && caught.repairCodes.length === 1
-            && caught.repairCodes[0] === "chat_advance_requirements") {
+            && caught.repairCodes.every((code) =>
+              code === "chat_advance_requirements" || code === "operational_criterion_coverage"
+            )) {
             const candidate = sanitizeProviderOutput(parseProviderOutput(providerRaw));
-            const repaired = repairGeneratedChatAdvanceRequirements(candidate);
+            const operationallyRepaired = caught.repairCodes.includes("operational_criterion_coverage")
+              ? repairGeneratedMissingOperationalCriteria(candidate)
+              : candidate;
+            const repaired = caught.repairCodes.some((code) =>
+              code === "chat_advance_requirements" || code === "operational_criterion_coverage"
+            )
+              ? repairGeneratedChatAdvanceRequirements(
+                  operationallyRepaired,
+                  caught.repairCodes.includes("operational_criterion_coverage")
+                    ? new Set([operationallyRepaired.phases.length - 1])
+                    : new Set(),
+                )
+              : operationallyRepaired;
             assertGeneratedContent(repaired);
             content = repaired;
             break;
@@ -352,15 +365,18 @@ function parseProviderOutput(raw: string): GeneratedContent {
   return JSON.parse(texts[0]) as GeneratedContent;
 }
 
-function repairGeneratedChatAdvanceRequirements(content: GeneratedContent): GeneratedContent {
+function repairGeneratedChatAdvanceRequirements(
+  content: GeneratedContent,
+  forcePhaseIndexes: Set<number> = new Set(),
+): GeneratedContent {
   return {
     ...content,
-    phases: content.phases.map((phase) => {
+    phases: content.phases.map((phase, phaseIndex) => {
       const findings = findChatAdvanceRequirementQualityFindings(
         phase.chatAdvanceRequirements,
         content.prohibitedActions,
       );
-      if (findings.length === 0) return phase;
+      if (findings.length === 0 && !forcePhaseIndexes.has(phaseIndex)) return phase;
       return {
         ...phase,
         chatAdvanceRequirements: compileSafeChatAdvanceRequirements(
@@ -369,6 +385,24 @@ function repairGeneratedChatAdvanceRequirements(content: GeneratedContent): Gene
         ) ?? phase.chatAdvanceRequirements,
       };
     }),
+  };
+}
+
+function repairGeneratedMissingOperationalCriteria(content: GeneratedContent): GeneratedContent {
+  const findings = findOperationalCriterionCoverageFindings(content.objectives, content.phases);
+  if (!findings.length || findings.some((finding) => finding.matchingPhaseIndexes.length !== 0)) {
+    return content;
+  }
+
+  const missingCriteria = findings.map((finding) =>
+    content.objectives[finding.objectiveIndex].criteria[finding.criterionIndex]
+  );
+  const finalPhaseIndex = content.phases.length - 1;
+  return {
+    ...content,
+    phases: content.phases.map((phase, phaseIndex) => phaseIndex === finalPhaseIndex
+      ? { ...phase, learnerActions: uniqueStrings([...phase.learnerActions, ...missingCriteria]) }
+      : phase),
   };
 }
 
