@@ -419,13 +419,15 @@ function repairGeneratedChatAdvanceRequirements(
       const findings = findChatAdvanceRequirementQualityFindings(
         phase.chatAdvanceRequirements,
         content.prohibitedActions,
+        content.customer.name,
       );
       if (findings.length === 0 && !forcePhaseIndexes.has(phaseIndex)) return phase;
       return {
         ...phase,
         chatAdvanceRequirements: compileSafeChatAdvanceRequirements(
-        phase,
-        content.prohibitedActions,
+          phase,
+          content.prohibitedActions,
+          content.customer.name,
         ) ?? phase.chatAdvanceRequirements,
       };
     }),
@@ -516,9 +518,14 @@ function approvedResolutionBlueprint(correctProcess: string | undefined): Approv
 function compileBlueprintPhase(
   phase: Omit<PhaseDraft, "chatAdvanceRequirements">,
   prohibitedActions: string[],
+  customerName: string,
 ): PhaseDraft | undefined {
   const provisional = { ...phase, chatAdvanceRequirements: [] };
-  const chatAdvanceRequirements = compileSafeChatAdvanceRequirements(provisional, prohibitedActions);
+  const chatAdvanceRequirements = compileSafeChatAdvanceRequirements(
+    provisional,
+    prohibitedActions,
+    customerName,
+  );
   return chatAdvanceRequirements ? { ...provisional, chatAdvanceRequirements } : undefined;
 }
 
@@ -554,7 +561,7 @@ function rebuildGeneratedResolutionPhases(
         ...(blueprint.needsPreference ? ["Ask for the Conversation Partner's preferred resolution before taking action."] : []),
       ],
       customerRemainsSilent: false,
-    }, content.prohibitedActions);
+    }, content.prohibitedActions, partnerName);
     if (!preferencePhase) return { failureCode: "preference_gate_uncompilable" };
     phases.push(preferencePhase);
   }
@@ -578,7 +585,7 @@ function rebuildGeneratedResolutionPhases(
       ...(blueprint.timeline ? [`Explain the approved ${blueprint.timeline} timing.`] : []),
     ],
     customerRemainsSilent: false,
-  }, content.prohibitedActions);
+  }, content.prohibitedActions, partnerName);
   if (!outcomePhase) return { failureCode: "outcome_gate_uncompilable" };
   phases.push(outcomePhase);
 
@@ -591,9 +598,14 @@ function safeGeneratedRepairDetails(content: GeneratedContent): NonNullable<Gene
       const findings = findChatAdvanceRequirementQualityFindings(
         phase.chatAdvanceRequirements,
         content.prohibitedActions,
+        content.customer.name,
       );
       if (!findings.length) return [];
-      const compilerFailureCode = chatAdvanceCompilationFailureCode(phase, content.prohibitedActions);
+      const compilerFailureCode = chatAdvanceCompilationFailureCode(
+        phase,
+        content.prohibitedActions,
+        content.customer.name,
+      );
       return [{
         phaseIndex,
         findingCodes: [...new Set(findings.map((finding) => finding.code))],
@@ -659,6 +671,7 @@ function assertGeneratedContent(value: GeneratedContent): void {
     findChatAdvanceRequirementQualityFindings(
       phase.chatAdvanceRequirements,
       value.prohibitedActions,
+      value.customer.name,
     )
   );
   if (chatGateFindings.length > 0) {
@@ -1199,6 +1212,7 @@ For every phase, create chatAdvanceRequirements with one independently required 
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.
 Write every prohibited action with explicit negative polarity such as Do not, Avoid, or Never. Repeat that same negative wording in both an objective criterion and the relevant Coach Chewy guidance.
+When a customer preference must be earned before the authorized outcome, write the sequence boundary as "Do not issue the full refund before the customer confirms they want it" or "Do not place the no-cost replacement before the customer confirms they want it." Do not add other modifiers to the refund or replacement.
 Combine all store-credit, replacement, exchange, or other-than-full-refund prohibitions into one composite boundary. Keep partial-refund and incorrect-amount constraints separate.
 Give every positive operational objective criterion exactly one phase whose learnerActions performs the same Issue, Process, Complete, Refund, Replace, Reship, or Transfer behavior.
 Never omit a prohibited action or guardrail carried by an uploaded source draft.

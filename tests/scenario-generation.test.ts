@@ -1492,6 +1492,7 @@ test("rebuilds approved refund phases when a sequencing guardrail names the refu
       }],
       prohibitedActions: [
         "Do not refund Jamie before they confirm they want it.",
+        "Do not authorize the refund before obtaining Jamie's confirmation.",
         "Do not offer store credit, a replacement, or an exchange.",
       ],
     }),
@@ -1667,7 +1668,7 @@ test("compiles an exact non-range timeline instead of a generic deadline", () =>
       id: "refund_timeline",
       phrases: ["soon", "expected timeframe"],
     }],
-  }, []);
+  }, [], "Jamie");
 
   assert.deepEqual(requirements, [{
     id: "refund_timeline",
@@ -1687,7 +1688,7 @@ test("compiles adjudicated natural refund anchors", () => {
       id: "refund_completion",
       phrases: ["issued the $32.49 refund", "processed the $32.49 refund"],
     }],
-  }, []);
+  }, [], "Jamie");
 
   assert.deepEqual(requirements, [
     { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
@@ -1708,7 +1709,7 @@ test("compiles refund gates into separately required natural-language concepts",
       { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
       { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
     ],
-  }, []);
+  }, [], "Jamie");
   const completionRequirements = compileSafeChatAdvanceRequirements({
     ...generated.phases[0],
     learnerActions: [
@@ -1719,7 +1720,7 @@ test("compiles refund gates into separately required natural-language concepts",
       { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
       { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
     ],
-  }, []);
+  }, [], "Jamie");
 
   assert.deepEqual(preferenceRequirements, [
     {
@@ -1762,7 +1763,7 @@ test("compiles a replacement completion gate without weakening the outcome", () 
       id: "replacement_completion",
       phrases: ["process", "help"],
     }],
-  }, []);
+  }, [], "Jamie");
 
   assert.deepEqual(requirements, [
     { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
@@ -1783,7 +1784,7 @@ test("compiled refund completion stays safe when paired with the prohibited-alte
       id: "refund_completion",
       phrases: ["issued the", "processed the"],
     }],
-  }, ["Do not offer a replacement."]);
+  }, ["Do not offer a replacement."], "Jamie");
   assert.ok(requirements);
 
   const matchesRiseGate = (message: string) => {
@@ -1809,20 +1810,62 @@ test("allows an approved amount and timeline named as exceptions to a prohibitio
   const findings = findChatAdvanceRequirementQualityFindings(requirements, [
     "Do not issue a refund for an amount other than $32.49.",
     "Do not state a timeline other than 3-5 business days.",
-  ]);
+  ], "Jamie");
   assert.equal(findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"), false);
 
   const explicitlyProhibited = findChatAdvanceRequirementQualityFindings(requirements, [
     "Do not state 3-5 business days.",
-  ]);
+  ], "Jamie");
   assert.equal(explicitlyProhibited.some((finding) => finding.code === "prohibited_chat_advance_phrase"), true);
 });
 
 test("allows earned-preference sequencing without weakening unrelated prerequisites", () => {
   const requirements = [{ id: "refund", phrases: ["refund"] }];
+  const sequenceFindings = (
+    candidateRequirements: Array<{ id: string; phrases: string[] }>,
+    prohibitedActions: string[],
+  ) => findChatAdvanceRequirementQualityFindings(
+    candidateRequirements,
+    prohibitedActions,
+    "Jamie",
+  );
   for (const preferenceOrdering of [
     "Do not issue the refund before the customer confirms they want it.",
     "Do not refund Jamie before they confirm they want it.",
+    "Do not authorize the refund before the customer confirms they want it.",
+    "Do not complete the refund before obtaining Jamie's confirmation.",
+    "Do not execute the refund before the customer confirms they want it.",
+    "Do not release the refund until the customer selects it.",
+    "Do not move forward with the refund without customer confirmation.",
+    "Do not give the refund before the customer confirms they want it.",
+    "Do not process Jamie's refund until they confirm it.",
+    "Do not apply the refund until the customer authorizes it.",
+    "Do not proceed with the refund until the customer approves it.",
+    "Do not issue the refund prior to receiving confirmation from Jamie.",
+    "Do not issue the refund until the customer says yes.",
+    "Do not issue the refund without the customer's approval.",
+    "Do not issue the refund without Jamie's approval.",
+    "Do not refund Jamie in full before they confirm they want it.",
+    "Do not refund the Conversation Partner before they confirm they want it.",
+    "Do not issue the refund until explicit customer confirmation.",
+    "Do not issue the refund before obtaining explicit confirmation from Jamie.",
+    "Do not issue the refund without clear customer consent.",
+    "Do not issue the refund before the customer gives permission.",
+    "Do not issue the refund before Jamie gives the go-ahead.",
+    "Do not issue the refund before Jamie gives explicit permission.",
+    "Do not issue the refund until Jamie provides confirmation.",
+    "Do not issue the refund until the customer confirms that they want it.",
+    "Do not issue the refund until Jamie agrees to a refund.",
+    "Do not issue the refund until the customer confirms their preference.",
+    "Do not issue the refund until the customer gives their permission.",
+    "Do not provide a refund to Jamie until they confirm they want it.",
+    "Do not issue the refund until confirmation is received from Jamie.",
+    "Do not issue the refund until confirmation has been received from Jamie.",
+    "Do not refund Jamie before receiving his confirmation.",
+    "Do not issue the refund before Jamie verbally confirms.",
+    "Do not provide Jamie with a full refund before Jamie confirms.",
+    "Do not issue the refund before the customer confirms and approves the refund.",
+    "Do not issue the refund before Jamie confirms and authorizes the refund.",
     "Do not finalize the refund before the customer confirms they want it.",
     "Do not initiate the refund until the customer selects it.",
     "Do not issue the refund prior to confirming the customer's preference.",
@@ -1830,7 +1873,7 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
     "Do not issue the refund unless Jamie confirms.",
     "Do not issue the refund without customer confirmation.",
   ]) {
-    const findings = findChatAdvanceRequirementQualityFindings(requirements, [preferenceOrdering]);
+    const findings = sequenceFindings(requirements, [preferenceOrdering]);
     assert.equal(
       findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"),
       false,
@@ -1842,9 +1885,68 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
     "Do not issue the refund before confirming manager approval.",
     "Do not guarantee a delivery date before confirming tracking.",
     "Do not refund Jamie before they confirm tracking.",
+    "Do not refund Jamie before Jamie confirms a replacement.",
+    "Do not finalize the refund until approval is received.",
+    "Do not authorize the refund before obtaining Finance approval.",
+    "Do not authorize the refund before obtaining Legal authorization.",
+    "Do not authorize the refund before Director Smith approves it.",
+    "Do not authorize the refund until Customer Care approves it.",
+    "Do not authorize the refund before Operations confirms the case.",
+    "Do not authorize the refund before the system selects it.",
+    "Do not authorize the refund before the fraud team requests it.",
+    "Do not issue a partial refund before the customer confirms they want a full refund.",
+    "Do not refund more than $32.49 unless the customer requests it.",
+    "Do not authorize the refund before Billing confirms the case.",
+    "Do not authorize the refund before Triage selects it.",
+    "Do not refund Shipping before the customer confirms they want it.",
+    "Do not refund the manager before the customer confirms they want it.",
+    "Do not refund an excess before the customer confirms they want it.",
+    "Do not issue another refund before the customer confirms they want it.",
+    "Do not issue a duplicate refund before the customer confirms they want it.",
+    "Do not issue a cash refund before the customer confirms they want it.",
+    "Do not issue a reduced refund before the customer confirms they want it.",
+    "Do not issue a prorated refund before the customer confirms they want it.",
+    "Do not place a paid replacement before the customer confirms they want it.",
+    "Do not place an expedited replacement before the customer confirms they want it.",
+    "Do not place another replacement before the customer confirms they want it.",
+    "Do not place a replacement with a fee before the customer confirms they want it.",
+    "Do not authorize the refund until Customer Support confirms it.",
+    "Do not authorize the refund until Customer Service confirms it.",
+    "Do not authorize the refund until Support confirms the customer choice.",
+    "Do not authorize the refund until QA confirms the customer wants it.",
+    "Do not authorize the refund until customer fraud screening confirms it.",
+    "Do not authorize the refund until the tool says they approve.",
+    "Do not issue the refund until they approve it.",
+    "Do not issue the refund until the customer confirms they do not want it.",
+    "Do not issue the refund until the customer confirms they want a partial refund.",
+    "Do not issue the refund until the customer requests a refund to a gift card.",
+    "Do not issue the refund until the customer authorizes a refund over $32.49.",
+    "Do not issue the refund until the customer confirms they won't want it.",
+    "Do not issue the refund until the customer confirms they wouldn't want it.",
+    "Do not issue the refund until the customer confirms they will not want it.",
+    "Do not issue the refund until the customer confirms they cannot accept it.",
+    "Do not issue the refund until the customer confirms they no longer want it.",
+    "Do not issue the refund until the customer requests a cash refund.",
+    "Do not issue the refund until the customer requests a duplicate refund.",
+    "Do not issue the refund until the customer requests a reduced refund.",
+    "Do not issue the refund until the customer requests a prorated refund.",
+    "Do not place the replacement until the customer requests a paid replacement.",
+    "Do not place the replacement until the customer requests an expedited replacement.",
+    "Do not place the replacement until the customer requests a replacement with a fee.",
+    "Do not issue the refund until the customer confirms they want help.",
+    "Do not issue the refund until the customer confirms they want more information.",
+    "Do not issue the refund until the customer confirms they want to wait.",
+    "Do not issue the refund until the customer confirms they want nothing.",
+    "Do not issue the refund until the customer confirms they want an apology.",
+    "Do not issue the refund until the customer confirms they want dog food.",
+    "Do not issue the refund before Jamie confirms and Sam approves it.",
   ]) {
-    const phrase = prerequisite.includes("delivery date") ? "guarantee a delivery date" : "refund";
-    const findings = findChatAdvanceRequirementQualityFindings(
+    const phrase = prerequisite.includes("delivery date")
+      ? "guarantee a delivery date"
+      : prerequisite.includes("replacement")
+        ? "replacement"
+        : "refund";
+    const findings = sequenceFindings(
       [{ id: "prerequisite", phrases: [phrase, `confirmed ${phrase}`] }],
       [prerequisite],
     );
@@ -1859,7 +1961,7 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
     "Do not issue a refund.",
     "Do not issue a partial refund.",
   ]) {
-    const findings = findChatAdvanceRequirementQualityFindings(requirements, [absoluteProhibition]);
+    const findings = sequenceFindings(requirements, [absoluteProhibition]);
     assert.equal(
       findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"),
       true,
@@ -1869,12 +1971,12 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
 
   const compound = "Do not offer store credit and do not issue the refund before the customer confirms they want it.";
   assert.equal(
-    findChatAdvanceRequirementQualityFindings(requirements, [compound])
+    sequenceFindings(requirements, [compound])
       .some((finding) => finding.code === "prohibited_chat_advance_phrase"),
     false,
   );
   assert.equal(
-    findChatAdvanceRequirementQualityFindings(
+    sequenceFindings(
       [{ id: "alternative", phrases: ["store credit", "offered store credit"] }],
       [compound],
     ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
@@ -1883,16 +1985,138 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
 
   const reverseCompound = "Do not issue the refund before the customer confirms they want it and do not offer store credit.";
   assert.equal(
-    findChatAdvanceRequirementQualityFindings(requirements, [reverseCompound])
+    sequenceFindings(requirements, [reverseCompound])
       .some((finding) => finding.code === "prohibited_chat_advance_phrase"),
     false,
   );
   assert.equal(
-    findChatAdvanceRequirementQualityFindings(
+    sequenceFindings(
       [{ id: "alternative", phrases: ["store credit", "offered store credit"] }],
       [reverseCompound],
     ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
     true,
+  );
+
+  const inheritedCompound = "Do not offer store credit or authorize the refund before the customer confirms they want it.";
+  assert.equal(
+    sequenceFindings(requirements, [inheritedCompound])
+      .some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    false,
+  );
+  assert.equal(
+    sequenceFindings(
+      [{ id: "alternative", phrases: ["store credit", "offered store credit"] }],
+      [inheritedCompound],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
+
+  const butCompound = "Do not offer store credit, but authorize the refund before the customer confirms they want it.";
+  assert.equal(
+    sequenceFindings(requirements, [butCompound])
+      .some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    false,
+  );
+  assert.equal(
+    sequenceFindings(
+      [{ id: "alternative", phrases: ["store credit", "offered store credit"] }],
+      [butCompound],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
+
+  const temporalAction = "Do not guarantee the refund before the customer confirms they want it.";
+  assert.equal(
+    sequenceFindings(
+      [{ id: "refund_promise", phrases: ["guarantee the refund", "promise the refund"] }],
+      [temporalAction],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
+  for (const [temporalRule, compactPhrases] of [
+    ["Do not issue the refund before the customer confirms they want it.", ["issue refund", "process refund"]],
+    ["Do not issue a full refund before the customer confirms they want it.", ["issue refund", "process refund"]],
+    ["Do not guarantee the refund before the customer confirms they want it.", ["guarantee refund", "promise refund"]],
+    ["Do not authorize the refund before the customer confirms they want it.", ["authorize refund", "approve refund"]],
+    ["Do not authorize the full refund before the customer confirms they want it.", ["authorize refund", "approve refund"]],
+    ["Do not place a no-cost replacement before the customer confirms they want it.", ["place replacement", "send replacement"]],
+  ] as const) {
+    assert.equal(
+      sequenceFindings(
+        [{ id: "refund_action", phrases: [...compactPhrases] }],
+        [temporalRule],
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      true,
+      temporalRule,
+    );
+  }
+  assert.equal(
+    sequenceFindings(
+      [{ id: "refund_completion", phrases: ["processed the refund", "issued the refund"] }],
+      [temporalAction],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    false,
+  );
+
+  for (const [shortRule, completionPhrases] of [
+    ["Do not refund until the customer confirms they want it.", ["issued the refund", "processed the refund"]],
+    ["Do not replace until the customer confirms they want it.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not reship until the customer confirms they want it.", ["placed the reshipment order", "submitted the reshipment order"]],
+  ] as const) {
+    assert.equal(
+      sequenceFindings(
+        [{ id: "outcome_completion", phrases: [...completionPhrases] }],
+        [shortRule],
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      false,
+      shortRule,
+    );
+  }
+
+  const inheritedResolutionCompound = "Do not offer store credit and issue a replacement.";
+  assert.equal(
+    sequenceFindings(
+      [{ id: "replacement_completion", phrases: ["placed the replacement order", "submitted the replacement order"] }],
+      [inheritedResolutionCompound],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
+
+  const offeredResolutionCompound = "Do not provide store credit and offer a replacement.";
+  assert.equal(
+    sequenceFindings(
+      [{ id: "replacement_completion", phrases: ["placed the replacement order", "submitted the replacement order"] }],
+      [offeredResolutionCompound],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
+
+  for (const directResolutionCompound of [
+    "Do not provide store credit and replace the item.",
+    "Do not provide store credit and reship the item.",
+    "Do not provide store credit and set up a replacement.",
+    "Do not provide store credit and arrange a replacement.",
+  ]) {
+    assert.equal(
+      sequenceFindings(
+        [{ id: "replacement_completion", phrases: ["placed the replacement order", "submitted the replacement order"] }],
+        [directResolutionCompound],
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      true,
+      directResolutionCompound,
+    );
+  }
+
+  assert.equal(
+    compileSafeChatAdvanceRequirements({
+      ...generated.phases[0],
+      learnerActions: ["Issue the full refund."],
+      chatAdvanceRequirements: [{
+        id: "refund_completion",
+        phrases: ["issued the refund", "processed the refund"],
+      }],
+    }, ["Do not issue the refund until they approve it."], "Jamie"),
+    undefined,
   );
 });
 
@@ -1905,6 +2129,7 @@ test("rejects values and resolution options outside prohibition allowlists", () 
   const findingsFor = (phrases: string[]) => findChatAdvanceRequirementQualityFindings(
     [{ id: "approved_outcome", phrases }],
     prohibitedActions,
+    "Jamie",
   );
 
   assert.equal(findingsFor(["issued the $32.49 refund", "processed the $32.49 refund"])

@@ -307,7 +307,11 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
         }
         requirementIds.add(requirement.id);
       });
-      findChatAdvanceRequirementQualityFindings(requirements, draft.prohibitedActions).forEach((finding) => {
+      findChatAdvanceRequirementQualityFindings(
+        requirements,
+        draft.prohibitedActions,
+        draft.customer.name,
+      ).forEach((finding) => {
         const path = `draft.phases[${index}].chatAdvanceRequirements[${finding.requirementIndex}]${finding.phraseIndex === undefined ? "" : `.phrases[${finding.phraseIndex}]`}`;
         const details: Record<typeof finding.code, { message: string; fix: string }> = {
           chat_advance_requirement_alternatives: {

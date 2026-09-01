@@ -211,25 +211,230 @@ function violatesProhibitionAllowlist(
   return actual.size > 0 && [...actual].some((value) => !constraint.allowed.has(value));
 }
 
-const RESOLUTION_SEQUENCE_CLAUSE_SPLIT = /;|(?<!\d)\.(?!\d)|\b(?:and|or)\b(?=\s*(?:(?:do not|don't|dont|never|avoid)\b|(?:complet\w*|creat\w*|finaliz\w*|giv\w*|initiat\w*|issu\w*|plac\w*|process\w*|provid\w*|refund\w*|replac\w*|reship\w*|send\w*|sent|submi\w*)\b))/iu;
-const RESOLUTION_SEQUENCE_CLAUSE = /^(?:(?:do not|dont|never|avoid)\s+)?(?:(?:complet\w*|creat\w*|finaliz\w*|giv\w*|initiat\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,60}\b(?:refund\w*|replac\w*|reship\w*)\b|(?:refund\w*|replac\w*|reship\w*)\b).{0,80}\b(?:before|prior to|until|unless|without)\b(.*)$/u;
-const PREFERENCE_SEQUENCE_SIGNAL = /\b(?:choice|choos\w*|option|prefer\w*|request\w*|select\w*|want\w*|whether)\b/u;
-const CUSTOMER_CONFIRMATION_SIGNAL = /(?:\b(?:customer|conversation partner|partner)\b.{0,80}\b(?:accept\w*|agree\w*|confirm\w*)\b|\b(?:accept\w*|agree\w*|confirm\w*)\b.{0,80}\b(?:customer|conversation partner|partner)\b)/u;
-const NON_CUSTOMER_PREREQUISITE = /\b(?:approval|authorization|eligibility|leader|manager|policy|supervisor|tracking|validation|verification)\b/u;
+const EXPLICIT_NEGATIVE_CLAUSE_START = /^\s*(?:do not|don't|dont|never|avoid)\b/iu;
+const ACTION_LED_RESOLUTION_CLAUSE_START = /^\s*(?:(?:appl\w*|approv\w*|arrang\w*|authoriz\w*|complet\w*|creat\w*|execut\w*|finaliz\w*|giv\w*|guarantee\w*|initiat\w*|issu\w*|mention\w*|offer\w*|perform\w*|plac\w*|present\w*|process\w*|promis\w*|propos\w*|provid\w*|recommend\w*|releas\w*|select\w*|send\w*|set up|start\w*|submi\w*|suggest\w*|trigger\w*|us\w*)\b.{0,60}\b(?:store credit|refund\w*|replac\w*|reship\w*)\b|(?:refund\w*|replac\w*|reship\w*)\b)/iu;
+const TEMPORAL_RESOLUTION_CLAUSE_START = /^\s*(?:[a-z'’-]+\s+){0,6}(?:refund\w*|replac\w*|reship\w*)\b.{0,80}\b(?:before|prior\s+to|until|unless|without)\b/iu;
+const RESOLUTION_SEQUENCE_MARKER = /\b(?:before|prior to|until|unless|without)\b/u;
+const RESOLUTION_SEQUENCE_HEAD = /\b(?:refund\w*|replac\w*|reship\w*)\b/u;
+const DIRECT_NEGATIVE_SEQUENCE_START = /^(?:do not|dont|never|avoid)\b/u;
+const NON_CUSTOMER_PREREQUISITE = /\b(?:billing|customer care|customer service|customer support|department|director|eligibility|finance|fraud|leader|legal|manager|operations|policy|qa|shipping|supervisor|support|system|team|tool|tracking|triage|validation|verification)\b/u;
+const CONSTRAINED_SEQUENCE_HEAD = /(?:\$\s*\d|\b\d+(?:\.\d+)?\b|\b(?:account|alternative|card|destination|different|excess|exchange|gift card|half|incorrect|less than|maximum|minimum|more than|original payment|partial|percent|percentage|portion|store credit|up to|wrong)\b)/u;
+const NEGATED_CUSTOMER_DECISION = /\b(?:(?:did|do|does|would) not|didnt|doesnt|dont|never|no (?:refund|replacement|reshipment)|reject\w*|declin\w*)\b/u;
+const COMPOUND_SEQUENCE_HEAD = /[,;:!?]|\b(?:also|and|but|or|then)\b/iu;
 
-function isEarnedPreferenceSequenceClause(action: string): boolean {
-  const normalized = normalizeComparableText(action);
-  const sequence = normalized.match(RESOLUTION_SEQUENCE_CLAUSE);
-  if (!sequence) return false;
-  const tail = sequence[1];
-  if (NON_CUSTOMER_PREREQUISITE.test(tail)) return false;
-  if (PREFERENCE_SEQUENCE_SIGNAL.test(tail) || CUSTOMER_CONFIRMATION_SIGNAL.test(tail)) return true;
-
-  const rawTail = action.match(/\b(?:before|prior\s+to|until|unless|without)\b([\s\S]*)$/iu)?.[1] ?? "";
-  return /^\s*(?:after\s+)?(?:the\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+confirm\w*\b/u.test(rawTail);
+function splitProhibitedActionClauses(action: string): string[] {
+  return action
+    .split(/;|(?<!\d)\.(?!\d)/u)
+    .flatMap((sentence) => {
+      const clauses: string[] = [];
+      let clauseStart = 0;
+      const markerIndex = sentence.search(/\b(?:before|prior\s+to|until|unless|without)\b/iu);
+      for (const conjunction of sentence.matchAll(/\b(?:and|but|or)\b/giu)) {
+        const index = conjunction.index ?? 0;
+        const remainder = sentence.slice(index + conjunction[0].length);
+        const explicitNegative = EXPLICIT_NEGATIVE_CLAUSE_START.test(remainder);
+        const actionLedResolution = ACTION_LED_RESOLUTION_CLAUSE_START.test(remainder)
+          || TEMPORAL_RESOLUTION_CLAUSE_START.test(remainder);
+        if (!explicitNegative && !(actionLedResolution && (markerIndex < 0 || index < markerIndex))) {
+          continue;
+        }
+        clauses.push(sentence.slice(clauseStart, index));
+        clauseStart = index + conjunction[0].length;
+      }
+      clauses.push(sentence.slice(clauseStart));
+      return clauses;
+    });
 }
 
-function prohibitedGateConceptsForClause(action: string): string[] {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function customerConfirmationSignal(
+  rawTail: string,
+  customerName: string | undefined,
+  allowPronounActor: boolean,
+): boolean {
+  const normalizedTail = normalizeComparableText(rawTail);
+  const normalizedName = normalizeComparableText(customerName ?? "");
+  const name = normalizedName ? escapeRegExp(normalizedName) : "(?!)";
+  const role = "(?:the )?(?:customer|conversation partner|partner)";
+  const namedOrRoleActor = `(?:${role}|${name})`;
+  const pronounActor = "(?:he|she|they)";
+  const actor = allowPronounActor
+    ? `(?:${namedOrRoleActor}|${pronounActor})`
+    : namedOrRoleActor;
+  const safeOption = "(?:it|one|that|this|(?:(?:a|an|the) )?(?:full )?refund|(?:(?:a|an|the) )?(?:(?:free|no cost) )?(?:replacement|reshipment)|(?:(?:a|an|the|his|her|their) )?(?:choice|option|preference|request|selection))";
+  const nestedDecision = `${pronounActor} (?:accept\\w*|approv\\w*|authoriz\\w*|choos\\w*|prefer\\w*|request\\w*|select\\w*|want\\w*) ${safeOption}`;
+  const optionalDecision = `(?:accept\\w*|agree\\w*|approv\\w*|authoriz\\w*|confirm\\w*|consent\\w*)(?: (?:(?:to )?${safeOption}|(?:that )?${nestedDecision}))?`;
+  const requiredDecision = `(?:choos\\w*|prefer\\w*|request\\w*|select\\w*|want\\w*) ${safeOption}`;
+  const explicitPermission = "(?:giv\\w* (?:(?:a|the|his|her|their) )?(?:(?:clear|explicit|express) )?(?:go ahead|permission)|grant\\w*(?: permission)?|provid\\w* (?:(?:clear|explicit|express) )?(?:approval|confirmation|consent|permission)|s(?:ay|ays|aid) yes)";
+  const adverbs = "(?:(?:clearly|directly|explicitly|first|verbally) )*";
+  const decision = `${adverbs}(?:${optionalDecision}|${requiredDecision}|${nestedDecision}|${explicitPermission})`;
+  const actorDecision = new RegExp(`^(?:(?:after|once) )?${actor} ${decision}(?: and ${decision})*$`, "u");
+  if (actorDecision.test(normalizedTail)) return true;
+
+  const modifier = "(?:(?:clear|direct|explicit|express|verbal) )?";
+  const decisionNoun = "(?:agreement|approval|authorization|choice|confirmation|consent|permission|preference|request|selection)";
+  const rolePossessive = "(?:the )?(?:customers|conversation partners|partners)";
+  const namedPossessive = `${name}s`;
+  const possessor = `(?:${rolePossessive}|${namedPossessive})`;
+  const possessiveDecision = new RegExp(`^(?:(?:after|confirming|obtaining|receiving) )*${possessor} ${modifier}${decisionNoun}$`, "u");
+  if (possessiveDecision.test(normalizedTail)) return true;
+
+  const roleDecision = new RegExp(`^(?:(?:after|obtaining|receiving) )*${modifier}${role} (?:confirmation|consent|permission)$`, "u");
+  if (roleDecision.test(normalizedTail)) return true;
+
+  const decisionFromActor = new RegExp(`^(?:(?:after|obtaining|receiving) )*${modifier}${decisionNoun}(?: (?:has been|is|was) received)? (?:by|from) ${namedOrRoleActor}$`, "u");
+  if (decisionFromActor.test(normalizedTail)) return true;
+
+  if (allowPronounActor) {
+    const pronounPossessive = new RegExp(`^(?:(?:after|obtaining|receiving) )*(?:his|her|their) ${modifier}${decisionNoun}$`, "u");
+    if (pronounPossessive.test(normalizedTail)) return true;
+  }
+
+  const confirmingWhether = new RegExp(`^confirming whether ${actor} ${decision}$`, "u");
+  return confirmingWhether.test(normalizedTail);
+}
+
+function sequenceHeadReferencesCustomer(normalizedHead: string, customerName?: string): boolean {
+  if (/\b(?:customers?|conversation partners?|partners?)\b/u.test(normalizedHead)) return true;
+  const customer = normalizeComparableText(customerName ?? "");
+  if (!customer) return false;
+  const name = escapeRegExp(customer);
+  return new RegExp(`\\b${name}s?\\b`, "u").test(normalizedHead);
+}
+
+function sequenceHeadHasUnknownCapitalizedTerm(rawHead: string, customerName?: string): boolean {
+  const customerTokens = new Set([
+    "conversation",
+    "customer",
+    "partner",
+    ...normalizeComparableText(customerName ?? "").split(" ").filter(Boolean),
+  ]);
+  const action = rawHead.replace(/^\s*(?:do not|don't|dont|never|avoid)\s+/iu, "").trim();
+  return [...action.matchAll(/\b[A-Z][a-z]+\b/gu)].some((match) =>
+    (match.index ?? 0) > 0 && !customerTokens.has(normalizeComparableText(match[0]))
+  );
+}
+
+function safeResolutionSequenceHead(normalizedHead: string, customerName?: string): boolean {
+  const customer = escapeRegExp(normalizeComparableText(customerName ?? ""));
+  const customerReference = [
+    "conversation partner",
+    "customer",
+    "her",
+    "him",
+    "partner",
+    "them",
+    ...(customer ? [customer] : []),
+  ].join("|");
+  const customerPossessive = [
+    "conversation partners",
+    "customers",
+    "partners",
+    ...(customer ? [`${customer}s`] : []),
+  ].join("|");
+  const action = "(?:appl\\w*|approv\\w*|authoriz\\w*|carry out|complet\\w*|creat\\w*|execut\\w*|finaliz\\w*|giv\\w*|guarantee\\w*|initiat\\w*|issu\\w*|mention\\w*|move forward with|perform\\w*|plac\\w*|proceed with|process\\w*|promis\\w*|provid\\w*|releas\\w*|send\\w*|set up|start\\w*|submi\\w*|trigger\\w*)";
+  const recipient = `(?:(?:the )?(?:${customerReference}) )?`;
+  const refund = `(?:(?:the )?(?:${customerPossessive}) )?(?:(?:a|an|the) )?(?:full )?refund(?: (?:order|request|transaction))?`;
+  const replacement = `(?:(?:the )?(?:${customerPossessive}) )?(?:(?:a|an|the) )?(?:(?:free|no cost) )?(?:replacement|reshipment)(?: (?:order|request|transaction))?`;
+  const actionHead = new RegExp(`^${action} ${recipient}(?:${refund}|${replacement})$`, "u");
+  const bridgedRecipientHead = new RegExp(`^${action} (?:the )?(?:${customerReference}) with (?:${refund}|${replacement})$`, "u");
+  const postposedRecipientHead = new RegExp(`^${action} (?:${refund}|${replacement}) to (?:the )?(?:${customerReference})$`, "u");
+  const directRefund = new RegExp(`^refund\\w*(?: (?:the )?(?:${customerReference}))?(?: in full)?$`, "u");
+  const directReplacement = new RegExp(`^(?:replac\\w*|reship\\w*)(?: (?:the )?(?:${customerReference}|item|order|product))?$`, "u");
+  return actionHead.test(normalizedHead)
+    || bridgedRecipientHead.test(normalizedHead)
+    || postposedRecipientHead.test(normalizedHead)
+    || directRefund.test(normalizedHead)
+    || directReplacement.test(normalizedHead);
+}
+
+function isSimpleResolutionSequenceHead(
+  rawHead: string,
+  normalizedHead: string,
+  customerName?: string,
+): boolean {
+  const tokens = normalizedHead.split(" ").filter(Boolean);
+  return tokens.length > 0
+    && tokens.length <= 8
+    && !COMPOUND_SEQUENCE_HEAD.test(rawHead)
+    && !NON_CUSTOMER_PREREQUISITE.test(normalizedHead)
+    && !sequenceHeadHasUnknownCapitalizedTerm(rawHead, customerName)
+    && safeResolutionSequenceHead(normalizedHead, customerName);
+}
+
+function earnedPreferenceSequenceOption(
+  action: string,
+  inheritedNegative = false,
+  customerName?: string,
+): string | undefined {
+  const normalized = normalizeComparableText(action);
+  if (!inheritedNegative && !DIRECT_NEGATIVE_SEQUENCE_START.test(normalized)) return undefined;
+  const marker = normalized.match(RESOLUTION_SEQUENCE_MARKER);
+  if (!marker || marker.index === undefined) return undefined;
+  const head = normalized.slice(0, marker.index);
+  const tail = normalized.slice(marker.index + marker[0].length);
+  if (!RESOLUTION_SEQUENCE_HEAD.test(head)) return undefined;
+
+  const actionHead = head.replace(/^(?:do not|dont|never|avoid)\s+/, "").trim();
+  const rawMarker = action.match(/\b(?:before|prior\s+to|until|unless|without)\b/iu);
+  const rawHead = rawMarker?.index === undefined ? "" : action.slice(0, rawMarker.index);
+  if (CONSTRAINED_SEQUENCE_HEAD.test(actionHead)
+    || !isSimpleResolutionSequenceHead(rawHead, actionHead, customerName)) {
+    return undefined;
+  }
+
+  const headOptions = resolutionOptionConcepts(intentTokens(head));
+  const tailOptions = resolutionOptionConcepts(intentTokens(tail));
+  if (headOptions.size !== 1) return undefined;
+  if (NEGATED_CUSTOMER_DECISION.test(tail)
+    || CONSTRAINED_SEQUENCE_HEAD.test(tail)
+    || tailOptions.size > 1) return undefined;
+  if (headOptions.size > 0 && tailOptions.size > 0
+    && [...headOptions].every((option) => !tailOptions.has(option))) return undefined;
+
+  const rawTail = action.match(/\b(?:before|prior\s+to|until|unless|without)\b([\s\S]*)$/iu)?.[1] ?? "";
+  const hasCustomerConfirmation = customerConfirmationSignal(
+    rawTail,
+    customerName,
+    sequenceHeadReferencesCustomer(actionHead, customerName),
+  );
+  if (NON_CUSTOMER_PREREQUISITE.test(tail)) return undefined;
+  return hasCustomerConfirmation ? [...headOptions][0] : undefined;
+}
+
+function unresolvedTemporalResolutionOption(
+  action: string,
+  inheritedNegative = false,
+): string | undefined {
+  const normalized = normalizeComparableText(action);
+  if (!inheritedNegative && !DIRECT_NEGATIVE_SEQUENCE_START.test(normalized)) return undefined;
+  const marker = normalized.match(RESOLUTION_SEQUENCE_MARKER);
+  if (!marker || marker.index === undefined) return undefined;
+  const head = normalized.slice(0, marker.index);
+  const options = resolutionOptionConcepts(intentTokens(head));
+  return options.size === 1 ? [...options][0] : undefined;
+}
+
+interface ProhibitedGateRule {
+  concept: string;
+  bareResolutionException?: string;
+}
+
+function bareResolutionConcept(value: string): string | undefined {
+  const normalized = normalizeComparableText(value);
+  if (/^(?:(?:a|the) )?(?:full )?refund(?: in full)?$/u.test(normalized)) return "refund";
+  if (/^(?:(?:a|the) )?(?:replac\w*|reship\w*)$/u.test(normalized)) return "replacement";
+  return undefined;
+}
+
+function prohibitedGateRulesForClause(
+  action: string,
+  inheritedNegative = false,
+  customerName?: string,
+): ProhibitedGateRule[] {
   if (prohibitionAllowlistConstraints(action).length > 0) return [];
   const normalized = normalizeComparableText(action)
     .replace(/^(?:do not|dont|never|avoid)\s+/, "")
@@ -242,9 +447,41 @@ function prohibitedGateConceptsForClause(action: string): string[] {
   // resolution itself. The phase sequence enforces that the learner asks and
   // receives the customer's answer before a later outcome phase can advance.
   // Keep other prerequisites (for example, manager approval) fail-closed.
-  if (isEarnedPreferenceSequenceClause(action)) return [];
+  const earnedPreferenceOption = earnedPreferenceSequenceOption(
+    action,
+    inheritedNegative,
+    customerName,
+  );
+  if (earnedPreferenceOption) {
+    const marker = normalized.match(RESOLUTION_SEQUENCE_MARKER);
+    const actionHead = marker?.index === undefined
+      ? normalized
+      : normalized.slice(0, marker.index).trim();
+    if (bareResolutionConcept(actionHead) === earnedPreferenceOption) return [];
+    const compactActionHead = actionHead
+      .replace(/\b(?:a|an|the)\b/gu, " ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    const canonicalActionHead = compactActionHead
+      .replace(/\b(?:free|full|no cost)\b/gu, " ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    return [...new Set([
+      actionHead,
+      compactActionHead,
+      canonicalActionHead,
+    ].filter(Boolean))].map((concept) => ({
+      concept,
+      bareResolutionException: earnedPreferenceOption,
+    }));
+  }
 
   const concepts = [normalized];
+  const unresolvedTemporalOption = unresolvedTemporalResolutionOption(action, inheritedNegative);
+  if (unresolvedTemporalOption === "refund") concepts.push("refund");
+  if (unresolvedTemporalOption === "replacement") {
+    concepts.push("replace", "replacement", "reship", "reshipment");
+  }
   const optionAction = normalized.match(PROHIBITED_OPTION_ACTION);
   if (optionAction) {
     concepts.push(...optionAction[1]
@@ -252,26 +489,44 @@ function prohibitedGateConceptsForClause(action: string): string[] {
       .map((candidate) => candidate.replace(/^(?:a|an|the)\s+/, "").trim())
       .filter(Boolean));
   }
-  return [...new Set(concepts)];
+  if (/^refund\w*\b/u.test(normalized)) concepts.push("refund");
+  if (/^(?:replac\w*|reship\w*)\b/u.test(normalized)) {
+    concepts.push("replace", "replacement", "reship", "reshipment");
+  }
+  if (ACTION_LED_RESOLUTION_CLAUSE_START.test(normalized)
+    && !/\breplacement\s+(?:delivery date|order confirmation)\b/u.test(normalized)) {
+    const actionOptions = resolutionOptionConcepts(intentTokens(normalized));
+    if (actionOptions.has("refund")) concepts.push("refund");
+    if (actionOptions.has("replacement")) {
+      concepts.push("replace", "replacement", "reship", "reshipment");
+    }
+    if (actionOptions.has("credit")) concepts.push("store credit");
+  }
+  return [...new Set(concepts)].map((concept) => ({ concept }));
 }
 
-function prohibitedGateConcepts(action: string): string[] {
-  return [...new Set(
-    action
-      .split(RESOLUTION_SEQUENCE_CLAUSE_SPLIT)
-      .map((clause) => clause.trim())
-      .filter(Boolean)
-      .flatMap(prohibitedGateConceptsForClause),
-  )];
+function prohibitedGateRules(action: string, customerName?: string): ProhibitedGateRule[] {
+  const inheritedNegative = DIRECT_NEGATIVE_SEQUENCE_START.test(normalizeComparableText(action));
+  const rules = splitProhibitedActionClauses(action)
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .flatMap((clause) => prohibitedGateRulesForClause(clause, inheritedNegative, customerName));
+  return [...new Map(rules.map((rule) => [
+    `${rule.concept}\u0000${rule.bareResolutionException ?? ""}`,
+    rule,
+  ])).values()];
 }
 
 export function findChatAdvanceRequirementQualityFindings(
   requirements: ChatAdvanceRequirementDraft[],
   prohibitedActions: string[],
+  customerName: string,
 ): ChatAdvanceRequirementQualityFinding[] {
   const findings: ChatAdvanceRequirementQualityFinding[] = [];
   const priorPhrases: Array<{ requirementIndex: number; normalized: string }> = [];
-  const prohibitedConcepts = prohibitedActions.flatMap(prohibitedGateConcepts);
+  const prohibitedRules = prohibitedActions.flatMap((action) =>
+    prohibitedGateRules(action, customerName)
+  );
   const prohibitionAllowlists = prohibitedActions.flatMap(prohibitionAllowlistConstraints);
 
   requirements.forEach((requirement, requirementIndex) => {
@@ -299,7 +554,11 @@ export function findChatAdvanceRequirementQualityFindings(
       if (!phraseExpressesRequirementConcept(requirement.id, requirement.phrases[phraseIndex])) {
         findings.push({ code: "chat_advance_phrase_concept_mismatch", requirementIndex, phraseIndex });
       }
-      if (prohibitedConcepts.some((concept) => overlapsByRiseSubstring(normalized, concept))
+      if (prohibitedRules.some((rule) =>
+        overlapsByRiseSubstring(normalized, rule.concept)
+        && !(rule.bareResolutionException !== undefined
+          && bareResolutionConcept(normalized) === rule.bareResolutionException)
+      )
         || prohibitionAllowlists.some((constraint) =>
           violatesProhibitionAllowlist(requirement.phrases[phraseIndex], constraint)
         )) {
@@ -809,6 +1068,7 @@ function compileOperationalCompletionRequirement(
 export function compileSafeChatAdvanceRequirements(
   phase: PhaseDraft,
   prohibitedActions: string[],
+  customerName: string,
 ): ChatAdvanceRequirementDraft[] | undefined {
   const learnerText = phase.learnerActions.join(" ");
   const normalized = normalizeComparableText(learnerText);
@@ -852,6 +1112,7 @@ export function compileSafeChatAdvanceRequirements(
   const phaseFindings = findChatAdvanceRequirementQualityFindings(
     phase.chatAdvanceRequirements ?? [],
     prohibitedActions,
+    customerName,
   );
   const unsafeRequirementIndexes = new Set(phaseFindings.map((finding) => finding.requirementIndex));
   const unsafeUnknown = (phase.chatAdvanceRequirements ?? []).some((requirement, requirementIndex) =>
@@ -874,11 +1135,13 @@ export function compileSafeChatAdvanceRequirements(
     && chatRequirementConcept(requirement.id) === undefined
   );
   let candidate = [...compiled, ...safeUnknown];
-  if (candidate.length && findChatAdvanceRequirementQualityFindings(candidate, prohibitedActions).length === 0) {
+  if (candidate.length
+    && findChatAdvanceRequirementQualityFindings(candidate, prohibitedActions, customerName).length === 0) {
     return candidate;
   }
   candidate = compiled;
-  return candidate.length && findChatAdvanceRequirementQualityFindings(candidate, prohibitedActions).length === 0
+  return candidate.length
+    && findChatAdvanceRequirementQualityFindings(candidate, prohibitedActions, customerName).length === 0
     ? candidate
     : undefined;
 }
@@ -891,6 +1154,7 @@ export type ChatAdvanceCompilationFailureCode =
 export function chatAdvanceCompilationFailureCode(
   phase: PhaseDraft,
   prohibitedActions: string[],
+  customerName: string,
 ): ChatAdvanceCompilationFailureCode | undefined {
   const actionClauses = phase.learnerActions.flatMap((action) =>
     action.split(/[,;!?]+|(?<!\d)\.(?!\d)|\b(?:and then|then|and|before|after|while)\b/iu)
@@ -901,6 +1165,7 @@ export function chatAdvanceCompilationFailureCode(
   const findings = findChatAdvanceRequirementQualityFindings(
     phase.chatAdvanceRequirements ?? [],
     prohibitedActions,
+    customerName,
   );
   const unsafeRequirementIndexes = new Set(findings.map((finding) => finding.requirementIndex));
   if ((phase.chatAdvanceRequirements ?? []).some((requirement, requirementIndex) =>
@@ -909,7 +1174,7 @@ export function chatAdvanceCompilationFailureCode(
   )) {
     return "unsafe_unknown_requirement";
   }
-  return compileSafeChatAdvanceRequirements(phase, prohibitedActions)
+  return compileSafeChatAdvanceRequirements(phase, prohibitedActions, customerName)
     ? undefined
     : "unrepaired_known_or_candidate_quality";
 }
