@@ -478,7 +478,7 @@ function approvedResolutionBlueprint(correctProcess: string | undefined): Approv
   if (!correctProcess) return undefined;
   const positiveSentences = correctProcess
     .split(/(?<=[.!?])\s+/u)
-    .filter((sentence) => !/^\s*(?:avoid|do not|don't|never)\b/iu.test(sentence));
+    .filter((sentence) => !generatedNegativeAction(sentence.trim()));
   const actionClauses = positiveSentences.flatMap((sentence) => {
     if (!APPROVED_PROCESS_ACTION_START.test(sentence)) return [];
     return sentence
@@ -515,6 +515,17 @@ function approvedResolutionBlueprint(correctProcess: string | undefined): Approv
   };
 }
 
+function authoritativeProhibitedActions(correctProcess: string | undefined): string[] {
+  if (!correctProcess) return [];
+  return uniqueStrings(correctProcess
+    .split(/(?<=[.!?])\s+|\n+/u)
+    .map((sentence) => sentence.trim())
+    .map((sentence) => !/^no\b/iu.test(sentence) && generatedNegativeAction(sentence)
+      ? normalizeGeneratedProhibitedAction(sentence)
+      : "")
+    .filter(nonempty));
+}
+
 function compileBlueprintPhase(
   phase: Omit<PhaseDraft, "chatAdvanceRequirements">,
   prohibitedActions: string[],
@@ -538,6 +549,14 @@ function rebuildGeneratedResolutionPhases(
 } {
   const blueprint = approvedResolutionBlueprint(correctProcess);
   if (!blueprint) return { failureCode: "approved_process_unsupported" };
+  const creatorProhibitedActions = authoritativeProhibitedActions(correctProcess);
+  const authoritativeContent = creatorProhibitedActions.length > 0
+    ? repairGeneratedResolutionProhibitions({
+        ...content,
+        prohibitedActions: creatorProhibitedActions,
+      })
+    : content;
+  const effectiveProhibitedActions = authoritativeContent.prohibitedActions;
   const phases: PhaseDraft[] = [];
   const partnerName = content.customer.name.trim() || "the Conversation Partner";
   const optionLabel = blueprint.option === "refund"
@@ -561,7 +580,7 @@ function rebuildGeneratedResolutionPhases(
         ...(blueprint.needsPreference ? ["Ask for the Conversation Partner's preferred resolution before taking action."] : []),
       ],
       customerRemainsSilent: false,
-    }, content.prohibitedActions, partnerName);
+    }, effectiveProhibitedActions, partnerName);
     if (!preferencePhase) return { failureCode: "preference_gate_uncompilable" };
     phases.push(preferencePhase);
   }
@@ -585,11 +604,17 @@ function rebuildGeneratedResolutionPhases(
       ...(blueprint.timeline ? [`Explain the approved ${blueprint.timeline} timing.`] : []),
     ],
     customerRemainsSilent: false,
-  }, content.prohibitedActions, partnerName);
+  }, effectiveProhibitedActions, partnerName);
   if (!outcomePhase) return { failureCode: "outcome_gate_uncompilable" };
   phases.push(outcomePhase);
 
-  return { content: { ...content, phases } };
+  return {
+    content: {
+      ...authoritativeContent,
+      prohibitedActions: effectiveProhibitedActions,
+      phases,
+    },
+  };
 }
 
 function safeGeneratedRepairDetails(content: GeneratedContent): NonNullable<GenerationDiagnostic["repairDetails"]> {

@@ -1519,6 +1519,203 @@ test("rebuilds approved refund phases when a sequencing guardrail names the refu
   ]);
 });
 
+test("uses creator-approved prohibitions when AI sequencing wording cannot compile", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        name: "Jamie",
+        openingLine: "The dog food bag arrived torn and unusable.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        id: "document_issue",
+        learnerActions: ["Acknowledge the torn bag and document what happened."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["document issue", "take notes"] }],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        id: "refund_resolution",
+        criteria: ["Issue a full refund of $32.49 to the original payment card."],
+      }],
+      prohibitedActions: [
+        "Do not issue the refund until Jamie explicitly states a preference for a refund.",
+        "Do not offer store credit, a replacement, or an exchange.",
+      ],
+    }),
+  });
+  const creatorBoundary = "Do not offer store credit, a replacement, or an exchange.";
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dry dog food.",
+    correctProcess: `Acknowledge the damaged delivery, ask whether Jamie wants a full refund, then issue a $32.49 refund to the original payment card and explain it will post in 3–5 business days. ${creatorBoundary}`,
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.prohibitedActions, [creatorBoundary]);
+  assert.deepEqual(payload.draft.phases[0].chatAdvanceRequirements, [
+    { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
+    { id: "refund_question_intent", phrases: expectedQuestionIntentPhrases },
+    { id: "refund", phrases: ["refund"] },
+  ]);
+});
+
+test("keeps creator prohibitions with curly, modal, and subject-led negative wording during fallback", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        name: "Jamie",
+        openingLine: "The dog food bag arrived torn and unusable.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge the torn bag and document what happened."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["document issue", "take notes"] }],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        id: "refund_resolution",
+        criteria: ["Issue a full refund of $32.49 to the original payment card."],
+      }],
+      prohibitedActions: [
+        "Do not issue the refund until Jamie explicitly states a preference for a refund.",
+      ],
+    }),
+  });
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dry dog food.",
+    correctProcess: "Acknowledge the damaged delivery, ask whether Jamie wants a full refund, then issue a $32.49 refund to the original payment card and explain it will post in 3–5 business days. Don’t offer store credit. The learner must not offer a replacement. The representative should not offer an exchange.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not offer store credit, a replacement, or an exchange.",
+  ]);
+});
+
+test("consolidates separate creator resolution prohibitions during fallback", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        name: "Jamie",
+        openingLine: "The dog food bag arrived torn and unusable.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge the torn bag and document what happened."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["document issue", "take notes"] }],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        id: "refund_resolution",
+        criteria: ["Issue a full refund of $32.49 to the original payment card."],
+      }],
+      prohibitedActions: [
+        "Do not issue the refund until Jamie explicitly states a preference for a refund.",
+      ],
+    }),
+  });
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dry dog food.",
+    correctProcess: "Acknowledge the damaged delivery, ask whether Jamie wants a full refund, then issue a $32.49 refund to the original payment card and explain it will post in 3–5 business days. Do not offer store credit. Do not offer a replacement. Do not offer an exchange.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not offer store credit, a replacement, or an exchange.",
+  ]);
+});
+
+test("does not turn a creator's No-policy fact into a prohibited action during fallback", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        name: "Jamie",
+        openingLine: "The dog food bag arrived torn and unusable.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge the torn bag and document what happened."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["document issue", "take notes"] }],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        id: "refund_resolution",
+        criteria: ["Issue a full refund of $32.49 to the original payment card."],
+      }],
+      prohibitedActions: [
+        "Do not issue the refund until Jamie explicitly states a preference for a refund.",
+      ],
+    }),
+  });
+  const creatorBoundary = "Do not offer store credit, a replacement, or an exchange.";
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dry dog food.",
+    correctProcess: `Acknowledge the damaged delivery, ask whether Jamie wants a full refund, then issue a $32.49 refund to the original payment card and explain it will post in 3–5 business days. No manager approval is required. ${creatorBoundary}`,
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.prohibitedActions, [creatorBoundary]);
+});
+
+test("keeps an earned replacement sequence separate from absolute alternative prohibitions", async () => {
+  const diagnostics: unknown[] = [];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    logError: (diagnostic) => diagnostics.push(diagnostic),
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        name: "Jamie",
+        openingLine: "The dog food bag arrived torn and unusable.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge the torn bag and document what happened."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["document issue", "take notes"] }],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        id: "replacement_resolution",
+        criteria: ["Place a no-cost replacement order."],
+      }],
+      prohibitedActions: [
+        "Do not place the replacement until Jamie explicitly states a preference for a replacement.",
+      ],
+    }),
+  });
+  const sequenceBoundary = "Do not issue the replacement before the customer confirms they want it.";
+  const absoluteBoundary = "Do not offer store credit.";
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dry dog food.",
+    correctProcess: `Acknowledge the damaged delivery, ask whether Jamie wants a replacement, then place a no-cost replacement and explain it will arrive in 3–5 business days. ${sequenceBoundary} ${absoluteBoundary}`,
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify({ error: payload.error, diagnostics }));
+  assert.deepEqual(payload.draft.prohibitedActions, [sequenceBoundary, absoluteBoundary]);
+});
+
 test("does not copy prohibited-alternative facts into a rebuilt approved outcome", async () => {
   const handler = createGenerateHandler({
     apiKey: "test-key",

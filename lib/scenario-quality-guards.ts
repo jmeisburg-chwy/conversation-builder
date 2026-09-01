@@ -1183,8 +1183,8 @@ export function compileSafeChatAdvanceRequirements(
         phrases: option === "refund"
           ? ["refund"]
           : option === "credit"
-            ? ["store credit"]
-            : [option],
+            ? ["store credit", "credit"]
+            : [option, `${option} order`],
       });
     }
   }
@@ -1329,7 +1329,9 @@ const REPLACEMENT_DETAIL_ONLY = /\b(?:replacement|reshipment)\s+(?:(?:arrival|de
 
 function resolutionProhibitionCandidate(action: string, index: number): ResolutionProhibitionCandidate | undefined {
   const normalized = normalizeComparableText(action);
-  if (!NEGATIVE_RESOLUTION_PRESENTATION.test(normalized) || DISTINCT_REFUND_CONSTRAINT.test(normalized)) return undefined;
+  if (!NEGATIVE_RESOLUTION_PRESENTATION.test(normalized)
+    || DISTINCT_REFUND_CONSTRAINT.test(normalized)
+    || unresolvedTemporalResolutionOption(action)) return undefined;
   const namesAlternative = /\bstore credit\b/u.test(normalized)
     || /\bexchang(?:e|es|ed|ing)\b/u.test(normalized)
     || (/\b(?:replac(?:e|es|ed|ing|ement|ements)|reship(?:s|ped|ping|ment|ments)?)\b/u.test(normalized)
