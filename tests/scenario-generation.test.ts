@@ -1469,6 +1469,55 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
   ]);
 });
 
+test("rebuilds approved refund phases when a sequencing guardrail names the refund", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        name: "Jamie",
+        openingLine: "The dog food bag arrived torn and unusable.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        id: "document_issue",
+        learnerActions: ["Acknowledge the torn bag and document what happened."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["document issue", "take notes"] }],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        id: "refund_resolution",
+        criteria: ["Issue a full refund of $32.49 to the original payment card."],
+      }],
+      prohibitedActions: [
+        "Do not issue the refund before Jamie confirms they want it.",
+        "Do not offer store credit, a replacement, or an exchange.",
+      ],
+    }),
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dry dog food.",
+    correctProcess: "Acknowledge the damaged delivery, ask whether Jamie wants a full refund, then issue a $32.49 refund to the original payment card and explain it will post in 3–5 business days. Do not offer store credit, a replacement, or an exchange.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.phases[0].chatAdvanceRequirements, [
+    { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
+    { id: "refund_question_intent", phrases: expectedQuestionIntentPhrases },
+    { id: "refund", phrases: ["refund"] },
+  ]);
+  assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements, [
+    { id: "refund_amount", phrases: expectedRefundAmountPhrases },
+    { id: "refund_destination", phrases: ["original card", "original payment card"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
+    { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
+  ]);
+});
+
 test("does not copy prohibited-alternative facts into a rebuilt approved outcome", async () => {
   const handler = createGenerateHandler({
     apiKey: "test-key",
@@ -1767,6 +1816,68 @@ test("allows an approved amount and timeline named as exceptions to a prohibitio
     "Do not state 3-5 business days.",
   ]);
   assert.equal(explicitlyProhibited.some((finding) => finding.code === "prohibited_chat_advance_phrase"), true);
+});
+
+test("allows earned-preference sequencing without weakening unrelated prerequisites", () => {
+  const requirements = [{ id: "refund", phrases: ["refund"] }];
+  for (const preferenceOrdering of [
+    "Do not issue the refund before the customer confirms they want it.",
+    "Do not issue the refund prior to confirming the customer's preference.",
+    "Do not issue the refund until the customer selects it.",
+    "Do not issue the refund unless Jamie confirms.",
+    "Do not issue the refund without customer confirmation.",
+  ]) {
+    const findings = findChatAdvanceRequirementQualityFindings(requirements, [preferenceOrdering]);
+    assert.equal(
+      findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      false,
+      preferenceOrdering,
+    );
+  }
+
+  for (const prerequisite of [
+    "Do not issue the refund before confirming manager approval.",
+    "Do not guarantee a delivery date before confirming tracking.",
+  ]) {
+    const phrase = prerequisite.includes("delivery date") ? "guarantee a delivery date" : "refund";
+    const findings = findChatAdvanceRequirementQualityFindings(
+      [{ id: "prerequisite", phrases: [phrase, `confirmed ${phrase}`] }],
+      [prerequisite],
+    );
+    assert.equal(
+      findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      true,
+      prerequisite,
+    );
+  }
+
+  const compound = "Do not offer store credit and do not issue the refund before the customer confirms they want it.";
+  assert.equal(
+    findChatAdvanceRequirementQualityFindings(requirements, [compound])
+      .some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    false,
+  );
+  assert.equal(
+    findChatAdvanceRequirementQualityFindings(
+      [{ id: "alternative", phrases: ["store credit", "offered store credit"] }],
+      [compound],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
+
+  const reverseCompound = "Do not issue the refund before the customer confirms they want it and do not offer store credit.";
+  assert.equal(
+    findChatAdvanceRequirementQualityFindings(requirements, [reverseCompound])
+      .some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    false,
+  );
+  assert.equal(
+    findChatAdvanceRequirementQualityFindings(
+      [{ id: "alternative", phrases: ["store credit", "offered store credit"] }],
+      [reverseCompound],
+    ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+    true,
+  );
 });
 
 test("rejects values and resolution options outside prohibition allowlists", () => {

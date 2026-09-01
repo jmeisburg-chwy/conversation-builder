@@ -211,7 +211,25 @@ function violatesProhibitionAllowlist(
   return actual.size > 0 && [...actual].some((value) => !constraint.allowed.has(value));
 }
 
-function prohibitedGateConcepts(action: string): string[] {
+const RESOLUTION_SEQUENCE_CLAUSE_SPLIT = /;|(?<!\d)\.(?!\d)|\b(?:and|or)\b(?=\s*(?:(?:do not|don't|dont|never|avoid)\b|(?:complet\w*|creat\w*|giv\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b))/iu;
+const RESOLUTION_SEQUENCE_CLAUSE = /^(?:(?:do not|dont|never|avoid)\s+)?(?:complet\w*|creat\w*|giv\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,60}\b(?:refund\w*|replac\w*|reship\w*)\b.{0,80}\b(?:before|prior to|until|unless|without)\b(.*)$/u;
+const PREFERENCE_SEQUENCE_SIGNAL = /\b(?:choice|choos\w*|option|prefer\w*|request\w*|select\w*|want\w*|whether)\b/u;
+const CUSTOMER_CONFIRMATION_SIGNAL = /(?:\b(?:customer|conversation partner|partner)\b.{0,80}\b(?:accept\w*|agree\w*|confirm\w*)\b|\b(?:accept\w*|agree\w*|confirm\w*)\b.{0,80}\b(?:customer|conversation partner|partner)\b)/u;
+const NON_CUSTOMER_PREREQUISITE = /\b(?:approval|authorization|eligibility|leader|manager|policy|supervisor|tracking|validation|verification)\b/u;
+
+function isEarnedPreferenceSequenceClause(action: string): boolean {
+  const normalized = normalizeComparableText(action);
+  const sequence = normalized.match(RESOLUTION_SEQUENCE_CLAUSE);
+  if (!sequence) return false;
+  const tail = sequence[1];
+  if (NON_CUSTOMER_PREREQUISITE.test(tail)) return false;
+  if (PREFERENCE_SEQUENCE_SIGNAL.test(tail) || CUSTOMER_CONFIRMATION_SIGNAL.test(tail)) return true;
+
+  const rawTail = action.match(/\b(?:before|prior\s+to|until|unless|without)\b([\s\S]*)$/iu)?.[1] ?? "";
+  return /^\s*(?:after\s+)?(?:the\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+confirm\w*\b/u.test(rawTail);
+}
+
+function prohibitedGateConceptsForClause(action: string): string[] {
   if (prohibitionAllowlistConstraints(action).length > 0) return [];
   const normalized = normalizeComparableText(action)
     .replace(/^(?:do not|dont|never|avoid)\s+/, "")
@@ -219,6 +237,12 @@ function prohibitedGateConcepts(action: string): string[] {
     .replace(/\b(?:different from|except)\b.*$/u, "")
     .trim();
   if (!normalized) return [];
+
+  // An earned-preference ordering rule does not prohibit the approved
+  // resolution itself. The phase sequence enforces that the learner asks and
+  // receives the customer's answer before a later outcome phase can advance.
+  // Keep other prerequisites (for example, manager approval) fail-closed.
+  if (isEarnedPreferenceSequenceClause(action)) return [];
 
   const concepts = [normalized];
   const optionAction = normalized.match(PROHIBITED_OPTION_ACTION);
@@ -229,6 +253,16 @@ function prohibitedGateConcepts(action: string): string[] {
       .filter(Boolean));
   }
   return [...new Set(concepts)];
+}
+
+function prohibitedGateConcepts(action: string): string[] {
+  return [...new Set(
+    action
+      .split(RESOLUTION_SEQUENCE_CLAUSE_SPLIT)
+      .map((clause) => clause.trim())
+      .filter(Boolean)
+      .flatMap(prohibitedGateConceptsForClause),
+  )];
 }
 
 export function findChatAdvanceRequirementQualityFindings(
