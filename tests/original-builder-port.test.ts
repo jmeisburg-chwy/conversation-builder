@@ -229,25 +229,50 @@ test("maps standalone validation paths back to the original Review/Edit controls
 
 test("keeps Continue to Download available when validation has advisory findings", () => {
   const button = { disabled: true };
+  const validation = {
+    issues: [{ severity: "WARN", fieldPath: "evaluation.objectives.0.criteria" }],
+    files: [{ filename: "review_chat.json", scenario: { channels: ["chat"] } }],
+  };
 
   builderApp.configureReviewTestAffordance(button, {
-    available: true,
+    available: builderApp.canContinueToDownload(validation),
     validationAttempted: true,
   });
 
   assert.equal(button.disabled, false);
 });
 
-test("describes failed validation as blocking download", () => {
+test("describes a non-privacy validation failure with JSON as downloadable", () => {
   assert.deepEqual(builderApp.finalCheckDisplayState({
     issues: [{ severity: "FAIL", code: "future_check", message: "Review this detail." }],
+    files: [{ filename: "review_chat.json", scenario: { channels: ["chat"] } }],
   }), {
-    headline: "Changes needed",
-    description: "Fix the items below, then validate again.",
+    headline: "Downloadable — needs review",
+    description: "You can continue to download this JSON. Review the items below before using it in Articulate Rise.",
   });
 });
 
-test("withholds generated JSON files when validation has failures", () => {
+test("describes a personal-information failure as blocking download", () => {
+  assert.deepEqual(builderApp.finalCheckDisplayState({
+    issues: [{ severity: "FAIL", code: "privacy_email", message: "Remove the email." }],
+    files: [{ filename: "unsafe_chat.json", scenario: { channels: ["chat"] } }],
+  }), {
+    headline: "Changes needed",
+    description: "Remove the personal or sensitive information before downloading.",
+  });
+});
+
+test("does not describe a missing JSON file as a privacy failure", () => {
+  assert.deepEqual(builderApp.finalCheckDisplayState({
+    issues: [{ severity: "FAIL", code: "future_check", message: "Review this detail." }],
+    files: [],
+  }), {
+    headline: "Changes needed",
+    description: "Validate again to create the JSON download.",
+  });
+});
+
+test("offers generated JSON files when only objective review findings remain", () => {
   const files = builderApp.portableValidatedScenarioFiles({
     validation: {
       ok: false,
@@ -259,7 +284,54 @@ test("withholds generated JSON files when validation has failures", () => {
     },
   });
 
+  assert.equal(files.length, 1);
+  assert.equal(files[0].filename, "advisory_chat.json");
+});
+
+test("still withholds generated JSON files when personal information fails", () => {
+  const files = builderApp.portableValidatedScenarioFiles({
+    validation: {
+      ok: false,
+      issues: [{ severity: "FAIL", code: "privacy_email", message: "Remove the email." }],
+      files: [{
+        filename: "unsafe_chat.json",
+        scenario: { id: "unsafe_chat", channels: ["chat"], title: "Unsafe draft" },
+      }],
+    },
+  });
+
   assert.equal(files.length, 0);
+});
+
+test("allows Continue to Download when validation produced safe JSON", () => {
+  const canContinue = (builderApp as unknown as {
+    canContinueToDownload?: (validation: unknown) => boolean;
+  }).canContinueToDownload;
+
+  assert.equal(typeof canContinue, "function");
+  assert.equal(canContinue?.({
+    issues: [{ severity: "WARN", fieldPath: "evaluation.objectives.0.criteria" }],
+    files: [{ filename: "review_chat.json", scenario: { channels: ["chat"] } }],
+  }), true);
+  assert.equal(canContinue?.({ status: "unavailable", issues: [], files: [] }), false);
+});
+
+test("explains why objectives and criteria need attention", () => {
+  const rows = builderApp.buildValidationCheckRows({
+    publishChecks: { authoritative: "passed", privacy: "passed" },
+    evaluationApproved: false,
+    evaluationIssues: [{
+      message: "Criterion 2 is not connected to a conversation phase.",
+      fieldPath: "evaluation.objectives.0.criteria.1",
+    }],
+  });
+  const objectives = rows.find((row) => row.label === "Objectives and criteria");
+
+  assert.equal(objectives?.status, "attention");
+  assert.equal(
+    objectives?.help,
+    "Needs attention because: Criterion 2 is not connected to a conversation phase.",
+  );
 });
 
 test("routes five-blocker corrections to the earned turn and preserves their actionable fix", () => {

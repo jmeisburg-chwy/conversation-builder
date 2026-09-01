@@ -1553,13 +1553,30 @@ export function performReviewStageNavigation({
   return next;
 }
 
+function hasPrivacyFailure(validation = {}) {
+  return (Array.isArray(validation?.issues) ? validation.issues : []).some((issue) =>
+    String(issue?.severity || issue?.level || issue?.type || "FAIL").toUpperCase() === "FAIL"
+    && /^privacy_/i.test(String(issue?.code || ""))
+  );
+}
+
+export function canContinueToDownload(validation = null) {
+  return Boolean(
+    validation
+    && validation.status !== "unavailable"
+    && Array.isArray(validation.files)
+    && validation.files.length > 0
+    && !hasPrivacyFailure(validation)
+  );
+}
+
 function setStage(stage, options = {}) {
   const next = performReviewStageNavigation({
     requestedStage: stage,
     reviewStarted: state.reviewStarted,
     reviewComplete: reviewIsComplete(),
     testVisited: state.testVisited,
-    publishReady: canEnterPublish(state.draft),
+    publishReady: canContinueToDownload(state.validation),
     onStageChange: (resolvedStage) => {
       state.stage = resolvedStage;
       elements.stageButtons.forEach((button) => {
@@ -1666,11 +1683,11 @@ function renderStageAvailability() {
       });
     }
     if (stage === "validate") {
-      button.disabled = !canEnterPublish(state.draft) || !state.validation;
+      button.disabled = !canContinueToDownload(state.validation);
     }
   });
   configurePublishContinueAffordance(elements.testPublishButton, {
-    ready: canEnterPublish(state.draft) && Boolean(state.validation)
+    ready: canContinueToDownload(state.validation)
   });
 }
 
@@ -3874,16 +3891,16 @@ export async function runPublishScenarioSubmission({
 }
 
 function renderReviewReadiness() {
-  const ready = blockingPhaseEvaluationFindings(state.draft).length === 0;
+  const ready = canContinueToDownload(state.validation);
   if (elements.reviewContinueButton) {
     configureReviewTestAffordance(elements.reviewContinueButton, {
       available: state.reviewStarted && ready,
-      validationAttempted: Boolean(state.validation)
+      validationAttempted: ready
     });
-    elements.reviewContinueButton.title = !ready
-      ? "Complete the highlighted learning objective details before downloading."
-      : state.validation
-        ? ""
+    elements.reviewContinueButton.title = ready
+      ? ""
+      : hasPrivacyFailure(state.validation)
+        ? "Remove personal or sensitive information before downloading."
         : "Validate the conversation before downloading.";
   }
   renderStageAvailability();
@@ -8633,7 +8650,8 @@ function revisionValue(label, value, position) {
 
 export function buildValidationCheckRows({
   publishChecks = {},
-  evaluationApproved = false
+  evaluationApproved = false,
+  evaluationIssues = []
 } = {}) {
   const authoritative = publishChecks.authoritative || "not_run";
   const privacy = publishChecks.privacy || "not_run";
@@ -8641,6 +8659,14 @@ export function buildValidationCheckRows({
   const attempted = [authoritative, privacy].some((status) =>
     !["not_run", "not_tested"].includes(status)
   );
+  const evaluationMessages = [...new Set(
+    (Array.isArray(evaluationIssues) ? evaluationIssues : [])
+      .map((issue) => String(issue?.message || "").trim())
+      .filter(Boolean)
+  )];
+  const evaluationHelp = evaluationMessages.length
+    ? `Needs attention because: ${evaluationMessages.slice(0, 2).join(" ")}`
+    : "Checks that every learning objective has clear criteria and is connected to the conversation flow.";
   return [
     {
       label: "Conversation readiness",
@@ -8654,12 +8680,12 @@ export function buildValidationCheckRows({
     },
     {
       label: "Objectives and criteria",
-      help: "Checks that every learning objective has clear criteria and is connected to the conversation flow.",
+      help: evaluationHelp,
       status: running
         ? "running"
         : !attempted
           ? "not_validated"
-          : evaluationApproved
+          : evaluationApproved && evaluationMessages.length === 0
             ? "passed"
             : "attention"
     }
@@ -8767,7 +8793,15 @@ function renderPublishChecks() {
     elements.publishChecksList,
     buildValidationCheckRows({
       publishChecks: state.publishChecks,
-      evaluationApproved: isEvaluationApproved(state.draft)
+      evaluationApproved: isEvaluationApproved(state.draft),
+      evaluationIssues: (Array.isArray(state.validation?.issues) ? state.validation.issues : [])
+        .filter((issue) => {
+          const path = String(issue?.fieldPath || issue?.path || "");
+          const code = String(issue?.code || "");
+          return isBlockingPhaseEvaluationFinding(issue)
+            || /^draft\.(?:objectives|phases)(?:\b|\[)/i.test(path)
+            || /(?:objective|criterion|evaluation)/i.test(code);
+        })
     }),
     {
       unavailable: state.validation?.status === "unavailable" ? state.validation : null,
@@ -8876,7 +8910,7 @@ function portableRuntimeValue(value) {
 }
 
 export function portableValidatedScenarioFiles({ validation, scenarios = [] } = {}) {
-  if (actionableBlockingIssues(validation).length) return [];
+  if (!canContinueToDownload(validation)) return [];
   if (!Array.isArray(validation?.files)) return [];
   if (validation.files.every((file) => file?.scenario && file?.filename)) {
     return validation.files.flatMap((file) => {
@@ -9033,9 +9067,21 @@ export function finalCheckDisplayState(validation, channels = []) {
     };
   }
   if (actionableBlockingIssues(validation).length) {
+    if (hasPrivacyFailure(validation)) {
+      return {
+        headline: "Changes needed",
+        description: "Remove the personal or sensitive information before downloading."
+      };
+    }
+    if (canContinueToDownload(validation)) {
+      return {
+        headline: "Downloadable — needs review",
+        description: "You can continue to download this JSON. Review the items below before using it in Articulate Rise."
+      };
+    }
     return {
       headline: "Changes needed",
-      description: "Fix the items below, then validate again."
+      description: "Validate again to create the JSON download."
     };
   }
   const warningIssues = (Array.isArray(validation?.issues) ? validation.issues : [])
@@ -9669,12 +9715,12 @@ function wireControls() {
   });
   elements.reviewContinueButton.addEventListener("click", async () => {
     const canEnter = handleReviewTestEntry({
-      canEnter: reviewIsComplete() && Boolean(state.validation),
+      canEnter: canContinueToDownload(state.validation),
       onBlocked: () => {
         revealReviewBlockingIssues();
-        showToast(reviewIsComplete()
-          ? "Validate the conversation before downloading."
-          : "Complete the highlighted phase details before downloading.");
+        showToast(hasPrivacyFailure(state.validation)
+          ? "Remove personal or sensitive information before downloading."
+          : "Validate the conversation before downloading.");
       }
     });
     if (!canEnter) return;
