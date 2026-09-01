@@ -5,12 +5,37 @@ import { createGenerateHandler } from "../lib/scenario-generation";
 import {
   compileSafeChatAdvanceRequirements,
   findChatAdvanceRequirementQualityFindings,
+  mergeSafeChatAdvanceRequirementAliases,
 } from "../lib/scenario-quality-guards";
 import { createValidateHandler } from "../lib/scenario-validation";
 import { objectiveFingerprint } from "../lib/objective-approval";
 import type { StudioDraft } from "../lib/scenario-contract";
 import { authoringToStandaloneDraft, standaloneToAuthoringDraft } from "../public/builder-studio/src/standaloneAdapter.js";
 import { normalizeStudioDraft } from "../public/builder-studio/src/scenarioStudio.js";
+
+const expectedEmpathyPhrases = [
+  "i'm sorry", "i’m sorry", "i am sorry", "sorry your", "sorry the", "sorry about",
+  "i understand", "we understand", "i see your", "i see the", "i see how", "i see why",
+  "i see that", "that sounds frustrating", "sounds frustrating",
+];
+const expectedQuestionIntentPhrases = [
+  "would you like", "do you want", "would you prefer", "can i process", "can i issue",
+  "can i provide", "can i complete", "can i send", "may i process", "may i issue",
+  "may i provide", "may i complete", "may i send",
+];
+const expectedRefundAmountPhrases = [
+  "$32.49 refund", "full refund of $32.49 has", "full refund of $32.49 was",
+  "refund amount is $32.49.",
+  "refund amount is $32.49,", "refund is $32.49.", "refund is $32.49,",
+];
+const expectedRefundCompletionPhrases = [
+  "refund was issued", "refund has been issued", "issued your refund", "issued the refund",
+  "refund was processed", "refund has been processed", "processed your refund", "processed the refund",
+  "refund was completed", "refund has been completed", "completed your refund", "completed the refund",
+  "refund was sent", "refund has been sent", "sent your refund", "sent the refund",
+  "i've refunded", "i’ve refunded", "i have refunded", "i refunded", "we refunded",
+  "of $32.49 has been sent", "of $32.49 was sent",
+];
 
 const validBody = {
   mode: "new",
@@ -1343,13 +1368,15 @@ test("deterministically repairs the final corrective draft's Chat gates and spli
   );
   assert.deepEqual(payload.draft.phases.map((phase: { chatAdvanceRequirements: unknown }) => phase.chatAdvanceRequirements), [
     [
-      { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
-      { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
+      { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
+      { id: "refund_question_intent", phrases: expectedQuestionIntentPhrases },
+      { id: "refund", phrases: ["refund"] },
     ],
     [
+      { id: "refund_amount", phrases: expectedRefundAmountPhrases },
       { id: "refund_destination", phrases: ["original card", "original payment card"] },
-      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
-      { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
+      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
+      { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
     ],
     [
       { id: "case_reference", phrases: ["case reference", "reference number"] },
@@ -1426,17 +1453,19 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
     "Ask whether Jamie wants a full refund.",
   ]);
   assert.deepEqual(payload.draft.phases[0].chatAdvanceRequirements, [
-    { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
-    { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
+    { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
+    { id: "refund_question_intent", phrases: expectedQuestionIntentPhrases },
+    { id: "refund", phrases: ["refund"] },
   ]);
   assert.deepEqual(payload.draft.phases[1].learnerActions, [
     "Issue a full refund of $32.49 to the original payment card.",
     "Explain that the refund will post within 3–5 business days.",
   ]);
   assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements, [
+    { id: "refund_amount", phrases: expectedRefundAmountPhrases },
     { id: "refund_destination", phrases: ["original card", "original payment card"] },
-    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
-    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
+    { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
   ]);
 });
 
@@ -1541,9 +1570,10 @@ test("adds a missing approved operational criterion to the final phase before co
     "Issue a full refund of $32.49 to the original payment card.",
   ]);
   assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements, [
+    { id: "refund_amount", phrases: expectedRefundAmountPhrases },
     { id: "refund_destination", phrases: ["original card", "original payment card"] },
-    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
-    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
+    { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
   ]);
 });
 
@@ -1611,11 +1641,66 @@ test("compiles adjudicated natural refund anchors", () => {
   }, []);
 
   assert.deepEqual(requirements, [
-    { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
-    { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
-    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
-    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
+    { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
+    { id: "refund_question_intent", phrases: expectedQuestionIntentPhrases },
+    { id: "refund_amount", phrases: expectedRefundAmountPhrases },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
+    { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
   ]);
+});
+
+test("compiles refund gates into separately required natural-language concepts", () => {
+  const preferenceRequirements = compileSafeChatAdvanceRequirements({
+    ...generated.phases[0],
+    learnerActions: [
+      "Acknowledge the damaged bag and ask whether Jamie wants a full refund.",
+    ],
+    chatAdvanceRequirements: [
+      { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
+      { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
+    ],
+  }, []);
+  const completionRequirements = compileSafeChatAdvanceRequirements({
+    ...generated.phases[0],
+    learnerActions: [
+      "Complete the $32.49 refund to the original payment card and explain the 3-5 business-day timeline.",
+    ],
+    chatAdvanceRequirements: [
+      { id: "refund_destination", phrases: ["original card", "original payment card"] },
+      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+      { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+    ],
+  }, []);
+
+  assert.deepEqual(preferenceRequirements, [
+    {
+      id: "acknowledge_empathy",
+      phrases: expectedEmpathyPhrases,
+    },
+    {
+      id: "refund_question_intent",
+      phrases: expectedQuestionIntentPhrases,
+    },
+    { id: "refund", phrases: ["refund"] },
+  ]);
+  assert.deepEqual(completionRequirements, [
+    { id: "refund_amount", phrases: expectedRefundAmountPhrases },
+    { id: "refund_destination", phrases: ["original card", "original payment card"] },
+    {
+      id: "refund_timeline",
+      phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"],
+    },
+    { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
+  ]);
+});
+
+test("does not reinterpret an unknown intent requirement as question intent", () => {
+  const requirement = {
+    id: "refund_intent",
+    phrases: ["full refund intent", "refund selection"],
+  };
+
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([requirement]), [requirement]);
 });
 
 test("compiles a replacement completion gate without weakening the outcome", () => {
@@ -1631,7 +1716,7 @@ test("compiles a replacement completion gate without weakening the outcome", () 
   }, []);
 
   assert.deepEqual(requirements, [
-    { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+    { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
     {
       id: "replacement_completion",
       phrases: ["placed the replacement order", "submitted the replacement order"],
@@ -1639,7 +1724,7 @@ test("compiles a replacement completion gate without weakening the outcome", () 
   ]);
 });
 
-test("compiled refund completion blocks a prohibited replacement outcome", () => {
+test("compiled refund completion stays safe when paired with the prohibited-alternative gate", () => {
   const requirements = compileSafeChatAdvanceRequirements({
     ...generated.phases[0],
     learnerActions: [
@@ -1652,11 +1737,15 @@ test("compiled refund completion blocks a prohibited replacement outcome", () =>
   }, ["Do not offer a replacement."]);
   assert.ok(requirements);
 
-  const matchesRiseGate = (message: string) => requirements!.every((requirement) =>
-    requirement.phrases.some((phrase) => message.toLowerCase().includes(phrase))
-  );
+  const matchesRiseGate = (message: string) => {
+    const normalized = message.toLowerCase();
+    const positivesPass = requirements!.every((requirement) =>
+      requirement.phrases.some((phrase) => normalized.includes(phrase))
+    );
+    return positivesPass && !normalized.includes("replacement");
+  };
   assert.equal(matchesRiseGate(
-    "I've issued the $32.49 refund to your original card. It should appear in 3-5 business days.",
+    "I've issued the refund. The refund amount is $32.49, returning to your original card in 3-5 business days.",
   ), true);
   assert.equal(matchesRiseGate(
     "I processed the replacement for $32.49 to the original card; the refund timeline is 3-5 business days.",

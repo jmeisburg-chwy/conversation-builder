@@ -8,6 +8,30 @@ import {
   type StudioDraft,
 } from "../lib/scenario-contract";
 
+const expectedEmpathyPhrases = [
+  "i'm sorry", "i’m sorry", "i am sorry", "sorry your", "sorry the", "sorry about",
+  "i understand", "we understand", "i see your", "i see the", "i see how", "i see why",
+  "i see that", "that sounds frustrating", "sounds frustrating",
+];
+const expectedQuestionIntentPhrases = [
+  "would you like", "do you want", "would you prefer", "can i process", "can i issue",
+  "can i provide", "can i complete", "can i send", "may i process", "may i issue",
+  "may i provide", "may i complete", "may i send",
+];
+const expectedRefundAmountPhrases = [
+  "$32.49 refund", "full refund of $32.49 has", "full refund of $32.49 was",
+  "refund amount is $32.49.",
+  "refund amount is $32.49,", "refund is $32.49.", "refund is $32.49,",
+];
+const expectedRefundCompletionPhrases = [
+  "refund was issued", "refund has been issued", "issued your refund", "issued the refund",
+  "refund was processed", "refund has been processed", "processed your refund", "processed the refund",
+  "refund was completed", "refund has been completed", "completed your refund", "completed the refund",
+  "refund was sent", "refund has been sent", "sent your refund", "sent the refund",
+  "i've refunded", "i’ve refunded", "i have refunded", "i refunded", "we refunded",
+  "of $32.49 has been sent", "of $32.49 was sent",
+];
+
 function focusedDraft(): StudioDraft {
   return {
     baseId: "late_order_recovery",
@@ -101,7 +125,6 @@ test("composes separate focused-objective chat and voice files without legacy be
     assert.equal(scenario.catalog.groupId, "late_order_recovery");
     assert.deepEqual(scenario.facts.knownFacts, ["The order is expected tomorrow by end of day."]);
     assert.deepEqual(scenario.customer.behavior.conditionalFollowUps, [
-      "Approved customer fact: The order is expected tomorrow by end of day.",
       "After the learner explains the expected date, ask what happens if it is late again.",
     ]);
     assert.doesNotMatch(JSON.stringify(scenario), /pauseAfter/);
@@ -137,7 +160,7 @@ test("composes Rise-compatible Chat step match conditions", () => {
 
   assert.equal(Array.isArray(step?.match), false);
   assert.deepEqual(match.all, [
-    { op: "contains_any", phrases: ["sorry", "understand", "concern"] },
+    { op: "contains_any", phrases: expectedEmpathyPhrases },
     { op: "contains_any", phrases: ["delayed order", "late order", "order is delayed"] },
   ]);
   assert.deepEqual(match.any, []);
@@ -213,7 +236,7 @@ test("requires every positive concept before advancing a Chat phase", () => {
   assert.equal(riseStepMatches("What issue caused this?", steps[0]), false);
   assert.equal(riseStepMatches("Just to confirm, you want a refund?", steps[1]), true);
   assert.equal(riseStepMatches("I can offer store credit.", steps[1]), false);
-  assert.equal(riseStepMatches("I've completed the refund of $24.99 to your original payment card. It will post in 3–5 business days.", steps[2]), true);
+  assert.equal(riseStepMatches("I've completed the refund. The $24.99 refund will return to your original payment card in 3–5 business days.", steps[2]), true);
   assert.equal(riseStepMatches("Thank you.", steps[2]), false);
 });
 
@@ -253,7 +276,7 @@ test("blocks prohibited refund alternatives without rejecting complete natural r
     step,
   ), true);
   assert.equal(riseStepMatches(
-    "I'm sorry about the torn bag. I've refunded $24.99 to your original payment card. It should post in 3–5 business days.",
+    "I'm sorry about the torn bag. The $24.99 refund was processed to your original payment card and should post in 3–5 business days.",
     step,
   ), true);
   for (const prohibitedAddition of [
@@ -268,7 +291,108 @@ test("blocks prohibited refund alternatives without rejecting complete natural r
   }
 });
 
-test("enriches persisted v31 Chat requirements without replacing creator phrases or unknown groups", () => {
+test("accepts concept-complete refund paraphrases while rejecting incomplete or prohibited turns", () => {
+  const refundDraft = focusedDraft();
+  refundDraft.channels = ["chat"];
+  refundDraft.customer.facts = [
+    "The order was for dry dog food.",
+    "The exact refund amount is $32.49.",
+    "The refund should go to the original payment card.",
+    "The refund timeline is 3-5 business days.",
+  ];
+  refundDraft.prohibitedActions = [
+    "Do not offer store credit, a replacement, or an exchange.",
+  ];
+  refundDraft.phases = [
+    {
+      id: "acknowledge_and_confirm_refund",
+      title: "Acknowledge and confirm refund preference",
+      learnerActions: [
+        "Acknowledge the damaged bag and ask whether the customer wants a full refund.",
+      ],
+      chatAdvanceRequirements: [
+        { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
+        { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
+      ],
+      partnerResponse: "Yes, I want a full refund.",
+      coachGuidance: ["Acknowledge the damage and confirm the refund preference."],
+    },
+    {
+      id: "complete_refund",
+      title: "Complete the refund",
+      learnerActions: [
+        "Complete the $32.49 refund to the original payment card and explain the 3-5 business-day timeline.",
+      ],
+      chatAdvanceRequirements: [
+        { id: "refund_destination", phrases: ["original card", "original payment card"] },
+        { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+        { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
+      ],
+      partnerResponse: "Thank you for resolving this.",
+      coachGuidance: ["Complete the exact approved refund and set the posting expectation."],
+    },
+  ];
+
+  const [file] = composeScenarioFiles(refundDraft);
+  const steps = file.scenario.chatConfig!.stepProgression as RiseStep[];
+
+  assert.equal(steps[0].match?.all?.length, 3);
+  assert.equal(steps[1].match?.all?.length, 4);
+
+  for (const message of [
+    "I see your bag arrived damaged. Would you prefer a full refund?",
+    "That sounds frustrating. Can I process a full refund for you?",
+    "I'm sorry your dog food arrived damaged. Would you like me to refund it?",
+  ]) {
+    assert.equal(riseStepMatches(message, steps[0]), true, message);
+  }
+  for (const message of [
+    "Your full refund of $32.49 has been sent to your original card. Allow 3 to 5 business days.",
+    "A $32.49 refund was processed to your original payment card and should post within three to five business days.",
+  ]) {
+    assert.equal(riseStepMatches(message, steps[1]), true, message);
+  }
+
+  for (const [stepIndex, message] of [
+    [0, "Would you prefer a full refund?"],
+    [0, "That sounds frustrating. I can process a full refund."],
+    [0, "That sounds frustrating. Can I help you?"],
+    [0, "I do not understand the damaged bag. Would you prefer a full refund?"],
+    [0, "I see your bag arrived damaged. I can issue a full refund."],
+    [0, "I see your bag arrived damaged. Can I help with your order? I will process a full refund later."],
+    [1, "A $32.49 refund was processed to your original payment card."],
+    [1, "Your refund has been sent to your original card. Allow 3 to 5 business days."],
+    [1, "$32.49 will go to your original card in 3 to 5 business days."],
+    [1, "I sent the confirmation. The $32.49 refund goes to your original card in 3 to 5 business days."],
+    [1, "I processed the return. The $32.49 refund goes to your original card in 3 to 5 business days."],
+    [1, "The confirmation has been sent to your original card. Your $32.49 refund will arrive in 3 to 5 business days."],
+    [1, "I refunded $132.49, not $32.49. It will return to your original card in 3 to 5 business days."],
+    [1, "Your $132.49 refund was processed to your original card in 3 to 5 business days."],
+    [1, "Your $32.490 refund was processed to your original card in 3 to 5 business days."],
+  ] as const) {
+    assert.equal(riseStepMatches(message, steps[stepIndex]), false, message);
+  }
+
+  for (const prohibited of ["store credit", "a replacement", "an exchange"]) {
+    const message = `I see your bag arrived damaged. Would you prefer a full refund or ${prohibited}?`;
+    assert.equal(riseStepMatches(message, steps[0]), false, message);
+  }
+});
+
+test("keeps approved facts out of customer conditional follow-ups", () => {
+  const files = composeScenarioFiles(focusedDraft());
+
+  for (const { scenario } of files) {
+    assert.deepEqual(scenario.facts.knownFacts, [
+      "The order is expected tomorrow by end of day.",
+    ]);
+    assert.deepEqual(scenario.customer.behavior.conditionalFollowUps, [
+      "After the learner explains the expected date, ask what happens if it is late again.",
+    ]);
+  }
+});
+
+test("safely enriches persisted v31 Chat requirements while preserving specific creator phrases and unknown groups", () => {
   const refundDraft = focusedDraft();
   refundDraft.channels = ["chat"];
   refundDraft.prohibitedActions = [
@@ -317,15 +441,31 @@ test("enriches persisted v31 Chat requirements without replacing creator phrases
   const steps = file.scenario.chatConfig!.stepProgression as RiseStep[];
 
   assert.deepEqual(steps[0].match?.all, [
-    { op: "contains_any", phrases: ["sorry the", "understand the", "sorry about"] },
-    { op: "contains_any", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
+    {
+      op: "contains_any",
+      phrases: ["sorry the", ...expectedEmpathyPhrases.filter((phrase) => phrase !== "sorry the")],
+    },
+    {
+      op: "contains_any",
+      phrases: expectedQuestionIntentPhrases,
+    },
+    { op: "contains_any", phrases: ["like a refund", "want a refund", "refund"] },
   ]);
   assert.deepEqual(steps[1].match?.all, [
     { op: "contains_any", phrases: ["original card", "original payment card"] },
-    { op: "contains_any", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
     {
       op: "contains_any",
-      phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refund is complete", "refunded $32.49"],
+      phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"],
+    },
+    { op: "contains_any", phrases: expectedRefundAmountPhrases },
+    {
+      op: "contains_any",
+      phrases: [
+        "issued the $32.49 refund",
+        "processed the $32.49 refund",
+        "refund is complete",
+        ...expectedRefundCompletionPhrases,
+      ],
     },
   ]);
   assert.deepEqual(steps[2].match?.all, [{
@@ -334,8 +474,8 @@ test("enriches persisted v31 Chat requirements without replacing creator phrases
   }]);
 
   const validMessages = [
-    "I'm sorry about the torn bag. I want to confirm that you prefer a full refund.",
-    "I've refunded $32.49 to your original card. It should post in 3 to 5 business days.",
+    "I'm sorry about the torn bag. Would you prefer a full refund?",
+    "I've processed the $32.49 refund to your original card. It should post in 3 to 5 business days.",
     "Your creator reference is REF-123.",
   ];
   validMessages.forEach((message, index) => {
@@ -344,6 +484,10 @@ test("enriches persisted v31 Chat requirements without replacing creator phrases
     assert.equal(riseStepMatches(`${message} I can also send a replacement.`, steps[index]), false);
     assert.equal(riseStepMatches(`${message} I can arrange an exchange instead.`, steps[index]), false);
   });
+  assert.equal(
+    riseStepMatches("I understand the issue. I want a refund.", steps[0]),
+    false,
+  );
 });
 
 test("enriches v31 Chat requirements after a JSON pair is imported and recomposed", () => {
@@ -402,15 +546,15 @@ test("enriches v31 Chat requirements after a JSON pair is imported and recompose
 
   assert.equal(validateScenarioFiles(recomposed).length, 0);
   assert.equal(riseStepMatches(
-    "I'm sorry about the torn bag. You prefer a full refund, so I've refunded $32.49 to your original card. It should post in 3 to 5 business days.",
+    "I'm sorry about the torn bag. Would you prefer a full refund? I've processed the $32.49 refund to your original card. It should post in 3 to 5 business days.",
     step,
   ), true);
   assert.equal(riseStepMatches(
-    "I'm sorry about the torn bag. You prefer a full refund, so I've refunded $32.49 to your original card. It should post in 3 to 5 business days. I can also offer store credit.",
+    "I'm sorry about the torn bag. Would you prefer a full refund? I've processed the $32.49 refund to your original card. It should post in 3 to 5 business days. I can also offer store credit.",
     step,
   ), false);
   assert.equal(riseStepMatches(
-    "I'm sorry about the torn bag. You prefer a full refund, so I've refunded $32.49 to your original card. It should post in 3 to 5 business days. I can also send a replacement.",
+    "I'm sorry about the torn bag. Would you prefer a full refund? I've processed the $32.49 refund to your original card. It should post in 3 to 5 business days. I can also send a replacement.",
     step,
   ), false);
 });

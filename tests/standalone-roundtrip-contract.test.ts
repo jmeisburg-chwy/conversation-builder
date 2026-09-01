@@ -275,7 +275,14 @@ test("preserves Review/Edit scoring, opening, phase evaluation, and approved-res
   ]);
   assert.deepEqual(
     imported.draft.phases[0].chatAdvanceRequirements?.map((requirement) => requirement.phrases),
-    (authoring.flow.phases[0].chatAdvanceRequirements as Array<{ phrases: string[] }>).map((requirement) => requirement.phrases),
+    [
+      [
+        "i'm sorry", "i’m sorry", "i am sorry", "sorry your", "sorry the", "sorry about",
+        "i understand", "we understand", "i see your", "i see the", "i see how", "i see why",
+        "i see that", "that sounds frustrating", "sounds frustrating",
+      ],
+      ["late order", "delayed order"],
+    ],
   );
   assert.deepEqual(imported.draft.chat.approvedResponseAssignments, standalone.chat.approvedResponseAssignments);
 

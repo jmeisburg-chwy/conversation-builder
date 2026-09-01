@@ -64,7 +64,16 @@ function isBrittleChatAdvancePhrase(value: string): boolean {
     && (FULL_TURN_CHAT_GATE_START.test(candidate) || LEARNER_ACTION_CHAT_GATE_START.test(candidate));
 }
 
-type ChatRequirementConcept = "amount" | "destination" | "timeline" | "completion" | "closing" | "empathy" | "preference" | "refund";
+type ChatRequirementConcept =
+  | "amount"
+  | "destination"
+  | "timeline"
+  | "completion"
+  | "closing"
+  | "empathy"
+  | "question_intent"
+  | "preference"
+  | "refund";
 
 function chatRequirementConcept(requirementId: string): ChatRequirementConcept | undefined {
   const id = normalizeComparableText(requirementId);
@@ -74,8 +83,9 @@ function chatRequirementConcept(requirementId: string): ChatRequirementConcept |
   if (/\b(?:complete|completed|completion|confirm outcome|recap|review outcome|summarize|summary)\b/u.test(id)) return "completion";
   if (/\b(?:close|closing|farewell)\b/u.test(id)) return "closing";
   if (/\b(?:acknowledge|acknowledgement|empathy|empathetic|inconvenience|recognize)\b/u.test(id)) return "empathy";
+  if (/\b(?:question|questioning)\b/u.test(id)) return "question_intent";
   if (/\b(?:choice|prefer|preference)\b/u.test(id)) return "preference";
-  if (id === "refund" || id === "refund action") return "refund";
+  if (id === "refund" || id === "refund action" || id === "refund resolution") return "refund";
   return undefined;
 }
 
@@ -97,7 +107,10 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
   }
   if (concept === "closing") return /\b(?:anything else|appreciate|close|closing|thank|thanks)\b/u.test(normalized);
   if (concept === "empathy") {
-    return /\b(?:acknowledge|apologize|apology|concern|empathy|frustrat\w*|inconvenience|recognize|sorry|understand)\b/u.test(normalized);
+    return /\b(?:acknowledge|apologize|apology|concern|empathy|frustrat\w*|inconvenience|recognize|see|sorry|sounds|understand)\b/u.test(normalized);
+  }
+  if (concept === "question_intent") {
+    return /\b(?:ask|can i|do you want|may i|would you like|would you prefer)\b/u.test(normalized);
   }
   if (concept === "preference") {
     if (/\b(?:choice|prefer\w*|request\w*|want|whether)\b/u.test(normalized)) return true;
@@ -108,6 +121,7 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
       || /\b(?:amount|business days?|card|completed|confirmed|destination|hours?|issued|method|payment|processed|timeline|timing|weeks?)\b/u.test(normalized);
     return !downstreamDetail;
   }
+  if (concept === "refund") return /\brefund\w*\b/u.test(normalized);
   return /\brefund\b/u.test(normalized);
 }
 
@@ -198,6 +212,7 @@ function violatesProhibitionAllowlist(
 }
 
 function prohibitedGateConcepts(action: string): string[] {
+  if (prohibitionAllowlistConstraints(action).length > 0) return [];
   const normalized = normalizeComparableText(action)
     .replace(/^(?:do not|dont|never|avoid)\s+/, "")
     .replace(/\b(?:anything )?other than\b.*$/u, "")
@@ -226,11 +241,13 @@ export function findChatAdvanceRequirementQualityFindings(
   const prohibitionAllowlists = prohibitedActions.flatMap(prohibitionAllowlistConstraints);
 
   requirements.forEach((requirement, requirementIndex) => {
+    const requirementConcept = chatRequirementConcept(requirement.id)
+      ?? inferredChatRequirementConceptFromPhrases(requirement.phrases);
     const normalizedPhrases = requirement.phrases.map((phrase) => normalizeComparableText(phrase));
     const runtimeDistinctPhrases = new Set(
       requirement.phrases.map((phrase) => phrase.trim().toLowerCase()).filter(Boolean),
     );
-    if (runtimeDistinctPhrases.size < 2) {
+    if (runtimeDistinctPhrases.size < 2 && requirementConcept !== "refund") {
       findings.push({ code: "chat_advance_requirement_alternatives", requirementIndex });
     }
 
@@ -443,11 +460,88 @@ function detectedResolutionOption(value: string): "credit" | "exchange" | "refun
   return undefined;
 }
 
-function preferencePhrases(option: ReturnType<typeof detectedResolutionOption>): string[] {
-  if (option === "replacement") return ["like a replacement", "want a replacement", "prefer a replacement"];
-  if (option === "credit") return ["like store credit", "want store credit", "prefer store credit"];
-  if (option === "exchange") return ["like an exchange", "want an exchange", "prefer an exchange"];
-  return ["like a refund", "want a refund", "prefer a full refund"];
+const NATURAL_EMPATHY_PHRASES = [
+  "i'm sorry",
+  "i’m sorry",
+  "i am sorry",
+  "sorry your",
+  "sorry the",
+  "sorry about",
+  "i understand",
+  "we understand",
+  "i see your",
+  "i see the",
+  "i see how",
+  "i see why",
+  "i see that",
+  "that sounds frustrating",
+  "sounds frustrating",
+];
+const QUESTION_INTENT_PHRASES = [
+  "would you like",
+  "do you want",
+  "would you prefer",
+  "can i process",
+  "can i issue",
+  "can i provide",
+  "can i complete",
+  "can i send",
+  "may i process",
+  "may i issue",
+  "may i provide",
+  "may i complete",
+  "may i send",
+];
+const COMPLETED_REFUND_ACTION_PHRASES = [
+  "refund was issued",
+  "refund has been issued",
+  "issued your refund",
+  "issued the refund",
+  "refund was processed",
+  "refund has been processed",
+  "processed your refund",
+  "processed the refund",
+  "refund was completed",
+  "refund has been completed",
+  "completed your refund",
+  "completed the refund",
+  "refund was sent",
+  "refund has been sent",
+  "sent your refund",
+  "sent the refund",
+  "i've refunded",
+  "i’ve refunded",
+  "i have refunded",
+  "i refunded",
+  "we refunded",
+];
+
+function completedRefundActionPhrases(amount?: string): string[] {
+  return [
+    ...COMPLETED_REFUND_ACTION_PHRASES,
+    ...(amount
+      ? [
+          `of ${amount} has been sent`,
+          `of ${amount} was sent`,
+        ]
+      : []),
+  ];
+}
+const NUMBER_WORDS = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+];
+
+function refundAmountEvidencePhrases(amount: string): string[] {
+  return [
+    `${amount} refund`,
+    `full refund of ${amount} has`,
+    `full refund of ${amount} was`,
+    `refund amount is ${amount}.`,
+    `refund amount is ${amount},`,
+    `refund is ${amount}.`,
+    `refund is ${amount},`,
+  ];
 }
 
 function compileTimelineRequirement(
@@ -455,13 +549,17 @@ function compileTimelineRequirement(
   option: ReturnType<typeof detectedResolutionOption> = detectedResolutionOption(learnerText),
 ): ChatAdvanceRequirementDraft | undefined {
   const timelineId = `${option ?? "outcome"}_timeline`;
-  const businessDayRange = learnerText.match(/\b(\d+)\s*(-|–|to)\s*(\d+)\s+(business days?)\b/iu);
+  const businessDayRange = learnerText.match(/\b(\d+)\s*(-|–|to)\s*(\d+)\s+((?:business[\s-]*)?days?)\b/iu);
   if (businessDayRange) {
-    const unit = businessDayRange[4].toLowerCase();
+    const normalizedUnit = businessDayRange[4].toLowerCase().replace(/-/gu, " ").replace(/\s+/gu, " ");
+    const unit = normalizedUnit.startsWith("business") ? "business days" : "days";
     const asciiRange = `${businessDayRange[1]}-${businessDayRange[3]} ${unit}`;
     const enDashRange = `${businessDayRange[1]}–${businessDayRange[3]} ${unit}`;
     const toRange = `${businessDayRange[1]} to ${businessDayRange[3]} ${unit}`;
-    return { id: timelineId, phrases: [asciiRange, enDashRange, toRange] };
+    const lowerWord = NUMBER_WORDS[Number(businessDayRange[1])];
+    const upperWord = NUMBER_WORDS[Number(businessDayRange[3])];
+    const wordRange = lowerWord && upperWord ? `${lowerWord} to ${upperWord} ${unit}` : "";
+    return { id: timelineId, phrases: [asciiRange, enDashRange, toRange, wordRange].filter(Boolean) };
   }
 
   const quantified = learnerText.match(/\b(\d+)\s+(business days?|days?|hours?|weeks?)\b/iu);
@@ -509,6 +607,11 @@ function inferredChatRequirementConceptFromPhrases(
     return "empathy";
   }
   if (candidates.every((phrase) =>
+    /^(?:would you like|do you want|would you prefer|can i|may i)\b/u.test(phrase)
+  )) {
+    return "question_intent";
+  }
+  if (candidates.every((phrase) =>
     /^(?:like|prefer|want)\b.*\b(?:exchange|refund|replacement|store credit)\b/u.test(phrase)
   )) {
     return "preference";
@@ -526,6 +629,11 @@ function inferredChatRequirementConceptFromPhrases(
   )) {
     return "completion";
   }
+  if (candidates.every((phrase) => /^(?:issued|processed|refunded|completed|sent)$/u.test(phrase))) {
+    return "completion";
+  }
+  if (candidates.every((phrase) => /^\$?\d+\.\d{2}$/u.test(phrase))) return "amount";
+  if (candidates.every((phrase) => phrase === "refund")) return "refund";
   return undefined;
 }
 
@@ -537,18 +645,53 @@ function inferredChatRequirementConceptFromPhrases(
 export function mergeSafeChatAdvanceRequirementAliases(
   requirements: ChatAdvanceRequirementDraft[],
 ): ChatAdvanceRequirementDraft[] {
-  return requirements.map((requirement) => {
-    const concept = chatRequirementConcept(requirement.id)
-      ?? inferredChatRequirementConceptFromPhrases(requirement.phrases);
-    if (!concept) return requirement;
+  const merged: ChatAdvanceRequirementDraft[] = [];
+  const appendRequirement = (requirement: ChatAdvanceRequirementDraft) => {
+    const existing = merged.find((candidate) => candidate.id === requirement.id);
+    if (existing) {
+      existing.phrases = appendUniquePhrases(existing.phrases, requirement.phrases);
+      return;
+    }
+    merged.push(requirement);
+  };
+
+  requirements.forEach((requirement) => {
+    const explicitConcept = chatRequirementConcept(requirement.id);
+    const inferredConcept = inferredChatRequirementConceptFromPhrases(requirement.phrases);
+    const concept = explicitConcept ?? inferredConcept;
+    if (!concept) {
+      appendRequirement(requirement);
+      return;
+    }
 
     const requirementText = `${requirement.id} ${requirement.phrases.join(" ")}`;
+    let retainedPhrases = requirement.phrases;
     let aliases: string[] = [];
+    const before: ChatAdvanceRequirementDraft[] = [];
     if (concept === "empathy") {
-      aliases = ["sorry the", "sorry about", "understand the"];
+      aliases = NATURAL_EMPATHY_PHRASES;
+      if (!explicitConcept && inferredConcept === "empathy") retainedPhrases = [];
+      retainedPhrases = retainedPhrases.filter((phrase) =>
+        !/^(?:acknowledge|concern|empathy|frustrating|sorry|understand|understand the|i see)$/iu.test(phrase.trim())
+      );
+    } else if (concept === "question_intent") {
+      aliases = QUESTION_INTENT_PHRASES;
+      retainedPhrases = retainedPhrases.filter((phrase) => !/^(?:can i|may i)$/iu.test(phrase.trim()));
     } else if (concept === "preference") {
       const option = detectedResolutionOption(requirementText);
-      aliases = option ? preferencePhrases(option) : [];
+      aliases = option === "refund"
+        ? ["refund"]
+        : option === "credit"
+          ? ["store credit"]
+          : option
+            ? [option]
+            : [];
+      if (option) {
+        before.push({
+          id: `${option}_question_intent`,
+          phrases: QUESTION_INTENT_PHRASES,
+        });
+      }
     } else if (concept === "destination") {
       const phraseText = normalizeComparableText(requirement.phrases.join(" "));
       aliases = /\boriginal (?:payment(?: card| method)?|card)\b/u.test(phraseText)
@@ -558,12 +701,27 @@ export function mergeSafeChatAdvanceRequirementAliases(
       aliases = compileTimelineRequirement(requirement.phrases.join(" "))?.phrases ?? [];
     } else if (concept === "completion" && detectedResolutionOption(requirementText) === "refund") {
       const amount = requirementText.match(/\$\s*\d+\.\d{2}\b/u)?.[0]?.replace(/\s+/gu, "");
-      aliases = amount ? [`refunded ${amount}`] : [];
+      aliases = completedRefundActionPhrases(amount);
+      if (amount) {
+        before.push({ id: "refund_amount", phrases: refundAmountEvidencePhrases(amount) });
+      }
+    } else if (concept === "amount") {
+      const amount = requirementText.match(/\$\s*\d+\.\d{2}\b/u)?.[0]?.replace(/\s+/gu, "")
+        ?? requirementText.match(/\b\d+\.\d{2}\b/u)?.[0];
+      const currencyAmount = amount ? (amount.startsWith("$") ? amount : `$${amount}`) : "";
+      aliases = currencyAmount ? refundAmountEvidencePhrases(currencyAmount) : [];
+      retainedPhrases = [];
+    } else if (concept === "refund") {
+      aliases = ["refund"];
     }
 
-    const phrases = appendUniquePhrases(requirement.phrases, aliases);
-    return phrases.length === requirement.phrases.length ? requirement : { ...requirement, phrases };
+    const phrases = appendUniquePhrases(retainedPhrases, aliases);
+    before.forEach(appendRequirement);
+    const phrasesUnchanged = phrases.length === requirement.phrases.length
+      && phrases.every((phrase, index) => phrase === requirement.phrases[index]);
+    appendRequirement(phrasesUnchanged ? requirement : { ...requirement, phrases });
   });
+  return merged;
 }
 
 function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
@@ -583,15 +741,13 @@ function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
 
 function compileOperationalCompletionRequirement(
   learnerText: string,
-  amount: string | undefined,
+  amount?: string,
 ): ChatAdvanceRequirementDraft | undefined {
   const operationalConcepts = phaseOperationalConcepts([learnerText]);
   if (operationalConcepts.has("refund")) {
     return {
       id: "refund_completion",
-      phrases: amount
-        ? [`issued the ${amount} refund`, `processed the ${amount} refund`, `refunded ${amount}`]
-        : ["issued the refund", "processed the refund"],
+      phrases: completedRefundActionPhrases(amount),
     };
   }
   const normalized = normalizeComparableText(learnerText);
@@ -624,18 +780,28 @@ export function compileSafeChatAdvanceRequirements(
   const normalized = normalizeComparableText(learnerText);
   const compiled: ChatAdvanceRequirementDraft[] = [];
   const option = detectedResolutionOption(learnerText);
-
-  if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) {
-    compiled.push({ id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] });
-  }
-  if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) {
-    compiled.push({ id: `${option}_preference`, phrases: preferencePhrases(option) });
-  }
-
   const amount = learnerText.match(/\$\s*\d+\.\d{2}\b/u)?.[0]?.replace(/\s+/gu, "");
   const completion = compileOperationalCompletionRequirement(learnerText, amount);
-  if (amount && completion?.id !== "refund_completion") {
-    compiled.push({ id: `${option ?? "outcome"}_amount`, phrases: [amount, amount.slice(1)] });
+
+  if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) {
+    compiled.push({ id: "acknowledge_empathy", phrases: NATURAL_EMPATHY_PHRASES });
+  }
+  if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) {
+    compiled.push({ id: `${option}_question_intent`, phrases: QUESTION_INTENT_PHRASES });
+    if (!completion) {
+      compiled.push({
+        id: option === "refund" ? "refund" : `${option}_resolution`,
+        phrases: option === "refund"
+          ? ["refund"]
+          : option === "credit"
+            ? ["store credit"]
+            : [option],
+      });
+    }
+  }
+
+  if (amount) {
+    compiled.push({ id: `${option ?? "outcome"}_amount`, phrases: refundAmountEvidencePhrases(amount) });
   }
   if (/\boriginal (?:payment(?: card| method)?|card)\b/u.test(normalized)) {
     compiled.push({ id: "refund_destination", phrases: ["original card", "original payment card"] });
@@ -661,6 +827,7 @@ export function compileSafeChatAdvanceRequirements(
   if (unsafeUnknown) return undefined;
 
   const compiledConcepts = new Set(compiled.map((requirement) => chatRequirementConcept(requirement.id)));
+  if (compiledConcepts.has("question_intent") && option) compiledConcepts.add("preference");
   const hasUnrepairedKnownConcept = (phase.chatAdvanceRequirements ?? []).some((requirement, requirementIndex) => {
     if (!unsafeRequirementIndexes.has(requirementIndex)) return false;
     const concept = chatRequirementConcept(requirement.id);
