@@ -706,7 +706,7 @@ const IMPERATIVE_ACTIONS = new Set([
   "describe", "determine", "direct", "distinguish", "do", "end", "explain", "express", "focus", "give", "highlight", "identify",
   "include", "introduce", "keep", "maintain", "mention", "never", "obtain", "offer", "pause", "personalize", "position",
   "present", "process", "protect", "provide", "read", "reassure", "recap", "recognize", "remain", "request", "require", "respond",
-  "restate", "review", "select", "share", "show", "state", "stop", "take", "thank", "update", "use", "verify", "wait",
+  "restate", "review", "refund", "select", "share", "show", "state", "stop", "take", "thank", "update", "use", "verify", "wait",
   "inform", "issue",
   "warm-transfer",
 ]);

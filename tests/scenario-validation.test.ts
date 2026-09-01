@@ -1302,6 +1302,21 @@ test("allows imperative criteria that contain you or your after the opening acti
   assert.equal(response.status, 200, JSON.stringify(payload.issues));
 });
 
+test("allows refund as an imperative operational criterion", async () => {
+  const valid = draft();
+  valid.correctProcess = ["Refund exactly $32.49 to the original payment card."];
+  valid.objectives[0].criteria = [
+    "Refund exactly $32.49 to the original payment card.",
+    "Avoid guaranteeing delivery.",
+  ];
+  valid.phases[0].learnerActions = ["Refund exactly $32.49 to the original payment card."];
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+});
+
 test("allows exact imported fictional addresses but still blocks newly added private details", async () => {
   const imported = draft();
   imported.compatibilityFacts.address = "123 Main Street";
