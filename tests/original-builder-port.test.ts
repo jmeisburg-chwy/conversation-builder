@@ -45,8 +45,8 @@ test("ports the original complete Review/Edit surface into the standalone Builde
   assert.match(script, /exact approved actions and outcome/i);
   assert.match(script, /Final Conversation Partner response/);
   assert.match(script, /closing-partner-turn:/);
-  assert.match(html, /id="deidentificationConfirmed"/);
-  assert.match(html, /I confirm these conversation details are fictional or de-identified\./i);
+  assert.doesNotMatch(html, /id="deidentificationConfirmed"/);
+  assert.doesNotMatch(html, /I confirm these conversation details are fictional or de-identified\./i);
 });
 
 test("distinguishes downloadable warnings from Scenario Factory readiness", () => {
@@ -68,7 +68,6 @@ test("distinguishes downloadable warnings from Scenario Factory readiness", () =
     },
   );
 });
-
 test("keeps internal Chat matching controls out of Review/Edit", () => {
   const script = readFileSync(new URL("public/builder-studio/app.js", root), "utf8");
 
@@ -77,51 +76,39 @@ test("keeps internal Chat matching controls out of Review/Edit", () => {
   assert.doesNotMatch(script, /Every required concept must match before Chat advances\./);
 });
 
-test("requires a real de-identification confirmation before generation", async () => {
+test("creates a draft without asking the author for a de-identification confirmation", async () => {
   let requestCount = 0;
-  let focused = false;
   const statuses: string[] = [];
-  const confirmation = {
-    checked: false,
-    focus: () => { focused = true; },
-  };
   const createDraftButton = { disabled: false, textContent: "Create draft" };
   const inputs = {
     conversationAboutInput: { value: "A fictional late-order conversation.", focus() {} },
     learnerApproachInput: { value: "Acknowledge the concern and explain the approved next step.", focus() {} },
   };
 
-  const blocked = await runCreateDraftBuild({
+  const created = await runCreateDraftBuild({
     ...inputs,
-    deidentificationConfirmedInput: confirmation,
     createDraftButton,
     reportStatus: (message: string) => statuses.push(message),
     requestDraft: async () => {
       requestCount += 1;
-      return {};
-    },
-  });
-
-  assert.equal(blocked.status, "invalid");
-  assert.equal(requestCount, 0);
-  assert.equal(focused, true);
-  assert.equal(statuses.at(-1), "Confirm that the conversation details are fictional or de-identified.");
-
-  confirmation.checked = true;
-  const created = await runCreateDraftBuild({
-    ...inputs,
-    deidentificationConfirmedInput: confirmation,
-    createDraftButton,
-    reportStatus: (message: string) => statuses.push(message),
-    requestDraft: async ({ deidentificationConfirmedInput }: { deidentificationConfirmedInput: { checked: boolean } }) => {
-      requestCount += 1;
-      assert.equal(deidentificationConfirmedInput.checked, true);
       return { scenario: { title: "Generated" } };
     },
   });
 
   assert.equal(created.status, "created");
   assert.equal(requestCount, 1);
+  assert.deepEqual(statuses, []);
+});
+
+test("starts at a blank Build screen unless the URL explicitly requests a saved draft", () => {
+  const shouldRestoreStandaloneDraftOnLaunch = (builderApp as unknown as {
+    shouldRestoreStandaloneDraftOnLaunch?: (search: string) => boolean;
+  }).shouldRestoreStandaloneDraftOnLaunch;
+
+  assert.equal(typeof shouldRestoreStandaloneDraftOnLaunch, "function");
+  assert.equal(shouldRestoreStandaloneDraftOnLaunch!(""), false);
+  assert.equal(shouldRestoreStandaloneDraftOnLaunch!("?standalone=1"), false);
+  assert.equal(shouldRestoreStandaloneDraftOnLaunch!("?standalone=1&resume=1"), true);
 });
 
 test("uses 100 as the missing-score baseline in Review/Edit", () => {
@@ -237,7 +224,42 @@ test("maps standalone validation paths back to the original Review/Edit controls
 
   assert.equal(action.reviewFieldPath, "evaluation.objectives.1.criteria.2.text");
   assert.equal(action.actionLabel, "Review objectives");
-  assert.equal(action.message, "Add at least one evaluation criterion.");
+  assert.equal(action.message, "Observable criteria must begin with an imperative action.");
+});
+
+test("keeps Continue to Download available when validation has advisory findings", () => {
+  const button = { disabled: true };
+
+  builderApp.configureReviewTestAffordance(button, {
+    available: true,
+    validationAttempted: true,
+  });
+
+  assert.equal(button.disabled, false);
+});
+
+test("describes failed validation as blocking download", () => {
+  assert.deepEqual(builderApp.finalCheckDisplayState({
+    issues: [{ severity: "FAIL", code: "future_check", message: "Review this detail." }],
+  }), {
+    headline: "Changes needed",
+    description: "Fix the items below, then validate again.",
+  });
+});
+
+test("withholds generated JSON files when validation has failures", () => {
+  const files = builderApp.portableValidatedScenarioFiles({
+    validation: {
+      ok: false,
+      issues: [{ severity: "FAIL", code: "future_check", message: "Review this detail." }],
+      files: [{
+        filename: "advisory_chat.json",
+        scenario: { id: "advisory_chat", channels: ["chat"], title: "Advisory draft" },
+      }],
+    },
+  });
+
+  assert.equal(files.length, 0);
 });
 
 test("routes five-blocker corrections to the earned turn and preserves their actionable fix", () => {

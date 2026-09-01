@@ -72,7 +72,7 @@ export function createValidateHandler() {
     const issues = [...privacyIssues, ...outputPrivacyIssues, ...draftIssues, ...approvalIssues, ...validateScenarioFiles(files)];
     if (issues.length > 0) {
       return Response.json(
-        { ok: false, issues },
+        { ok: false, issues, files },
         { status: 422, headers: { "cache-control": "no-store" } },
       );
     }
@@ -739,7 +739,7 @@ const IMPERATIVE_ACTIONS = new Set([
   "include", "introduce", "keep", "maintain", "mention", "never", "obtain", "offer", "pause", "personalize", "position",
   "present", "process", "protect", "provide", "read", "reassure", "recap", "recognize", "remain", "request", "require", "respond",
   "restate", "review", "refund", "select", "share", "show", "state", "stop", "take", "thank", "update", "use", "verify", "wait",
-  "inform", "issue",
+  "inform", "issue", "set",
   "warm-transfer",
 ]);
 

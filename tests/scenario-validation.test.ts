@@ -90,6 +90,20 @@ test("validates and returns separate downloadable files", async () => {
   ]);
 });
 
+test("accepts Set as an observable imperative criterion", async () => {
+  const valid = draft();
+  valid.objectives[0].criteria[0] = "Set accurate expectations.";
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "non_imperative_criterion"),
+    false,
+  );
+});
+
 test("composes Rise none gates from prohibited operations without blocking detail-only references", () => {
   const runtimeNonePhrases = (prohibitedActions: string[]): string[] => {
     const candidate = draft();
@@ -354,7 +368,7 @@ test("rejects a positive action that contradicts an imported subject-led prohibi
   );
 });
 
-test("blocks private data from downloadable files with an actionable location", async () => {
+test("reports private data with an actionable location while preserving advisory downloads", async () => {
   const unsafe = draft();
   unsafe.customer.openingLine = "Email my real address at jordan@personalmail.com.";
 
@@ -369,10 +383,13 @@ test("blocks private data from downloadable files with an actionable location", 
     message: "The draft contains personal or sensitive details.",
     fix: "Replace this value with fictional or de-identified information.",
   });
-  assert.equal(payload.files, undefined);
+  assert.deepEqual(payload.files.map((file: { filename: string }) => file.filename), [
+    "late_order_recovery_chat.json",
+    "late_order_recovery_voice.json",
+  ]);
 });
 
-test("blocks download until at least one approved objective exists", async () => {
+test("reports when no approved objective exists", async () => {
   const incomplete = draft();
   incomplete.objectives = [];
 
@@ -418,7 +435,7 @@ test("requires de-identification confirmation before validating downloads", asyn
   assert.equal((await response.json()).error.code, "confirmation_required");
 });
 
-test("reports missing creator-owned content before offering downloads", async () => {
+test("reports missing creator-owned content while still offering advisory downloads", async () => {
   const incomplete = draft();
   incomplete.title = "";
   incomplete.phases[0].partnerResponse = "";
@@ -429,10 +446,10 @@ test("reports missing creator-owned content before offering downloads", async ()
   assert.equal(response.status, 422);
   assert.equal(payload.issues.some((issue: { path: string }) => issue.path === "draft.title"), true);
   assert.equal(payload.issues.some((issue: { path: string }) => issue.path === "draft.phases[0].partnerResponse"), true);
-  assert.equal(payload.files, undefined);
+  assert.equal(payload.files.length, 2);
 });
 
-test("blocks a repeated opening before it can become the first earned partner turn", async () => {
+test("reports a repeated opening while still offering advisory downloads", async () => {
   const invalid = draft();
   invalid.phases[0].partnerResponse = invalid.customer.openingLine;
 
@@ -449,10 +466,10 @@ test("blocks a repeated opening before it can become the first earned partner tu
       fix: "Write what the Conversation Partner says after the Learner completes Phase 1.",
     },
   );
-  assert.equal(payload.files, undefined);
+  assert.equal(payload.files.length, 2);
 });
 
-test("blocks a customer follow-up that performs the Learner's discovery question", async () => {
+test("reports a customer follow-up that performs the Learner's discovery question", async () => {
   const invalid = draft();
   invalid.customer.conditionalFollowUps = ["Have you checked neighbors or other usual delivery spots?"];
   invalid.phases[0].learnerActions = ["Ask what the customer has already checked for the package."];
@@ -474,7 +491,7 @@ test("blocks a customer follow-up that performs the Learner's discovery question
       fix: "Rewrite it as the Conversation Partner's reaction or answer after the Learner asks the question.",
     },
   );
-  assert.equal(payload.files, undefined);
+  assert.equal(payload.files.length, 2);
 });
 
 test("blocks customer behavior rules that assign Chewy-agent actions to the Conversation Partner", async () => {
@@ -1127,7 +1144,10 @@ test("blocks a placeholder resolution that does not define an approved outcome",
       fix: "Replace general options or next steps with the exact authorized action and expected result.",
     },
   );
-  assert.equal(payload.files, undefined);
+  assert.deepEqual(payload.files.map((file: { filename: string }) => file.filename), [
+    "late_order_recovery_chat.json",
+    "late_order_recovery_voice.json",
+  ]);
 });
 
 test("blocks resolution alternatives and policy deferrals at one editable process item", async () => {
@@ -1203,6 +1223,37 @@ test("requires a concrete outcome even when the process contains no known placeh
       message: "The correct process does not define one approved outcome.",
       fix: "Replace general options or next steps with the exact authorized action and expected result.",
     },
+  );
+});
+
+test("accepts a behavior-only process without requiring a policy outcome", async () => {
+  const valid = draft();
+  valid.correctProcess = [
+    "Acknowledge the customer's concern.",
+    "Ask what happened and summarize the customer's priorities.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "nondeterministic_resolution"),
+    false,
+  );
+});
+
+test("accepts a behavior-focused phase sequence without inventing a resolution", async () => {
+  const valid = draft();
+  valid.correctProcess = ["Acknowledge.", "Ask.", "Confirm.", "Explain.", "Recap."];
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "nondeterministic_resolution"),
+    false,
   );
 });
 
@@ -1317,7 +1368,7 @@ test("rejects passing scores outside the displayed 1-100 range", async () => {
         fix: "Choose a passing score from 1 through 100.",
       },
     );
-    assert.equal(payload.files, undefined);
+    assert.equal(payload.files.length, 2);
   }
 });
 
@@ -1548,7 +1599,7 @@ test("rejects completion delays outside the displayed 0 to 5000 millisecond rang
   assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "invalid_completion_delay"), true);
 });
 
-test("blocks an opaque imported source from bypassing objective approval or privacy checks", async () => {
+test("reports opaque imported source risks while preserving advisory downloads", async () => {
   const valid = draft();
   valid.channels = ["chat"];
   const initial = await createValidateHandler()(request({ draft: valid }));
@@ -1563,7 +1614,7 @@ test("blocks an opaque imported source from bypassing objective approval or priv
   const payload = await response.json();
 
   assert.equal(response.status, 422);
-  assert.equal(payload.files, undefined);
+  assert.equal(payload.files.length, 1);
   assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "source_review_required"), true);
   assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "privacy_service_identifier"), true);
   assert.equal(payload.issues.some((issue: { code: string }) => issue.code === "privacy_email_address"), true);

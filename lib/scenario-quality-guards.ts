@@ -26,12 +26,10 @@ const GENERIC_CHAT_GATE_PHRASES = new Set([
   "issue",
   "ok",
   "okay",
-  "next steps",
   "process",
   "thank",
   "thank you",
   "thanks",
-  "what to expect",
 ]);
 
 const PROHIBITED_OPTION_ACTION = /^(?:approv(?:e|ed|ing)|choos(?:e|ing)|creat(?:e|ed|ing)|giv(?:e|ing)|issu(?:e|ed|ing)|offer(?:ed|ing)?|process(?:ed|ing)?|provid(?:e|ed|ing)|select(?:ed|ing)?|send(?:ing)?|use|using)\s+(.+)$/i;
@@ -67,24 +65,32 @@ function isBrittleChatAdvancePhrase(value: string): boolean {
 }
 
 type ChatRequirementConcept =
+  | "agreement"
   | "amount"
+  | "discovery"
   | "destination"
+  | "expectation"
   | "timeline"
   | "completion"
   | "closing"
   | "empathy"
+  | "next_steps"
   | "question_intent"
   | "preference"
   | "refund";
 
 function chatRequirementConcept(requirementId: string): ChatRequirementConcept | undefined {
   const id = normalizeComparableText(requirementId);
+  if (/\b(?:agreed resolution|agreement)\b/u.test(id)) return "agreement";
   if (/\b(?:amount|price|total)\b/u.test(id)) return "amount";
+  if (/\b(?:discover|discovery|focused question)\b/u.test(id)) return "discovery";
   if (/\b(?:card|destination|method|payment)\b/u.test(id)) return "destination";
+  if (/\b(?:expectation|what to expect)\b/u.test(id)) return "expectation";
   if (/\b(?:duration|timeframe|timeline|timing|window)\b/u.test(id)) return "timeline";
   if (/\b(?:complete|completed|completion|confirm outcome|recap|review outcome|summarize|summary)\b/u.test(id)) return "completion";
   if (/\b(?:close|closing|farewell)\b/u.test(id)) return "closing";
   if (/\b(?:acknowledge|acknowledgement|empathy|empathetic|inconvenience|recognize)\b/u.test(id)) return "empathy";
+  if (/\b(?:next steps?|what happens next)\b/u.test(id)) return "next_steps";
   if (/\b(?:question|questioning)\b/u.test(id)) return "question_intent";
   if (/\b(?:choice|prefer|preference)\b/u.test(id)) return "preference";
   if (id === "refund" || id === "refund action" || id === "refund resolution") return "refund";
@@ -95,25 +101,31 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
   const concept = chatRequirementConcept(requirementId);
   if (!concept) return true;
   const normalized = normalizeComparableText(phrase);
+  if (concept === "agreement") return /\b(?:agreed|agreement|confirmed resolution|resolution we agreed)\b/u.test(normalized);
   if (concept === "amount") {
     return /(?:\$\s*)?\d+\.\d{2}\b/u.test(phrase) || /\b(?:amount|price|total)\b/u.test(normalized);
   }
   if (concept === "destination") {
     return /\b(?:destination|original card|original payment|payment card|payment method)\b/u.test(normalized);
   }
+  if (concept === "discovery") {
+    return /\b(?:can you tell me|have you checked|how much|tell me what happened|what happened|what have you checked)\b/u.test(normalized);
+  }
+  if (concept === "expectation") return /\b(?:expect\w*|expectation\w*)\b/u.test(normalized);
   if (concept === "timeline") {
     return /\b(?:business days?|days?|duration|end of day|hours?|timeframe|timeline|timing|today|tomorrow|weeks?)\b/u.test(normalized);
   }
   if (concept === "completion") {
     return /\b(?:complete|completed|confirmed|issued|placed|processed|recap|refunded|review|sent|submitted|summarize|summary|transferred)\b/u.test(normalized);
   }
-  if (concept === "closing") return /\b(?:anything else|appreciate|close|closing|thank|thanks)\b/u.test(normalized);
+  if (concept === "closing") return /\b(?:anything else|anything more|appreciate|close|closing|else i can help|thank|thanks)\b/u.test(normalized);
   if (concept === "empathy") {
     return /\b(?:acknowledge|apologize|apology|concern|empathy|frustrat\w*|inconvenience|recognize|see|sorry|sounds|understand)\b/u.test(normalized);
   }
   if (concept === "question_intent") {
-    return /\b(?:ask|can i|do you want|may i|would you like|would you prefer)\b/u.test(normalized);
+    return /\b(?:ask|can i|do you need|do you want|may i|need more help|what do you need|what outcome|what would you like|would you like|would you prefer)\b/u.test(normalized);
   }
+  if (concept === "next_steps") return /\b(?:next steps?|what happens next|what will happen next)\b/u.test(normalized);
   if (concept === "preference") {
     if (/\b(?:choice|prefer\w*|request\w*|want|whether)\b/u.test(normalized)) return true;
     const optionConcepts = resolutionOptionConcepts(intentTokens(normalized));
@@ -127,7 +139,7 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
   return /\brefund\b/u.test(normalized);
 }
 
-type ProhibitionAllowlistKind = "amount" | "timeline" | "resolution";
+type ProhibitionAllowlistKind = "amount" | "destination" | "timeline" | "resolution";
 
 interface ProhibitionAllowlistConstraint {
   kind: ProhibitionAllowlistKind;
@@ -187,15 +199,31 @@ function resolutionValues(value: string): Set<string> {
   return resolutionOptionConcepts(intentTokens(value));
 }
 
+function destinationValues(value: string): Set<string> {
+  const normalized = normalizeComparableText(value);
+  const destinations = new Set<string>();
+  if (/\boriginal (?:card|payment(?: card| method)?)\b/u.test(normalized)) {
+    destinations.add("original payment method");
+  }
+  if (/\b(?:chewy account|store credit)\b/u.test(normalized)) destinations.add("chewy account");
+  if (/\bgift card\b/u.test(normalized)) destinations.add("gift card");
+  if (/\b(?:another|different|new) (?:card|payment(?: card| method)?)\b/u.test(normalized)) {
+    destinations.add("other payment method");
+  }
+  return destinations;
+}
+
 function prohibitionAllowlistConstraints(action: string): ProhibitionAllowlistConstraint[] {
   const delimiter = action.match(PROHIBITION_ALLOWLIST_DELIMITER);
   if (!delimiter || delimiter.index === undefined) return [];
   const allowedText = action.slice(delimiter.index + delimiter[0].length);
   const constraints: ProhibitionAllowlistConstraint[] = [];
   const amounts = amountValues(allowedText);
+  const destinations = destinationValues(allowedText);
   const timelines = timelineValues(allowedText);
   const resolutions = resolutionValues(allowedText);
   if (amounts.size) constraints.push({ kind: "amount", allowed: amounts });
+  if (destinations.size) constraints.push({ kind: "destination", allowed: destinations });
   if (timelines.size) constraints.push({ kind: "timeline", allowed: timelines });
   if (resolutions.size) constraints.push({ kind: "resolution", allowed: resolutions });
   return constraints;
@@ -207,6 +235,8 @@ function violatesProhibitionAllowlist(
 ): boolean {
   const actual = constraint.kind === "amount"
     ? amountValues(phrase)
+    : constraint.kind === "destination"
+      ? destinationValues(phrase)
     : constraint.kind === "timeline"
       ? timelineValues(phrase)
       : resolutionValues(phrase);
@@ -882,6 +912,26 @@ const QUESTION_INTENT_PHRASES = [
   "may i complete",
   "may i send",
 ];
+const DISCOVERY_QUESTION_PHRASES = [
+  "what happened",
+  "can you tell me",
+  "what have you checked",
+  "have you checked",
+  "how much",
+];
+const OUTCOME_QUESTION_PHRASES = [
+  "what outcome",
+  "what would you like",
+  "what do you need",
+  "do you need",
+];
+const OUTCOME_PREFERENCE_PHRASES = ["preferred outcome", "preferred resolution"];
+const NEXT_STEPS_PHRASES = ["next steps", "what happens next"];
+const EXPECTATION_PHRASES = ["set expectations", "what to expect"];
+const AGREED_RESOLUTION_PHRASES = ["agreed resolution", "resolution we agreed"];
+const RECAP_PHRASES = ["to recap", "quick recap"];
+const ADDITIONAL_HELP_QUESTION_PHRASES = ["can i help with", "need more help"];
+const CLOSING_PHRASES = ["anything else", "anything more"];
 const COMPLETED_REFUND_ACTION_PHRASES = [
   "refund was issued",
   "refund has been issued",
@@ -1118,6 +1168,15 @@ function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
   const normalized = normalizeComparableText(clause);
   if (!normalized) return true;
   if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) return true;
+  if (/^(?:concern|frustration|inconvenience)\b/u.test(normalized)) return true;
+  if (/\b(?:ask\w*|question\w*)\b/u.test(normalized)
+    || /^(?:can you tell me|how much|what happened|what .{0,40}checked)\b/u.test(normalized)) return true;
+  if (/\b(?:confirm\w*|determin\w*|verif\w*)\b.{0,80}\b(?:need\w* outcome|outcome .{0,30}need\w*|prefer\w* outcome|resolution)\b/u.test(normalized)) return true;
+  if (/\brecommend\w*\b.{0,50}\bresolution\b/u.test(normalized)) return true;
+  if (/\b(?:agreed resolution|confirm\w* .{0,30}resolution)\b/u.test(normalized)) return true;
+  if (/\b(?:explain\w* .{0,40}next steps?|next steps?|set\w* .{0,30}expectations?|accurate expectations?|what to expect)\b/u.test(normalized)) return true;
+  if (/\b(?:recap\w*|summar\w*)\b/u.test(normalized)) return true;
+  if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) return true;
   const option = detectedResolutionOption(clause);
   if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) return true;
   if (/\$\s*\d+\.\d{2}\b/u.test(clause)) return true;
@@ -1177,6 +1236,16 @@ export function compileSafeChatAdvanceRequirements(
   if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) {
     compiled.push({ id: "acknowledge_empathy", phrases: NATURAL_EMPATHY_PHRASES });
   }
+  if (/\b(?:ask\w*|question\w*)\b/u.test(normalized)
+    && /\b(?:already checked|can you tell me|focused questions?|have checked|how much|understand what happened|what happened)\b/u.test(normalized)) {
+    compiled.push({ id: "discovery_question", phrases: DISCOVERY_QUESTION_PHRASES });
+  }
+  if (/\b(?:confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:need\w* outcome|outcome .{0,30}need\w*|prefer\w* outcome|resolution)\b/u.test(normalized)
+    && !option
+    && !/\bagreed resolution\b/u.test(normalized)) {
+    compiled.push({ id: "outcome_question_intent", phrases: OUTCOME_QUESTION_PHRASES });
+    compiled.push({ id: "outcome_preference", phrases: OUTCOME_PREFERENCE_PHRASES });
+  }
   if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) {
     compiled.push({ id: `${option}_question_intent`, phrases: QUESTION_INTENT_PHRASES });
     if (!completion) {
@@ -1200,6 +1269,22 @@ export function compileSafeChatAdvanceRequirements(
   const timeline = compileTimelineRequirement(learnerText, option);
   if (timeline) compiled.push(timeline);
   if (completion) compiled.push(completion);
+  if (/\b(?:explain\w* .{0,40}next steps?|next steps?)\b/u.test(normalized)) {
+    compiled.push({ id: "next_steps", phrases: NEXT_STEPS_PHRASES });
+  }
+  if (/\b(?:accurate expectations?|set\w* .{0,30}expectations?|what to expect)\b/u.test(normalized)) {
+    compiled.push({ id: "expectation_setting", phrases: EXPECTATION_PHRASES });
+  }
+  if (/\b(?:agreed resolution|confirm\w* .{0,30}resolution)\b/u.test(normalized)) {
+    compiled.push({ id: "agreed_resolution", phrases: AGREED_RESOLUTION_PHRASES });
+  }
+  if (/\b(?:recap\w*|summar\w*)\b/u.test(normalized)) {
+    compiled.push({ id: "recap", phrases: RECAP_PHRASES });
+  }
+  if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) {
+    compiled.push({ id: "additional_help_question", phrases: ADDITIONAL_HELP_QUESTION_PHRASES });
+    compiled.push({ id: "closing", phrases: CLOSING_PHRASES });
+  }
 
   const actionClauses = phase.learnerActions.flatMap((action) =>
     action.split(/[,;!?]+|(?<!\d)\.(?!\d)|\b(?:and then|then|and|before|after|while)\b/iu)
@@ -1576,6 +1661,15 @@ const OUTCOME_ACTION_AFTER_LINK_PATTERN = new RegExp(
   String.raw`(\b(?:to|by|must|should|will|then)\s+)(${OUTCOME_ACTION_SOURCE})\b`,
   "i",
 );
+const BEHAVIOR_ACTION_SOURCE = String.raw`(?:acknowledg(?:e|es|ed|ing)|ask(?:s|ed|ing)?)`;
+const BEHAVIOR_ACTION_AT_START_PATTERN = new RegExp(
+  String.raw`^(\s*(?:(?:the\s+)?learner\s+(?:(?:must|should|will|can)\s+)?)?)(${BEHAVIOR_ACTION_SOURCE})\b`,
+  "i",
+);
+const BEHAVIOR_ACTION_AFTER_LINK_PATTERN = new RegExp(
+  String.raw`(\b(?:to|by|must|should|will|then)\s+)(${BEHAVIOR_ACTION_SOURCE})\b`,
+  "i",
+);
 const UNRESOLVED_DISCRETION_PATTERN = new RegExp([
   String.raw`\b(?:if|when|as)\s+(?:appropriate|needed|necessary|applicable|possible)\b`,
   String.raw`\b(?:available|approved|possible)\b[^.?!]{0,40}\b(?:options?|choices?|next steps?)\b`,
@@ -1587,12 +1681,25 @@ const NEGATED_ALTERNATIVE_PATTERN = /\b(?:do\s+not|don't|never|without|no)\b[^.?
 const GENERIC_RESULT_PHRASE_PATTERN = /^(?:(?:an?|the|approved|available|appropriate|best|next)\s+)*(?:request|options?|choices?|alternatives?|next\s+steps?|details?|information|status|expectations?|resolution|outcome|actions?|process|path|support|help|plans?)\.?$/i;
 const UNQUALIFIED_ARTIFACT_PATTERN = /^(?:(?:an?|the|approved|specific)\s+)?(?:[a-z][a-z'-]*\s+){0,3}(?:request|case|plan)\.?$/i;
 const RECIPIENT_PADDING_PATTERN = /\s+(?:to|with|for)\s+(?:(?:a|the)\s+)?customer\.?$/i;
+const GENERIC_HELP_PLACEHOLDER_PATTERN = /\bhelp\s+(?:the\s+)?customer(?:\s+with\s+(?:(?:the|this|that)\s+)?(?:issue|problem|situation|request|concern|order))?\.?\s*$/i;
+const GENERIC_POLICY_DISCUSSION_PATTERN = /\bdiscuss(?:es|ed|ing)?\b[^.?!]{0,50}\b(?:policy|process)\b/i;
+const BARE_BEHAVIOR_ACTION_PATTERN = /^\s*(?:acknowledge|ask|clarify|confirm|explain|recap|set|summarize)\.?\s*$/i;
 const DETAIL_STOP_WORDS = new Set([
   "a", "an", "and", "at", "by", "for", "from", "in", "is", "of", "on", "or", "the", "then", "to", "was", "with",
 ]);
 
 function findOutcomeAction(value: string): { index: number; text: string } | null {
   for (const pattern of [OUTCOME_ACTION_AT_START_PATTERN, OUTCOME_ACTION_AFTER_LINK_PATTERN]) {
+    const match = pattern.exec(value);
+    if (match && match.index !== undefined) {
+      return { index: match.index + match[1].length, text: match[2] };
+    }
+  }
+  return null;
+}
+
+function findBehaviorAction(value: string): { index: number; text: string } | null {
+  for (const pattern of [BEHAVIOR_ACTION_AT_START_PATTERN, BEHAVIOR_ACTION_AFTER_LINK_PATTERN]) {
     const match = pattern.exec(value);
     if (match && match.index !== undefined) {
       return { index: match.index + match[1].length, text: match[2] };
@@ -1642,6 +1749,28 @@ function hasDetailedOutcomeAction(value: string): boolean {
   });
 }
 
+function detailedBehaviorActionCount(value: string): number {
+  const clauses = value.split(/(?:[.;!?]+|,\s+|\b(?:and\s+then|then|and|but)\b)/i);
+  return clauses.filter((clause) => {
+    const action = findBehaviorAction(clause);
+    if (!action) return false;
+
+    const outcomePhrase = clause.slice(action.index + action.text.length).trim();
+    if (!outcomePhrase || GENERIC_RESULT_PHRASE_PATTERN.test(outcomePhrase)) return false;
+
+    const detailWords = normalizeComparableText(outcomePhrase)
+      .split(" ")
+      .filter((word) => word && !DETAIL_STOP_WORDS.has(word));
+    if (detailWords.length >= 2) return true;
+
+    return /^(?:the|this|that|their|its|our|your|customer(?:s|'s))\s+/i.test(outcomePhrase);
+  }).length;
+}
+
+function hasDetailedBehaviorAction(value: string): boolean {
+  return detailedBehaviorActionCount(value) > 0;
+}
+
 export function hasDeterministicResolutionText(value: string): boolean {
   const candidate = value.trim();
   return Boolean(candidate)
@@ -1650,16 +1779,28 @@ export function hasDeterministicResolutionText(value: string): boolean {
     && hasDetailedOutcomeAction(candidate);
 }
 
+export function hasDeterministicConversationHandlingText(value: string): boolean {
+  const candidate = value.trim();
+  if (!candidate) return false;
+  const behaviorActionCount = detailedBehaviorActionCount(candidate);
+  if (behaviorActionCount >= 2) return true;
+  if (isNondeterministicResolutionText(candidate)) return false;
+  return hasDeterministicResolutionText(candidate) || behaviorActionCount === 1;
+}
+
 export function isNondeterministicResolutionText(value: string): boolean {
   const candidate = value.trim();
   if (!candidate) return false;
   if (hasUnresolvedDecision(candidate)) return true;
   if (hasAmbiguousResolutionAlternative(candidate)) return true;
   if (hasDeterministicResolutionText(candidate)) return false;
+  if (GENERIC_HELP_PLACEHOLDER_PATTERN.test(candidate)) return true;
+  if (GENERIC_POLICY_DISCUSSION_PATTERN.test(candidate)) return true;
   if (/\binitiat(?:e|es|ed|ing)\s+(?:a |an |the )?resolution\b/i.test(candidate)) return true;
   if (/\bfollow\s+(?:(?:the\s+)?approved\s+(?:process|path|support path)|policy)\b/i.test(candidate)) return true;
   if (/\bdetermine\s+(?:the\s+)?(?:best|appropriate|approved)\s+(?:resolution|outcome|next step)\b/i.test(candidate)) return true;
   if (/\bresolve\s+(?:the\s+)?(?:issue|situation)\s+appropriately\b/i.test(candidate)) return true;
+  if (BARE_BEHAVIOR_ACTION_PATTERN.test(candidate)) return false;
   return Boolean(findOutcomeAction(candidate)) || /\b(?:available|appropriate|approved)\s+(?:next steps?|options?)\b/i.test(candidate);
 }
 
@@ -1669,6 +1810,8 @@ export function findNondeterministicResolutionStep(correctProcess: string[]): nu
   if (correctProcess.some(hasDeterministicResolutionText)) return -1;
   const vagueIndex = correctProcess.findIndex(isNondeterministicResolutionText);
   if (vagueIndex >= 0) return vagueIndex;
+  if (correctProcess.some(hasDetailedBehaviorAction)) return -1;
+  if (correctProcess.filter((step) => BARE_BEHAVIOR_ACTION_PATTERN.test(step)).length >= 2) return -1;
   for (let index = correctProcess.length - 1; index >= 0; index -= 1) {
     if (correctProcess[index]?.trim()) return index;
   }

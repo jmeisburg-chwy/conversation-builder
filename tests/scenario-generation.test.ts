@@ -243,6 +243,186 @@ test("accepts a concrete approved outcome and calls the provider", async () => {
   assert.equal(called, true);
 });
 
+test("accepts behavior-focused handling guidance before calling the provider", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse({ ...generated, assumptions: ["MISSING_POLICY"] });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: "Acknowledge the customer's concern and ask what happened.",
+    correctProcess: "Acknowledge the customer's concern and ask what happened.",
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+  assert.equal((await response.json()).assumptions.includes("MISSING_POLICY"), false);
+});
+
+test("accepts discovery-question guidance before calling the provider", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse(generated);
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: "Ask open-ended questions about the customer's concern.",
+    correctProcess: "Ask open-ended questions about the customer's concern.",
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+});
+
+test("accepts detailed behavior guidance when resolution remains open for review", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse({ ...generated, assumptions: ["MISSING_POLICY"] });
+    },
+  });
+
+  const correctProcess = [
+    "Acknowledge the pet parent’s frustration and concern about having enough food for Pepper.",
+    "Ask focused questions to understand what happened, what the pet parent has already checked, and how much food they have remaining.",
+    "Confirm the outcome the pet parent needs before recommending a resolution.",
+    "Explain the available next steps clearly and set accurate expectations.",
+    "Confirm the agreed resolution, recap what will happen next, and ask whether the pet parent needs anything else.",
+    "Avoid: Do not blame the delivery carrier or suggest that the pet parent did not look carefully enough.",
+    "Avoid: Do not guarantee a delivery date or outcome that has not been confirmed.",
+    "Avoid: Do not offer compensation or make exceptions that have not been approved.",
+  ].join("\n");
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: correctProcess,
+    correctProcess,
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+  assert.equal((await response.json()).assumptions.includes("MISSING_POLICY"), false);
+});
+
+test("repairs behavior-focused phases when the approved resolution remains open for review", async () => {
+  let providerCalls = 0;
+  const diagnostics: Array<Record<string, unknown>> = [];
+  const correctProcess = [
+    "Acknowledge the pet parent’s frustration and concern about having enough food for Pepper.",
+    "Ask focused questions to understand what happened, what the pet parent has already checked, and how much food they have remaining.",
+    "Confirm the outcome the pet parent needs before recommending a resolution.",
+    "Explain the available next steps clearly and set accurate expectations.",
+    "Confirm the agreed resolution, recap what will happen next, and ask whether the pet parent needs anything else.",
+    "Avoid: Do not blame the delivery carrier or suggest that the pet parent did not look carefully enough.",
+    "Avoid: Do not guarantee a delivery date or outcome that has not been confirmed.",
+    "Avoid: Do not offer compensation or make exceptions that have not been approved.",
+  ].join("\n");
+  const behaviorPhases = [
+    {
+      ...generated.phases[0],
+      id: "acknowledge_concern",
+      learnerActions: ["Acknowledge the pet parent's frustration and concern."],
+      chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["show empathy", "customer concern"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "discover_context",
+      learnerActions: ["Ask what happened, what the pet parent has already checked, and how much food remains."],
+      chatAdvanceRequirements: [{ id: "discovery_questions", phrases: ["ask focused questions", "understand situation"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "confirm_needed_outcome",
+      learnerActions: ["Confirm the outcome the pet parent needs before recommending a resolution."],
+      chatAdvanceRequirements: [{ id: "outcome_preference", phrases: ["confirm the outcome", "recommended resolution"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "explain_next_steps",
+      learnerActions: ["Explain the available next steps clearly and set accurate expectations."],
+      chatAdvanceRequirements: [{ id: "next_steps", phrases: ["explain the next steps", "set clear expectations"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "personalized_reassurance",
+      learnerActions: ["Provide personalized reassurance that reflects the pet parent's situation."],
+      chatAdvanceRequirements: [{ id: "closing", phrases: ["confirm resolution and recap", "anything else I can help with"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "document_conversation",
+      learnerActions: ["Document the conversation for future reference."],
+      chatAdvanceRequirements: [{ id: "summary", phrases: ["document conversation", "future reference"] }],
+    },
+  ];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    logError: (diagnostic) => diagnostics.push(diagnostic as unknown as Record<string, unknown>),
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        learnerGoal: correctProcess,
+        customer: {
+          ...generated.customer,
+          name: "Taylor",
+          petName: "Pepper",
+          openingLine: "My Autoship order says delivered, but I cannot find it.",
+        },
+        phases: behaviorPhases,
+        objectives: [{
+          ...generated.objectives[0],
+          id: "handle_missing_order",
+          criteria: [
+            "Acknowledge the pet parent's concern.",
+            "Ask focused discovery questions.",
+            "Confirm the needed outcome before recommending a resolution.",
+            "Explain next steps and set accurate expectations.",
+            "Recap the agreed resolution and offer additional help.",
+          ],
+        }],
+        assumptions: ["MISSING_POLICY"],
+      });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional pet parent cannot find an Autoship order marked delivered and has food through tomorrow.",
+    learnerGoal: correctProcess,
+    correctProcess,
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify({ error: payload.error, diagnostics }));
+  assert.equal(providerCalls, 2);
+  assert.equal(payload.draft.phases.length, 5);
+  assert.equal(payload.assumptions.includes("MISSING_POLICY"), false);
+  assert.deepEqual(payload.draft.phases.map((phase: { chatAdvanceRequirements: Array<{ id: string }> }) =>
+    phase.chatAdvanceRequirements.map((requirement) => requirement.id)
+  ), [
+    ["acknowledge_empathy"],
+    ["discovery_question"],
+    ["outcome_question_intent", "outcome_preference"],
+    ["next_steps", "expectation_setting"],
+    ["agreed_resolution", "recap", "additional_help_question", "closing"],
+  ]);
+  assert.doesNotMatch(JSON.stringify(payload.draft), /refund|replacement/iu);
+  assert.match(payload.draft.phases[4].learnerActions[0], /Confirm the agreed resolution/iu);
+  assert.doesNotMatch(JSON.stringify(payload.draft.phases), /personalized reassurance|future reference/iu);
+});
+
 test("requires a concrete approved outcome before calling the provider", async () => {
   let called = false;
   const handler = createGenerateHandler({
@@ -1544,6 +1724,78 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
     { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
     { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
   ]);
+});
+
+test("rebuilds the torn-dog-food draft when the approved destination is written as an exception", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          name: "Jamie",
+          openingLine: "The dog food bag arrived torn and unusable.",
+        },
+        phases: [
+          {
+            ...generated.phases[0],
+            id: "confirm_refund_preference",
+            learnerActions: ["Acknowledge the concern and ask whether Jamie wants a full refund."],
+            chatAdvanceRequirements: [{ id: "refund_preference", phrases: ["refund the order", "issue refund"] }],
+            partnerResponse: "Yes, I want a full refund.",
+          },
+          {
+            ...generated.phases[0],
+            id: "complete_refund",
+            learnerActions: [
+              "Issue the $32.49 refund to the original payment card.",
+              "Explain that the refund will post within 3-5 business days.",
+            ],
+            chatAdvanceRequirements: [{ id: "refund_completion", phrases: ["offer replacement", "issue store credit"] }],
+            partnerResponse: "Thank you for resolving this.",
+          },
+        ],
+        objectives: [{
+          ...generated.objectives[0],
+          id: "refund_resolution",
+          criteria: ["Issue a full refund of $32.49 to the original payment card."],
+        }],
+        prohibitedActions: [
+          "Do not mention store credit, a replacement, or an exchange.",
+          "Do not issue any amount other than exactly $32.49.",
+          "Do not refund to any destination other than the original payment card.",
+          "Do not give any timeline other than 3-5 business days.",
+        ],
+      });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "Practice acknowledging a damaged dry dog food complaint, confirming the customer’s refund preference, and issuing an exact refund to the original payment card.",
+    learnerGoal: "Acknowledge the Conversation Partner's concern. Ask whether Jamie wants a full refund. Issue a full refund of $32.49 to the original payment card. Explain that the refund will post within 3-5 business days. Avoid: Do not mention store credit, a replacement, or an exchange. Avoid: Do not issue any amount other than exactly $32.49. Avoid: Do not refund to any destination other than the original payment card. Avoid: Do not give any timeline other than 3-5 business days.",
+    correctProcess: "Acknowledge the Conversation Partner's concern. Ask whether Jamie wants a full refund. Issue a full refund of $32.49 to the original payment card. Explain that the refund will post within 3-5 business days. Avoid: Do not mention store credit, a replacement, or an exchange. Avoid: Do not issue any amount other than exactly $32.49. Avoid: Do not refund to any destination other than the original payment card. Avoid: Do not give any timeline other than 3-5 business days.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.equal(
+    payload.draft.phases.some((phase: { chatAdvanceRequirements: Array<{ id: string; phrases: string[] }> }) =>
+      findChatAdvanceRequirementQualityFindings(
+        phase.chatAdvanceRequirements,
+        payload.draft.prohibitedActions,
+        payload.draft.customer.name,
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase")
+    ),
+    false,
+  );
+  assert.match(JSON.stringify(payload.draft.phases), /\$32\.49/u);
+  assert.match(JSON.stringify(payload.draft.phases), /original payment card/u);
+  assert.match(JSON.stringify(payload.draft.phases), /3-5 business days/u);
 });
 
 test("rebuilds approved refund phases when a sequencing guardrail names the refund", async () => {

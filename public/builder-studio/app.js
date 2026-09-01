@@ -128,7 +128,6 @@ const elements = {
   buildIntakeStatus: $("#buildIntakeStatus"),
   customerSituationInput: $("#customerSituationInput"),
   learnerApproachInput: $("#learnerApproachInput"),
-  deidentificationConfirmedInput: $("#deidentificationConfirmed"),
   sourceGroundingMount: $("#sourceGroundingMount"),
   sourceGroundingDetails: $("#sourceGroundingDetails"),
   sourceNameInput: $("#sourceNameInput"),
@@ -1340,15 +1339,13 @@ function commitObjectiveLabelMutation(objectiveId) {
 export async function requestGeneratedStudioDraftFromInputs({
   conversationAboutInput,
   learnerApproachInput,
-  deidentificationConfirmedInput,
   channels = ["chat", "voice"],
   request = requestJson
 }) {
-  const deidentificationConfirmed = deidentificationConfirmedInput?.checked === true;
   const creatorInput = {
     conversationAbout: String(conversationAboutInput?.value || ""),
     learnerApproach: String(learnerApproachInput?.value || ""),
-    deidentificationConfirmed
+    deidentificationConfirmed: true
   };
   const response = await request("/api/builder/generate", {
     method: "POST",
@@ -1358,7 +1355,7 @@ export async function requestGeneratedStudioDraftFromInputs({
       situation: creatorInput.conversationAbout,
       learnerGoal: creatorInput.learnerApproach,
       correctProcess: creatorInput.learnerApproach,
-      deidentificationConfirmed
+      deidentificationConfirmed: true
     })
   });
   if (!response?.draft) throw new Error("We couldn’t create a safe draft this time. Try again.");
@@ -1399,7 +1396,6 @@ export async function waitForGeneratedStudioDraft(
 export async function runCreateDraftBuild({
   conversationAboutInput,
   learnerApproachInput,
-  deidentificationConfirmedInput,
   createDraftButton,
   reportStatus = setGlobalStatus,
   completeDraftCreation = async () => {},
@@ -1416,19 +1412,13 @@ export async function runCreateDraftBuild({
     missing[0].focus();
     return { status: "invalid" };
   }
-  if (deidentificationConfirmedInput?.checked !== true) {
-    reportStatus("Confirm that the conversation details are fictional or de-identified.", "error");
-    deidentificationConfirmedInput?.focus();
-    return { status: "invalid" };
-  }
   const idleButtonText = createDraftButton.textContent;
   createDraftButton.disabled = true;
   createDraftButton.textContent = "Creating draft…";
   try {
     const draft = await requestDraft({
       conversationAboutInput,
-      learnerApproachInput,
-      deidentificationConfirmedInput
+      learnerApproachInput
     });
     await completeDraftCreation(draft);
     return { status: "created", draft };
@@ -1463,7 +1453,6 @@ function setBuildIntakeControlsDisabled(disabled) {
   [
     elements.customerSituationInput,
     elements.learnerApproachInput,
-    elements.deidentificationConfirmedInput,
     elements.buildConversationContinueButton,
     elements.editBuildConversationButton,
     elements.createDraftButton,
@@ -1612,10 +1601,10 @@ function setStage(stage, options = {}) {
 
 export function configureReviewTestAffordance(button, {
   available = false,
-  validated = false
+  validationAttempted = false
 } = {}) {
   if (!button) return button;
-  button.disabled = !available || !validated;
+  button.disabled = !available || !validationAttempted;
   return button;
 }
 
@@ -1672,16 +1661,16 @@ function renderStageAvailability() {
     if (stage === "review") button.disabled = !state.reviewStarted;
     if (stage === "tune") {
       configureReviewTestAffordance(button, {
-        available: state.reviewStarted,
-        validated: reviewIsComplete() && state.validation?.ok === true
+        available: state.reviewStarted && reviewIsComplete(),
+        validationAttempted: Boolean(state.validation)
       });
     }
     if (stage === "validate") {
-      button.disabled = !canEnterPublish(state.draft) || state.validation?.ok !== true;
+      button.disabled = !canEnterPublish(state.draft) || !state.validation;
     }
   });
   configurePublishContinueAffordance(elements.testPublishButton, {
-    ready: canEnterPublish(state.draft) && state.validation?.ok === true
+    ready: canEnterPublish(state.draft) && Boolean(state.validation)
   });
 }
 
@@ -3497,7 +3486,6 @@ function initializeFreshConversation() {
   renderCreateSummary();
   elements.customerSituationInput.value = "";
   elements.learnerApproachInput.value = "";
-  elements.deidentificationConfirmedInput.checked = false;
   setBuildIntakeStatus("");
   setBuildIntakeStep("conversation");
   renderSourceGrounding();
@@ -3889,12 +3877,12 @@ function renderReviewReadiness() {
   const ready = blockingPhaseEvaluationFindings(state.draft).length === 0;
   if (elements.reviewContinueButton) {
     configureReviewTestAffordance(elements.reviewContinueButton, {
-      available: state.reviewStarted,
-      validated: ready && state.validation?.ok === true
+      available: state.reviewStarted && ready,
+      validationAttempted: Boolean(state.validation)
     });
     elements.reviewContinueButton.title = !ready
       ? "Complete the highlighted learning objective details before downloading."
-      : state.validation?.ok === true
+      : state.validation
         ? ""
         : "Validate the conversation before downloading.";
   }
@@ -8373,7 +8361,16 @@ export function actionableBlockingIssues(validation = {}, { draft = null } = {})
     ].includes(code)
       ? String(issue.fix || issue.message || "").trim()
       : "";
-    const message = messageRule?.message || blockerFix || creatorAction.message;
+    const preciseCriterionMessage = [
+      "second_person_criterion",
+      "non_imperative_criterion",
+      "unlinked_objective_criterion",
+      "linked_criterion_action_missing",
+      "positive_prohibited_reference"
+    ].includes(code)
+      ? String(issue.message || issue.fix || "").trim()
+      : "";
+    const message = messageRule?.message || blockerFix || preciseCriterionMessage || creatorAction.message;
     const issueFieldIdentity = normalizedIssuePath(issue) || reviewFieldPath;
     const normalizedFieldIdentity = issueFieldIdentity.trim().toLowerCase();
     const messageIdentity = normalizedFinalCheckMessageIdentity(issue);
@@ -8879,7 +8876,8 @@ function portableRuntimeValue(value) {
 }
 
 export function portableValidatedScenarioFiles({ validation, scenarios = [] } = {}) {
-  if (validation?.ok !== true || !Array.isArray(validation?.files)) return [];
+  if (actionableBlockingIssues(validation).length) return [];
+  if (!Array.isArray(validation?.files)) return [];
   if (validation.files.every((file) => file?.scenario && file?.filename)) {
     return validation.files.flatMap((file) => {
       const scenario = file.scenario;
@@ -9184,7 +9182,10 @@ async function runValidation() {
     if (state.validation.ok) {
       showToast(buildFinalCheckReadyCopy(state.draft.scenario.channels).toast);
     } else {
-      showToast("Changes are needed before downloading.");
+      showToast(finalCheckDisplayState(
+        state.validation,
+        state.draft?.scenario?.channels || []
+      ).description);
     }
   } catch (error) {
     state.validation = validationUnavailableState(error);
@@ -9552,11 +9553,6 @@ function wireControls() {
       setBuildIntakeStep(missing[1], { focus: true });
       return;
     }
-    if (elements.deidentificationConfirmedInput.checked !== true) {
-      setBuildIntakeStatus("Confirm that the conversation details are fictional or de-identified.", "error");
-      elements.deidentificationConfirmedInput.focus();
-      return;
-    }
     setBuildIntakeStatus("");
     let result;
     let acknowledgementPromise;
@@ -9573,7 +9569,6 @@ function wireControls() {
       result = await runCreateDraftBuild({
         conversationAboutInput: elements.customerSituationInput,
         learnerApproachInput: elements.learnerApproachInput,
-        deidentificationConfirmedInput: elements.deidentificationConfirmedInput,
         createDraftButton: elements.createDraftButton,
         reportStatus: setBuildIntakeStatus,
         completeDraftCreation: async (draft) => {
@@ -9674,7 +9669,7 @@ function wireControls() {
   });
   elements.reviewContinueButton.addEventListener("click", async () => {
     const canEnter = handleReviewTestEntry({
-      canEnter: reviewIsComplete() && state.validation?.ok === true,
+      canEnter: reviewIsComplete() && Boolean(state.validation),
       onBlocked: () => {
         revealReviewBlockingIssues();
         showToast(reviewIsComplete()
@@ -9707,7 +9702,7 @@ function wireControls() {
     closePreview("");
     await saveDraft({ quiet: true });
     handlePublishContinueEntry({
-      canEnter: canEnterPublish(state.draft) && state.validation?.ok === true,
+      canEnter: canEnterPublish(state.draft) && Boolean(state.validation),
       onBlocked: () => {
         setStage("review");
         elements.reviewFinalCheck?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -9803,7 +9798,9 @@ async function bootstrap() {
   } catch {
     state.hotkeys = [];
   }
-  const saved = loadSavedDraftSafely();
+  const saved = shouldRestoreStandaloneDraftOnLaunch(browserWindow?.location?.search)
+    ? loadSavedDraftSafely()
+    : null;
   if (saved?.draft) {
     state.draft = normalizeStudioDraft(saved.draft);
     state.sourceGrounding = clone(state.draft.sourceGrounding);
@@ -9829,6 +9826,10 @@ async function bootstrap() {
   }
   if (elements.noApiNotice) elements.noApiNotice.hidden = true;
   setGlobalStatus("");
+}
+
+export function shouldRestoreStandaloneDraftOnLaunch(search = "") {
+  return new URLSearchParams(String(search || "")).get("resume") === "1";
 }
 
 if (browserDocument) {
