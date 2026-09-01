@@ -1469,6 +1469,78 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
   ]);
 });
 
+test("rebuilds the torn-dog-food draft when the approved destination is written as an exception", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          name: "Jamie",
+          openingLine: "The dog food bag arrived torn and unusable.",
+        },
+        phases: [
+          {
+            ...generated.phases[0],
+            id: "confirm_refund_preference",
+            learnerActions: ["Acknowledge the concern and ask whether Jamie wants a full refund."],
+            chatAdvanceRequirements: [{ id: "refund_preference", phrases: ["refund the order", "issue refund"] }],
+            partnerResponse: "Yes, I want a full refund.",
+          },
+          {
+            ...generated.phases[0],
+            id: "complete_refund",
+            learnerActions: [
+              "Issue the $32.49 refund to the original payment card.",
+              "Explain that the refund will post within 3-5 business days.",
+            ],
+            chatAdvanceRequirements: [{ id: "refund_completion", phrases: ["offer replacement", "issue store credit"] }],
+            partnerResponse: "Thank you for resolving this.",
+          },
+        ],
+        objectives: [{
+          ...generated.objectives[0],
+          id: "refund_resolution",
+          criteria: ["Issue a full refund of $32.49 to the original payment card."],
+        }],
+        prohibitedActions: [
+          "Do not mention store credit, a replacement, or an exchange.",
+          "Do not issue any amount other than exactly $32.49.",
+          "Do not refund to any destination other than the original payment card.",
+          "Do not give any timeline other than 3-5 business days.",
+        ],
+      });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "Practice acknowledging a damaged dry dog food complaint, confirming the customer’s refund preference, and issuing an exact refund to the original payment card.",
+    learnerGoal: "Acknowledge the Conversation Partner's concern. Ask whether Jamie wants a full refund. Issue a full refund of $32.49 to the original payment card. Explain that the refund will post within 3-5 business days. Avoid: Do not mention store credit, a replacement, or an exchange. Avoid: Do not issue any amount other than exactly $32.49. Avoid: Do not refund to any destination other than the original payment card. Avoid: Do not give any timeline other than 3-5 business days.",
+    correctProcess: "Acknowledge the Conversation Partner's concern. Ask whether Jamie wants a full refund. Issue a full refund of $32.49 to the original payment card. Explain that the refund will post within 3-5 business days. Avoid: Do not mention store credit, a replacement, or an exchange. Avoid: Do not issue any amount other than exactly $32.49. Avoid: Do not refund to any destination other than the original payment card. Avoid: Do not give any timeline other than 3-5 business days.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.equal(
+    payload.draft.phases.some((phase: { chatAdvanceRequirements: Array<{ id: string; phrases: string[] }> }) =>
+      findChatAdvanceRequirementQualityFindings(
+        phase.chatAdvanceRequirements,
+        payload.draft.prohibitedActions,
+        payload.draft.customer.name,
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase")
+    ),
+    false,
+  );
+  assert.match(JSON.stringify(payload.draft.phases), /\$32\.49/u);
+  assert.match(JSON.stringify(payload.draft.phases), /original payment card/u);
+  assert.match(JSON.stringify(payload.draft.phases), /3-5 business days/u);
+});
+
 test("rebuilds approved refund phases when a sequencing guardrail names the refund", async () => {
   const handler = createGenerateHandler({
     apiKey: "test-key",

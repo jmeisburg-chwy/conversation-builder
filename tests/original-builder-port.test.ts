@@ -46,55 +46,43 @@ test("ports the original complete Review/Edit surface into the standalone Builde
   assert.match(script, /closing-partner-turn:/);
   assert.match(script, /Chat advance requirements/);
   assert.match(script, /Add required concept/);
-  assert.match(html, /id="deidentificationConfirmed"/);
-  assert.match(html, /I confirm these conversation details are fictional or de-identified\./i);
+  assert.doesNotMatch(html, /id="deidentificationConfirmed"/);
+  assert.doesNotMatch(html, /I confirm these conversation details are fictional or de-identified\./i);
 });
 
-test("requires a real de-identification confirmation before generation", async () => {
+test("creates a draft without asking the author for a de-identification confirmation", async () => {
   let requestCount = 0;
-  let focused = false;
   const statuses: string[] = [];
-  const confirmation = {
-    checked: false,
-    focus: () => { focused = true; },
-  };
   const createDraftButton = { disabled: false, textContent: "Create draft" };
   const inputs = {
     conversationAboutInput: { value: "A fictional late-order conversation.", focus() {} },
     learnerApproachInput: { value: "Acknowledge the concern and explain the approved next step.", focus() {} },
   };
 
-  const blocked = await runCreateDraftBuild({
+  const created = await runCreateDraftBuild({
     ...inputs,
-    deidentificationConfirmedInput: confirmation,
     createDraftButton,
     reportStatus: (message: string) => statuses.push(message),
     requestDraft: async () => {
       requestCount += 1;
-      return {};
-    },
-  });
-
-  assert.equal(blocked.status, "invalid");
-  assert.equal(requestCount, 0);
-  assert.equal(focused, true);
-  assert.equal(statuses.at(-1), "Confirm that the conversation details are fictional or de-identified.");
-
-  confirmation.checked = true;
-  const created = await runCreateDraftBuild({
-    ...inputs,
-    deidentificationConfirmedInput: confirmation,
-    createDraftButton,
-    reportStatus: (message: string) => statuses.push(message),
-    requestDraft: async ({ deidentificationConfirmedInput }: { deidentificationConfirmedInput: { checked: boolean } }) => {
-      requestCount += 1;
-      assert.equal(deidentificationConfirmedInput.checked, true);
       return { scenario: { title: "Generated" } };
     },
   });
 
   assert.equal(created.status, "created");
   assert.equal(requestCount, 1);
+  assert.deepEqual(statuses, []);
+});
+
+test("starts at a blank Build screen unless the URL explicitly requests a saved draft", () => {
+  const shouldRestoreStandaloneDraftOnLaunch = (builderApp as unknown as {
+    shouldRestoreStandaloneDraftOnLaunch?: (search: string) => boolean;
+  }).shouldRestoreStandaloneDraftOnLaunch;
+
+  assert.equal(typeof shouldRestoreStandaloneDraftOnLaunch, "function");
+  assert.equal(shouldRestoreStandaloneDraftOnLaunch!(""), false);
+  assert.equal(shouldRestoreStandaloneDraftOnLaunch!("?standalone=1"), false);
+  assert.equal(shouldRestoreStandaloneDraftOnLaunch!("?standalone=1&resume=1"), true);
 });
 
 test("uses 100 as the missing-score baseline in Review/Edit", () => {

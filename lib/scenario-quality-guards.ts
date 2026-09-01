@@ -125,7 +125,7 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
   return /\brefund\b/u.test(normalized);
 }
 
-type ProhibitionAllowlistKind = "amount" | "timeline" | "resolution";
+type ProhibitionAllowlistKind = "amount" | "destination" | "timeline" | "resolution";
 
 interface ProhibitionAllowlistConstraint {
   kind: ProhibitionAllowlistKind;
@@ -185,15 +185,31 @@ function resolutionValues(value: string): Set<string> {
   return resolutionOptionConcepts(intentTokens(value));
 }
 
+function destinationValues(value: string): Set<string> {
+  const normalized = normalizeComparableText(value);
+  const destinations = new Set<string>();
+  if (/\boriginal (?:card|payment(?: card| method)?)\b/u.test(normalized)) {
+    destinations.add("original payment method");
+  }
+  if (/\b(?:chewy account|store credit)\b/u.test(normalized)) destinations.add("chewy account");
+  if (/\bgift card\b/u.test(normalized)) destinations.add("gift card");
+  if (/\b(?:another|different|new) (?:card|payment(?: card| method)?)\b/u.test(normalized)) {
+    destinations.add("other payment method");
+  }
+  return destinations;
+}
+
 function prohibitionAllowlistConstraints(action: string): ProhibitionAllowlistConstraint[] {
   const delimiter = action.match(PROHIBITION_ALLOWLIST_DELIMITER);
   if (!delimiter || delimiter.index === undefined) return [];
   const allowedText = action.slice(delimiter.index + delimiter[0].length);
   const constraints: ProhibitionAllowlistConstraint[] = [];
   const amounts = amountValues(allowedText);
+  const destinations = destinationValues(allowedText);
   const timelines = timelineValues(allowedText);
   const resolutions = resolutionValues(allowedText);
   if (amounts.size) constraints.push({ kind: "amount", allowed: amounts });
+  if (destinations.size) constraints.push({ kind: "destination", allowed: destinations });
   if (timelines.size) constraints.push({ kind: "timeline", allowed: timelines });
   if (resolutions.size) constraints.push({ kind: "resolution", allowed: resolutions });
   return constraints;
@@ -205,6 +221,8 @@ function violatesProhibitionAllowlist(
 ): boolean {
   const actual = constraint.kind === "amount"
     ? amountValues(phrase)
+    : constraint.kind === "destination"
+      ? destinationValues(phrase)
     : constraint.kind === "timeline"
       ? timelineValues(phrase)
       : resolutionValues(phrase);

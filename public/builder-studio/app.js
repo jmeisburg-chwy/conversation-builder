@@ -128,7 +128,6 @@ const elements = {
   buildIntakeStatus: $("#buildIntakeStatus"),
   customerSituationInput: $("#customerSituationInput"),
   learnerApproachInput: $("#learnerApproachInput"),
-  deidentificationConfirmedInput: $("#deidentificationConfirmed"),
   sourceGroundingMount: $("#sourceGroundingMount"),
   sourceGroundingDetails: $("#sourceGroundingDetails"),
   sourceNameInput: $("#sourceNameInput"),
@@ -1340,15 +1339,13 @@ function commitObjectiveLabelMutation(objectiveId) {
 export async function requestGeneratedStudioDraftFromInputs({
   conversationAboutInput,
   learnerApproachInput,
-  deidentificationConfirmedInput,
   channels = ["chat", "voice"],
   request = requestJson
 }) {
-  const deidentificationConfirmed = deidentificationConfirmedInput?.checked === true;
   const creatorInput = {
     conversationAbout: String(conversationAboutInput?.value || ""),
     learnerApproach: String(learnerApproachInput?.value || ""),
-    deidentificationConfirmed
+    deidentificationConfirmed: true
   };
   const response = await request("/api/builder/generate", {
     method: "POST",
@@ -1358,7 +1355,7 @@ export async function requestGeneratedStudioDraftFromInputs({
       situation: creatorInput.conversationAbout,
       learnerGoal: creatorInput.learnerApproach,
       correctProcess: creatorInput.learnerApproach,
-      deidentificationConfirmed
+      deidentificationConfirmed: true
     })
   });
   if (!response?.draft) throw new Error("We couldn’t create a safe draft this time. Try again.");
@@ -1399,7 +1396,6 @@ export async function waitForGeneratedStudioDraft(
 export async function runCreateDraftBuild({
   conversationAboutInput,
   learnerApproachInput,
-  deidentificationConfirmedInput,
   createDraftButton,
   reportStatus = setGlobalStatus,
   completeDraftCreation = async () => {},
@@ -1416,19 +1412,13 @@ export async function runCreateDraftBuild({
     missing[0].focus();
     return { status: "invalid" };
   }
-  if (deidentificationConfirmedInput?.checked !== true) {
-    reportStatus("Confirm that the conversation details are fictional or de-identified.", "error");
-    deidentificationConfirmedInput?.focus();
-    return { status: "invalid" };
-  }
   const idleButtonText = createDraftButton.textContent;
   createDraftButton.disabled = true;
   createDraftButton.textContent = "Creating draft…";
   try {
     const draft = await requestDraft({
       conversationAboutInput,
-      learnerApproachInput,
-      deidentificationConfirmedInput
+      learnerApproachInput
     });
     await completeDraftCreation(draft);
     return { status: "created", draft };
@@ -1463,7 +1453,6 @@ function setBuildIntakeControlsDisabled(disabled) {
   [
     elements.customerSituationInput,
     elements.learnerApproachInput,
-    elements.deidentificationConfirmedInput,
     elements.buildConversationContinueButton,
     elements.editBuildConversationButton,
     elements.createDraftButton,
@@ -3497,7 +3486,6 @@ function initializeFreshConversation() {
   renderCreateSummary();
   elements.customerSituationInput.value = "";
   elements.learnerApproachInput.value = "";
-  elements.deidentificationConfirmedInput.checked = false;
   setBuildIntakeStatus("");
   setBuildIntakeStep("conversation");
   renderSourceGrounding();
@@ -9686,11 +9674,6 @@ function wireControls() {
       setBuildIntakeStep(missing[1], { focus: true });
       return;
     }
-    if (elements.deidentificationConfirmedInput.checked !== true) {
-      setBuildIntakeStatus("Confirm that the conversation details are fictional or de-identified.", "error");
-      elements.deidentificationConfirmedInput.focus();
-      return;
-    }
     setBuildIntakeStatus("");
     let result;
     let acknowledgementPromise;
@@ -9707,7 +9690,6 @@ function wireControls() {
       result = await runCreateDraftBuild({
         conversationAboutInput: elements.customerSituationInput,
         learnerApproachInput: elements.learnerApproachInput,
-        deidentificationConfirmedInput: elements.deidentificationConfirmedInput,
         createDraftButton: elements.createDraftButton,
         reportStatus: setBuildIntakeStatus,
         completeDraftCreation: async (draft) => {
@@ -9937,7 +9919,9 @@ async function bootstrap() {
   } catch {
     state.hotkeys = [];
   }
-  const saved = loadSavedDraftSafely();
+  const saved = shouldRestoreStandaloneDraftOnLaunch(browserWindow?.location?.search)
+    ? loadSavedDraftSafely()
+    : null;
   if (saved?.draft) {
     state.draft = normalizeStudioDraft(saved.draft);
     state.sourceGrounding = clone(state.draft.sourceGrounding);
@@ -9963,6 +9947,10 @@ async function bootstrap() {
   }
   if (elements.noApiNotice) elements.noApiNotice.hidden = true;
   setGlobalStatus("");
+}
+
+export function shouldRestoreStandaloneDraftOnLaunch(search = "") {
+  return new URLSearchParams(String(search || "")).get("resume") === "1";
 }
 
 if (browserDocument) {
