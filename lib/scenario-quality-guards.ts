@@ -1136,7 +1136,33 @@ function inferredChatRequirementConceptFromPhrases(
 export function mergeSafeChatAdvanceRequirementAliases(
   requirements: ChatAdvanceRequirementDraft[],
 ): ChatAdvanceRequirementDraft[] {
+  const replacementDetailId = /\b(?:address|arrival|complete|completed|completion|confirmation number|delivery|email|order|order number|placed|sent|shipment|shipping|status|submitted|timeline|timing|tracking|window)\b/u;
+  const replacementDetailPhrase = /\b(?:arrival|complete|completed|confirmation email|confirmation number|confirmed|delivery|email confirmation|order confirmation|order number|placed|sent|shipment|shipped|shipping|status|submitted|timeline|timing|tracking|window)\b/u;
+  const isReplacementConfirmationGroup = (normalizedId: string) =>
+    /^(?:replacement|reshipment|reship)(?: order)? (?:confirm|confirmation|preference)$/u.test(normalizedId)
+    || /^(?:confirm|confirmation|preference) (?:replacement|reshipment|reship)(?: order)?$/u.test(normalizedId);
+  const replacementConfirmationPhrase = (phrase: string) => {
+    const normalized = normalizeComparableText(phrase);
+    if (/\b(?:confirmation number|order number|tracking|status|completed|placed|submitted|sent)\b/u.test(normalized)) return false;
+    return /\b(?:can i|do you want|may i|okay to send|ok to send|prefer|preference|want|would you like|would you prefer)\b/u.test(normalized);
+  };
+  const isReplacementDetailRequirement = (requirement: ChatAdvanceRequirementDraft) => {
+    const normalizedId = normalizeComparableText(requirement.id);
+    const requirementMentionsReplacement = /\b(?:replacement|replace|reshipment|reship)\b/u.test(normalizedId)
+      || requirement.phrases.some((phrase) => /\b(?:new bag|replace it|replacement|reshipment)\b/u.test(normalizeComparableText(phrase)));
+    return requirementMentionsReplacement
+      && (replacementDetailId.test(normalizedId)
+        || requirement.phrases.some((phrase) => replacementDetailPhrase.test(normalizeComparableText(phrase))));
+  };
   const merged: ChatAdvanceRequirementDraft[] = [];
+  const hasAuthoredReplacementRequirement = requirements.some((requirement) => {
+    const normalizedId = normalizeComparableText(requirement.id);
+    if (isReplacementConfirmationGroup(normalizedId)
+      && requirement.phrases.length > 0
+      && requirement.phrases.every(replacementConfirmationPhrase)) return true;
+    return chatRequirementConcept(requirement.id) === "replacement"
+      && !isReplacementDetailRequirement(requirement);
+  });
   const appendRequirement = (requirement: ChatAdvanceRequirementDraft) => {
     const existing = merged.find((candidate) => candidate.id === requirement.id);
     if (existing) {
@@ -1148,14 +1174,7 @@ export function mergeSafeChatAdvanceRequirementAliases(
 
   requirements.forEach((requirement) => {
     const normalizedId = normalizeComparableText(requirement.id);
-    const replacementConfirmationGroup = /^(?:replacement|reshipment|reship)(?: order)? (?:confirm|confirmation|preference)$/u.test(normalizedId)
-      || /^(?:confirm|confirmation|preference) (?:replacement|reshipment|reship)(?: order)?$/u.test(normalizedId);
-    const replacementConfirmationPhrase = (phrase: string) => {
-      const normalized = normalizeComparableText(phrase);
-      if (/\b(?:confirmation number|order number|tracking|status|completed|placed|submitted|sent)\b/u.test(normalized)) return false;
-      return /\b(?:can i|do you want|may i|okay to send|ok to send|prefer|preference|want|would you like|would you prefer)\b/u.test(normalized);
-    };
-    if (replacementConfirmationGroup
+    if (isReplacementConfirmationGroup(normalizedId)
       && requirement.phrases.length > 0
       && requirement.phrases.every(replacementConfirmationPhrase)) {
       appendRequirement({ id: "replacement_question_intent", phrases: QUESTION_INTENT_PHRASES });
@@ -1163,20 +1182,18 @@ export function mergeSafeChatAdvanceRequirementAliases(
       return;
     }
 
-    const replacementDetailId = /\b(?:address|arrival|complete|completed|completion|confirmation number|delivery|email|order|order number|placed|sent|shipment|shipping|status|submitted|timeline|timing|tracking|window)\b/u;
-    const replacementDetailPhrase = /\b(?:arrival|complete|completed|confirmation email|confirmation number|confirmed|delivery|email confirmation|order confirmation|order number|placed|sent|shipment|shipped|shipping|status|submitted|timeline|timing|tracking|window)\b/u;
-    const requirementMentionsReplacement = /\b(?:replacement|replace|reshipment|reship)\b/u.test(normalizedId)
-      || requirement.phrases.some((phrase) => /\b(?:new bag|replace it|replacement|reshipment)\b/u.test(normalizeComparableText(phrase)));
-    if (requirementMentionsReplacement
-      && (replacementDetailId.test(normalizedId)
-        || requirement.phrases.some((phrase) => replacementDetailPhrase.test(normalizeComparableText(phrase))))) {
+    if (isReplacementDetailRequirement(requirement)) {
       appendRequirement(requirement);
       return;
     }
 
     const compoundNoCostReplacement = /^(?:(?:no cost|free of charge|no charge) (?:replacement|reshipment|reship)|(?:replacement|reshipment|reship) (?:no cost|free of charge|no charge))$/u.test(normalizedId);
     if (compoundNoCostReplacement) {
-      appendRequirement({ id: "replacement_offer", phrases: REPLACEMENT_PHRASES });
+      if (!hasAuthoredReplacementRequirement
+        && !merged.some((candidate) => chatRequirementConcept(candidate.id) === "replacement"
+          && !isReplacementDetailRequirement(candidate))) {
+        appendRequirement({ id: "replacement_offer", phrases: REPLACEMENT_PHRASES });
+      }
       appendRequirement({ id: "replacement_no_cost", phrases: NO_COST_PHRASES });
       return;
     }

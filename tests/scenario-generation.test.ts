@@ -655,6 +655,11 @@ test("recompiles incomplete Chat gates from verified approved replacement action
   const chat = validationPayload.files.find((file: { scenario: { channels: string[] } }) =>
     file.scenario.channels[0] === "chat"
   ).scenario;
+  const openingStep = chat.chatConfig.stepProgression[0];
+  const openingPhraseSets = openingStep.match.all.map((condition: { phrases: string[] }) =>
+    JSON.stringify(condition.phrases)
+  );
+  assert.equal(new Set(openingPhraseSets).size, openingPhraseSets.length);
   const completionStep = chat.chatConfig.stepProgression[1];
   assert.deepEqual(Object.keys(completionStep.match).sort(), ["all", "any"]);
   const riseMatches = (message: string) => {
@@ -2867,6 +2872,7 @@ test("preserves specific return and replacement tracking gates while enriching t
   const noReturnGuidance = { id: "return_guidance", phrases: ["no return needed", "keep the damaged bag"] };
   const replacementConfirmation = { id: "replacement_confirmation", phrases: ["want the replacement", "okay to send"] };
   const replacementOrderPreference = { id: "replacement_order_preference", phrases: ["want the replacement", "okay to send"] };
+  const replacementResolution = { id: "replacement_resolution", phrases: ["replacement", "replacement order"] };
   const noCostReplacement = { id: "no_cost_replacement", phrases: ["no-cost replacement", "replacement at no charge"] };
 
   assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([
@@ -2920,6 +2926,19 @@ test("preserves specific return and replacement tracking gates while enriching t
     { id: "replacement_resolution", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
   ]);
   assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([noCostReplacement]), [
+    { id: "replacement_offer", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
+    { id: "replacement_no_cost", phrases: ["no cost", "no-cost", "at no charge", "free of charge"] },
+  ]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([replacementResolution, noCostReplacement]), [
+    { id: "replacement_resolution", phrases: ["replacement", "replacement order", "new bag", "replace it"] },
+    { id: "replacement_no_cost", phrases: ["no cost", "no-cost", "at no charge", "free of charge"] },
+  ]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([noCostReplacement, replacementResolution]), [
+    { id: "replacement_no_cost", phrases: ["no cost", "no-cost", "at no charge", "free of charge"] },
+    { id: "replacement_resolution", phrases: ["replacement", "replacement order", "new bag", "replace it"] },
+  ]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([replacementShippingConfirmation, noCostReplacement]), [
+    replacementShippingConfirmation,
     { id: "replacement_offer", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
     { id: "replacement_no_cost", phrases: ["no cost", "no-cost", "at no charge", "free of charge"] },
   ]);
