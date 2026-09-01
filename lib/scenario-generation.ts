@@ -259,7 +259,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
                 && repairFailure.repairCodes.every((code) =>
                   code === "chat_advance_requirements" || code === "operational_criterion_coverage"
                 )
-                ? rebuildGeneratedResolutionPhases(resolutionRepaired, input.correctProcess)
+                ? rebuildGeneratedPhases(resolutionRepaired, input.correctProcess)
                 : undefined;
               if (!rebuildResult?.content) {
                 if (rebuildResult?.failureCode) {
@@ -613,6 +613,75 @@ function rebuildGeneratedResolutionPhases(
       phases,
     },
   };
+}
+
+function authoredBehaviorPhaseTitle(action: string, phaseIndex: number): string {
+  const normalized = action.trim();
+  if (/^acknowledge\w*\b/iu.test(normalized)) return "Acknowledge the concern";
+  if (/^ask\w*\b/iu.test(normalized)) return "Understand what happened";
+  if (/^confirm\w*\b.{0,100}\b(?:need\w* outcome|outcome .{0,30}need\w*|prefer\w* outcome)\b/iu.test(normalized)) {
+    return "Confirm the needed outcome";
+  }
+  if (/^explain\w*\b.{0,60}\bnext steps?\b/iu.test(normalized)) return "Explain next steps";
+  if (/^confirm\w*\b.{0,60}\bagreed resolution\b/iu.test(normalized)) return "Confirm and close";
+  return `Practice behavior ${phaseIndex + 1}`;
+}
+
+function rebuildGeneratedBehaviorPhases(
+  content: GeneratedContent,
+  correctProcess: string | undefined,
+): GeneratedContent | undefined {
+  if (!correctProcess || approvedResolutionBlueprint(correctProcess)) return undefined;
+  const actions = correctProcess
+    .split(/\n+|(?<=[.!?])\s+/u)
+    .map((entry) => entry.trim().replace(/^[-*]\s+/u, ""))
+    .filter((entry) => APPROVED_PROCESS_ACTION_START.test(entry) && !generatedNegativeAction(entry));
+  if (!actions.length) return undefined;
+  if (/\$\s*\d+\.\d{2}\b|\b(?:refund\w*|replac\w*|reship\w*|store credit|transfer\w*)\b/iu.test(actions.join(" "))) {
+    return undefined;
+  }
+
+  const creatorProhibitedActions = authoritativeProhibitedActions(correctProcess);
+  const authoritativeContent = creatorProhibitedActions.length > 0
+    ? repairGeneratedResolutionProhibitions({
+        ...content,
+        prohibitedActions: creatorProhibitedActions,
+      })
+    : content;
+  const partnerResponses = authoritativeContent.phases
+    .map((phase) => phase.partnerResponse.trim())
+    .filter(nonempty);
+  const partnerName = authoritativeContent.customer.name.trim() || "the Conversation Partner";
+  const phases = actions.map((action, phaseIndex) => {
+    const partnerResponse = /\b(?:anything else|anything more|else .{0,20}help)\b/iu.test(action)
+      ? authoritativeContent.customer.closingLine
+      : partnerResponses[phaseIndex] || authoritativeContent.customer.closingLine;
+    return compileBlueprintPhase({
+      id: `authored_behavior_${phaseIndex + 1}`,
+      title: authoredBehaviorPhaseTitle(action, phaseIndex),
+      learnerActions: [action],
+      partnerResponse,
+      coachGuidance: [action],
+      customerRemainsSilent: false,
+    }, authoritativeContent.prohibitedActions, partnerName);
+  });
+  if (phases.some((phase) => !phase)) return undefined;
+  return {
+    ...authoritativeContent,
+    phases: phases as PhaseDraft[],
+  };
+}
+
+function rebuildGeneratedPhases(
+  content: GeneratedContent,
+  correctProcess: string | undefined,
+): ReturnType<typeof rebuildGeneratedResolutionPhases> {
+  const resolutionResult = rebuildGeneratedResolutionPhases(content, correctProcess);
+  if (resolutionResult.content || resolutionResult.failureCode !== "approved_process_unsupported") {
+    return resolutionResult;
+  }
+  const behaviorContent = rebuildGeneratedBehaviorPhases(content, correctProcess);
+  return behaviorContent ? { content: behaviorContent } : resolutionResult;
 }
 
 function safeGeneratedRepairDetails(content: GeneratedContent): NonNullable<GenerationDiagnostic["repairDetails"]> {

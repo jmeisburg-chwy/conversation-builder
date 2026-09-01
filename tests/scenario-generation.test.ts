@@ -300,11 +300,15 @@ test("repairs behavior-focused phases when the approved resolution remains open 
     },
     {
       ...generated.phases[0],
-      id: "confirm_and_close",
-      learnerActions: [
-        "Confirm the agreed resolution, recap what will happen next, and ask whether the pet parent needs anything else.",
-      ],
-      chatAdvanceRequirements: [{ id: "additional_help_question", phrases: ["confirm resolution and recap", "anything else I can help with"] }],
+      id: "personalized_reassurance",
+      learnerActions: ["Provide personalized reassurance that reflects the pet parent's situation."],
+      chatAdvanceRequirements: [{ id: "closing", phrases: ["confirm resolution and recap", "anything else I can help with"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "document_conversation",
+      learnerActions: ["Document the conversation for future reference."],
+      chatAdvanceRequirements: [{ id: "summary", phrases: ["document conversation", "future reference"] }],
     },
   ];
   const handler = createGenerateHandler({
@@ -353,13 +357,15 @@ test("repairs behavior-focused phases when the approved resolution remains open 
   assert.deepEqual(payload.draft.phases.map((phase: { chatAdvanceRequirements: Array<{ id: string }> }) =>
     phase.chatAdvanceRequirements.map((requirement) => requirement.id)
   ), [
-    ["acknowledgement"],
+    ["acknowledge_empathy"],
     ["discovery_question"],
     ["outcome_question_intent", "outcome_preference"],
     ["next_steps", "expectation_setting"],
     ["agreed_resolution", "recap", "additional_help_question", "closing"],
   ]);
   assert.doesNotMatch(JSON.stringify(payload.draft), /refund|replacement/iu);
+  assert.match(payload.draft.phases[4].learnerActions[0], /Confirm the agreed resolution/iu);
+  assert.doesNotMatch(JSON.stringify(payload.draft.phases), /personalized reassurance|future reference/iu);
 });
 
 test("requires a concrete approved outcome before calling the provider", async () => {

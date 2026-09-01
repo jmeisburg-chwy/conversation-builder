@@ -1168,6 +1168,7 @@ function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
   const normalized = normalizeComparableText(clause);
   if (!normalized) return true;
   if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) return true;
+  if (/^(?:concern|frustration|inconvenience)\b/u.test(normalized)) return true;
   if (/\b(?:ask\w*|question\w*)\b/u.test(normalized)
     || /^(?:can you tell me|how much|what happened|what .{0,40}checked)\b/u.test(normalized)) return true;
   if (/\b(?:confirm\w*|determin\w*|verif\w*)\b.{0,80}\b(?:need\w* outcome|outcome .{0,30}need\w*|prefer\w* outcome|resolution)\b/u.test(normalized)) return true;
