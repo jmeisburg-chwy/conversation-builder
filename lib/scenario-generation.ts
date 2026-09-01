@@ -662,10 +662,13 @@ function assertGeneratedContent(value: GeneratedContent): void {
       "Regenerate every chatAdvanceRequirements phrase as a compact semantic anchor of no more than six words that expresses the semantic concept named by its requirement ID. Preserve separate independently required concepts and use short numeric anchors where appropriate. Do not write complete learner turns or instructions that begin with learner action verbs such as Issue or Process.",
     );
   }
-  if (findOverlappingResolutionProhibitionGroups(value.prohibitedActions).length > 0) {
+  const normalizedProhibitedActions = value.prohibitedActions
+    .map(normalizeGeneratedProhibitedAction)
+    .filter(nonempty);
+  if (findOverlappingResolutionProhibitionGroups(normalizedProhibitedActions).length > 0) {
     repairCodes.push("overlapping_resolution_prohibitions");
     repairCorrections.push(
-      "Replace transitively overlapping store-credit, replacement, exchange, or other-than-full-refund prohibitions with one composite prohibitedActions boundary that lists each alternative once. Keep partial-refund and incorrect-amount constraints separate.",
+      "Replace separate store-credit, replacement, exchange, or other-than-full-refund prohibitions with one composite prohibitedActions boundary that lists each alternative once. Keep partial-refund and incorrect-amount constraints separate.",
     );
   }
   if (repairCorrections.length > 0) {
@@ -1063,7 +1066,7 @@ For every phase, create chatAdvanceRequirements with one independently required 
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.
 Write every prohibited action with explicit negative polarity such as Do not, Avoid, or Never. Repeat that same negative wording in both an objective criterion and the relevant Coach Chewy guidance.
-Combine overlapping store-credit, replacement, exchange, or other-than-full-refund prohibitions into one composite boundary. Keep partial-refund and incorrect-amount constraints separate.
+Combine all store-credit, replacement, exchange, or other-than-full-refund prohibitions into one composite boundary. Keep partial-refund and incorrect-amount constraints separate.
 Give every positive operational objective criterion exactly one phase whose learnerActions performs the same Issue, Process, Complete, Refund, Replace, Reship, or Transfer behavior.
 Never omit a prohibited action or guardrail carried by an uploaded source draft.
 For improve mode, preserve the source draft's intent and identity. For similar mode, create a distinct scenario inspired by the source.`;

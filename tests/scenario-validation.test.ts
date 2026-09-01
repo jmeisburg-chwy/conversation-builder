@@ -833,12 +833,11 @@ test("rejects Chat alternatives that drift from their requirement ID while accep
   assert.equal(validResponse.status, 200, JSON.stringify(validPayload.issues));
 });
 
-test("requires one composite boundary for overlapping resolution alternatives without merging distinct refund constraints", async () => {
+test("requires one composite boundary for split resolution alternatives without merging distinct refund constraints", async () => {
   const overlapping = draft();
   overlapping.prohibitedActions = [
-    "Do not offer store credit or a replacement.",
-    "Do not present a replacement or exchange.",
-    "Do not suggest options other than a full refund.",
+    "Do not mention store credit.",
+    "Do not mention replacement or exchange.",
   ];
 
   const overlappingResponse = await createValidateHandler()(request({ draft: overlapping }));
@@ -870,8 +869,31 @@ test("groups provide-and-offer alternatives without treating credit cards as sto
     "Do not offer a replacement or exchange.",
   ]), [[0, 1]]);
   assert.deepEqual(findOverlappingResolutionProhibitionGroups([
+    "Do not mention store credit.",
+    "Do not issue a partial refund.",
+    "Do not mention replacement or exchange.",
+    "Do not issue a refund for an amount other than $32.49.",
+    "Do not direct the refund anywhere except the original payment card.",
+    "Do not state a timeline other than 3-5 business days.",
+  ]), [[0, 2]]);
+  assert.deepEqual(findOverlappingResolutionProhibitionGroups([
     "Do not mention the original credit card.",
     "Do not offer store credit.",
+  ]), []);
+  assert.deepEqual(findOverlappingResolutionProhibitionGroups([
+    "Do not issue store credit.",
+    "Do not send a replacement.",
+  ]), [[0, 1]]);
+  assert.deepEqual(findOverlappingResolutionProhibitionGroups([
+    "Avoid store credit.",
+    "Avoid replacement or exchange.",
+  ]), [[0, 1]]);
+  assert.deepEqual(findOverlappingResolutionProhibitionGroups([
+    "Do not offer store credit, a replacement, or an exchange.",
+    "Do not issue a partial refund.",
+    "Do not issue a refund for an amount other than $32.49.",
+    "Do not direct the refund anywhere except the original payment card.",
+    "Do not state a timeline other than 3-5 business days.",
   ]), []);
 });
 

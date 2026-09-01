@@ -556,39 +556,46 @@ test("normalizes generated objective criteria to neutral imperative wording", as
 });
 
 test("normalizes positive model output into explicit prohibited actions before Review/Edit", async () => {
+  let providerCalls = 0;
   const handler = createGenerateHandler({
     apiKey: "test-key",
-    fetchImpl: async () => providerResponse({
-      ...generated,
-      correctProcess: [
-        ...generated.correctProcess,
-        "Offer store credit instead of refund.",
-      ],
-      prohibitedActions: [
-        "Offer a replacement bag.",
-        "Offer store credit instead of refund.",
-        "Promise immediate or expedited refund beyond 3-5 business days.",
-        "Provide medical advice or product guarantees.",
-      ],
-      phases: [{
-        ...generated.phases[0],
-        learnerActions: [
-          ...generated.phases[0].learnerActions,
-          "Offer store credit instead of refund.",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      const resolutionBoundary = providerCalls === 1
+        ? "Offer store credit instead of refund."
+        : "Offer store credit, a replacement, or an exchange.";
+      return providerResponse({
+        ...generated,
+        correctProcess: [
+          ...generated.correctProcess,
+          resolutionBoundary,
         ],
-        coachGuidance: [
-          ...generated.phases[0].coachGuidance,
-          "Offer store credit rather than a refund.",
+        prohibitedActions: [
+          ...(providerCalls === 1 ? ["Offer a replacement bag."] : []),
+          resolutionBoundary,
+          "Promise immediate or expedited refund beyond 3-5 business days.",
+          "Provide medical advice or product guarantees.",
         ],
-      }],
-      objectives: [{
-        ...generated.objectives[0],
-        criteria: [
-          ...generated.objectives[0].criteria,
-          "Offer store credit instead of refund.",
-        ],
-      }],
-    }),
+        phases: [{
+          ...generated.phases[0],
+          learnerActions: [
+            ...generated.phases[0].learnerActions,
+            resolutionBoundary,
+          ],
+          coachGuidance: [
+            ...generated.phases[0].coachGuidance,
+            resolutionBoundary,
+          ],
+        }],
+        objectives: [{
+          ...generated.objectives[0],
+          criteria: [
+            ...generated.objectives[0].criteria,
+            resolutionBoundary,
+          ],
+        }],
+      });
+    },
   });
 
   const generatedResponse = await handler(request({
@@ -600,9 +607,9 @@ test("normalizes positive model output into explicit prohibited actions before R
   const generatedPayload = await generatedResponse.json();
 
   assert.equal(generatedResponse.status, 200);
+  assert.equal(providerCalls, 2);
   assert.deepEqual(generatedPayload.draft.prohibitedActions, [
-    "Do not offer a replacement bag.",
-    "Do not offer store credit instead of refund.",
+    "Do not offer store credit, a replacement, or an exchange.",
     "Do not promise immediate or expedited refund beyond 3-5 business days.",
     "Do not provide medical advice or product guarantees.",
   ]);
@@ -616,7 +623,7 @@ test("normalizes positive model output into explicit prohibited actions before R
   );
   assert.equal(
     generatedPayload.draft.phases.some((phase: { coachGuidance: string[] }) =>
-      phase.coachGuidance.includes("Offer store credit rather than a refund.")
+      phase.coachGuidance.includes("Offer store credit, a replacement, or an exchange.")
     ),
     false,
   );
@@ -655,9 +662,8 @@ test("canonicalizes subject-led generated prohibitions without double negatives"
     fetchImpl: async () => providerResponse({
       ...generated,
       prohibitedActions: [
-        "The learner must not offer store credit.",
+        "The learner must not offer store credit, a replacement, or an exchange.",
         "The agent cannot provide medical advice.",
-        "Avoid offering a replacement.",
         "The learner should avoid promising an expedited refund.",
         "The representative doesn't guarantee an arrival date.",
         "The agent won’t promise immediate delivery.",
@@ -670,9 +676,8 @@ test("canonicalizes subject-led generated prohibitions without double negatives"
 
   assert.equal(response.status, 200);
   assert.deepEqual(payload.draft.prohibitedActions, [
-    "Do not offer store credit.",
+    "Do not offer store credit, a replacement, or an exchange.",
     "Do not provide medical advice.",
-    "Avoid offering a replacement.",
     "Avoid promising an expedited refund.",
     "Do not guarantee an arrival date.",
     "Do not promise immediate delivery.",
@@ -1127,8 +1132,8 @@ test("retries one hosted draft with every repairable ordering, gate-concept, and
         }],
         prohibitedActions: providerCalls === 1
           ? [
-              "Do not offer store credit or a replacement.",
-              "Do not offer a replacement or exchange.",
+              "Do not mention store credit.",
+              "Do not mention replacement or exchange.",
             ]
           : ["Do not offer store credit, a replacement, or an exchange."],
       });

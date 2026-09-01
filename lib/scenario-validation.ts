@@ -430,7 +430,7 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
     issues.push({
       code: "overlapping_resolution_prohibitions",
       path: `draft.prohibitedActions[${group[1]}]`,
-      message: "These prohibited resolution alternatives overlap and can create duplicate or conflicting boundaries.",
+      message: "These prohibited resolution alternatives are split across separate scored boundaries.",
       fix: "Combine store credit, replacement, exchange, and other options outside the full refund into one composite boundary. Keep partial-refund and incorrect-amount constraints separate.",
     });
   });

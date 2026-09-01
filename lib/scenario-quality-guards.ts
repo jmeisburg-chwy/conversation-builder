@@ -683,59 +683,28 @@ function resolutionOptionConcepts(tokens: Set<string>): Set<string> {
 
 interface ResolutionProhibitionCandidate {
   index: number;
-  concepts: Set<string>;
-  wildcard: boolean;
 }
 
-const NEGATIVE_RESOLUTION_PRESENTATION = /^(?:(?:do not|dont|never)\s+(?:mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|suggest\w*)|avoid\s+(?:mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|suggest\w*))\b/u;
+const NEGATIVE_RESOLUTION_PRESENTATION = /^(?:(?:do not|dont|never)\s+(?:creat\w*|giv\w*|issu\w*|mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|select\w*|send\w*|suggest\w*|us(?:e|es|ed|ing))|avoid(?:\s+(?:creat\w*|giv\w*|issu\w*|mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|select\w*|send\w*|suggest\w*|us(?:e|es|ed|ing)))?)\b/u;
 const DISTINCT_REFUND_CONSTRAINT = /\b(?:incorrect (?:refund )?amount|partial refund|wrong (?:refund )?amount)\b/u;
 const OTHER_THAN_FULL_REFUND = /\b(?:alternatives?|options?)\s+(?:other than|to)\s+(?:a )?full refund\b/u;
+const REPLACEMENT_DETAIL_ONLY = /\breplacement\s+(?:delivery\s+date|order\s+confirmation)\b/u;
 
 function resolutionProhibitionCandidate(action: string, index: number): ResolutionProhibitionCandidate | undefined {
   const normalized = normalizeComparableText(action);
   if (!NEGATIVE_RESOLUTION_PRESENTATION.test(normalized) || DISTINCT_REFUND_CONSTRAINT.test(normalized)) return undefined;
-  const alternativeConcepts = new Set<string>();
-  if (/\bstore credit\b/u.test(normalized)) alternativeConcepts.add("credit");
-  if (/\bexchang(?:e|es|ed|ing)\b/u.test(normalized)) alternativeConcepts.add("exchange");
-  if (/\b(?:replac(?:e|es|ed|ing|ement|ements)|reship(?:s|ped|ping|ment|ments)?)\b/u.test(normalized)) {
-    alternativeConcepts.add("replacement");
-  }
-  const wildcard = OTHER_THAN_FULL_REFUND.test(normalized);
-  return alternativeConcepts.size || wildcard ? { index, concepts: alternativeConcepts, wildcard } : undefined;
+  const namesAlternative = /\bstore credit\b/u.test(normalized)
+    || /\bexchang(?:e|es|ed|ing)\b/u.test(normalized)
+    || (/\b(?:replac(?:e|es|ed|ing|ement|ements)|reship(?:s|ped|ping|ment|ments)?)\b/u.test(normalized)
+      && !REPLACEMENT_DETAIL_ONLY.test(normalized));
+  return namesAlternative || OTHER_THAN_FULL_REFUND.test(normalized) ? { index } : undefined;
 }
 
 export function findOverlappingResolutionProhibitionGroups(actions: string[]): number[][] {
   const candidates = actions
     .map(resolutionProhibitionCandidate)
     .filter((candidate): candidate is ResolutionProhibitionCandidate => Boolean(candidate));
-  const neighbors = new Map<number, Set<number>>(candidates.map(({ index }) => [index, new Set()]));
-  candidates.forEach((left, leftIndex) => {
-    candidates.slice(leftIndex + 1).forEach((right) => {
-      const overlaps = left.wildcard
-        || right.wildcard
-        || [...left.concepts].some((concept) => right.concepts.has(concept));
-      if (!overlaps) return;
-      neighbors.get(left.index)?.add(right.index);
-      neighbors.get(right.index)?.add(left.index);
-    });
-  });
-
-  const visited = new Set<number>();
-  const groups: number[][] = [];
-  candidates.forEach(({ index }) => {
-    if (visited.has(index) || !neighbors.get(index)?.size) return;
-    const group: number[] = [];
-    const pending = [index];
-    while (pending.length) {
-      const current = pending.pop()!;
-      if (visited.has(current)) continue;
-      visited.add(current);
-      group.push(current);
-      neighbors.get(current)?.forEach((neighbor) => pending.push(neighbor));
-    }
-    groups.push(group.sort((left, right) => left - right));
-  });
-  return groups;
+  return candidates.length > 1 ? [candidates.map(({ index }) => index)] : [];
 }
 
 export function openingPreanswersRequiredPreference(openingLine: string, learnerActions: string[]): boolean {
