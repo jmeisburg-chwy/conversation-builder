@@ -211,8 +211,8 @@ function violatesProhibitionAllowlist(
   return actual.size > 0 && [...actual].some((value) => !constraint.allowed.has(value));
 }
 
-const RESOLUTION_SEQUENCE_CLAUSE_SPLIT = /;|(?<!\d)\.(?!\d)|\b(?:and|or)\b(?=\s*(?:(?:do not|don't|dont|never|avoid)\b|(?:complet\w*|creat\w*|giv\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b))/iu;
-const RESOLUTION_SEQUENCE_CLAUSE = /^(?:(?:do not|dont|never|avoid)\s+)?(?:complet\w*|creat\w*|giv\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,60}\b(?:refund\w*|replac\w*|reship\w*)\b.{0,80}\b(?:before|prior to|until|unless|without)\b(.*)$/u;
+const RESOLUTION_SEQUENCE_CLAUSE_SPLIT = /;|(?<!\d)\.(?!\d)|\b(?:and|or)\b(?=\s*(?:(?:do not|don't|dont|never|avoid)\b|(?:complet\w*|creat\w*|finaliz\w*|giv\w*|initiat\w*|issu\w*|plac\w*|process\w*|provid\w*|refund\w*|replac\w*|reship\w*|send\w*|sent|submi\w*)\b))/iu;
+const RESOLUTION_SEQUENCE_CLAUSE = /^(?:(?:do not|dont|never|avoid)\s+)?(?:(?:complet\w*|creat\w*|finaliz\w*|giv\w*|initiat\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,60}\b(?:refund\w*|replac\w*|reship\w*)\b|(?:refund\w*|replac\w*|reship\w*)\b).{0,80}\b(?:before|prior to|until|unless|without)\b(.*)$/u;
 const PREFERENCE_SEQUENCE_SIGNAL = /\b(?:choice|choos\w*|option|prefer\w*|request\w*|select\w*|want\w*|whether)\b/u;
 const CUSTOMER_CONFIRMATION_SIGNAL = /(?:\b(?:customer|conversation partner|partner)\b.{0,80}\b(?:accept\w*|agree\w*|confirm\w*)\b|\b(?:accept\w*|agree\w*|confirm\w*)\b.{0,80}\b(?:customer|conversation partner|partner)\b)/u;
 const NON_CUSTOMER_PREREQUISITE = /\b(?:approval|authorization|eligibility|leader|manager|policy|supervisor|tracking|validation|verification)\b/u;

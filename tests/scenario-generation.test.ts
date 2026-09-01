@@ -1491,7 +1491,7 @@ test("rebuilds approved refund phases when a sequencing guardrail names the refu
         criteria: ["Issue a full refund of $32.49 to the original payment card."],
       }],
       prohibitedActions: [
-        "Do not issue the refund before Jamie confirms they want it.",
+        "Do not refund Jamie before they confirm they want it.",
         "Do not offer store credit, a replacement, or an exchange.",
       ],
     }),
@@ -1822,6 +1822,9 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
   const requirements = [{ id: "refund", phrases: ["refund"] }];
   for (const preferenceOrdering of [
     "Do not issue the refund before the customer confirms they want it.",
+    "Do not refund Jamie before they confirm they want it.",
+    "Do not finalize the refund before the customer confirms they want it.",
+    "Do not initiate the refund until the customer selects it.",
     "Do not issue the refund prior to confirming the customer's preference.",
     "Do not issue the refund until the customer selects it.",
     "Do not issue the refund unless Jamie confirms.",
@@ -1838,6 +1841,7 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
   for (const prerequisite of [
     "Do not issue the refund before confirming manager approval.",
     "Do not guarantee a delivery date before confirming tracking.",
+    "Do not refund Jamie before they confirm tracking.",
   ]) {
     const phrase = prerequisite.includes("delivery date") ? "guarantee a delivery date" : "refund";
     const findings = findChatAdvanceRequirementQualityFindings(
@@ -1848,6 +1852,18 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
       findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"),
       true,
       prerequisite,
+    );
+  }
+
+  for (const absoluteProhibition of [
+    "Do not issue a refund.",
+    "Do not issue a partial refund.",
+  ]) {
+    const findings = findChatAdvanceRequirementQualityFindings(requirements, [absoluteProhibition]);
+    assert.equal(
+      findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      true,
+      absoluteProhibition,
     );
   }
 
