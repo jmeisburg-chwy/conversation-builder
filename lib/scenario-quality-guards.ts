@@ -1599,6 +1599,7 @@ const UNQUALIFIED_ARTIFACT_PATTERN = /^(?:(?:an?|the|approved|specific)\s+)?(?:[
 const RECIPIENT_PADDING_PATTERN = /\s+(?:to|with|for)\s+(?:(?:a|the)\s+)?customer\.?$/i;
 const GENERIC_HELP_PLACEHOLDER_PATTERN = /\bhelp\s+(?:the\s+)?customer(?:\s+with\s+(?:(?:the|this|that)\s+)?(?:issue|problem|situation|request|concern|order))?\.?\s*$/i;
 const GENERIC_POLICY_DISCUSSION_PATTERN = /\bdiscuss(?:es|ed|ing)?\b[^.?!]{0,50}\b(?:policy|process)\b/i;
+const BARE_BEHAVIOR_ACTION_PATTERN = /^\s*(?:acknowledge|ask|clarify|confirm|explain|recap|set|summarize)\.?\s*$/i;
 const DETAIL_STOP_WORDS = new Set([
   "a", "an", "and", "at", "by", "for", "from", "in", "is", "of", "on", "or", "the", "then", "to", "was", "with",
 ]);
@@ -1715,6 +1716,7 @@ export function isNondeterministicResolutionText(value: string): boolean {
   if (/\bfollow\s+(?:(?:the\s+)?approved\s+(?:process|path|support path)|policy)\b/i.test(candidate)) return true;
   if (/\bdetermine\s+(?:the\s+)?(?:best|appropriate|approved)\s+(?:resolution|outcome|next step)\b/i.test(candidate)) return true;
   if (/\bresolve\s+(?:the\s+)?(?:issue|situation)\s+appropriately\b/i.test(candidate)) return true;
+  if (BARE_BEHAVIOR_ACTION_PATTERN.test(candidate)) return false;
   return Boolean(findOutcomeAction(candidate)) || /\b(?:available|appropriate|approved)\s+(?:next steps?|options?)\b/i.test(candidate);
 }
 
@@ -1725,6 +1727,7 @@ export function findNondeterministicResolutionStep(correctProcess: string[]): nu
   const vagueIndex = correctProcess.findIndex(isNondeterministicResolutionText);
   if (vagueIndex >= 0) return vagueIndex;
   if (correctProcess.some(hasDetailedBehaviorAction)) return -1;
+  if (correctProcess.filter((step) => BARE_BEHAVIOR_ACTION_PATTERN.test(step)).length >= 2) return -1;
   for (let index = correctProcess.length - 1; index >= 0; index -= 1) {
     if (correctProcess[index]?.trim()) return index;
   }

@@ -1601,10 +1601,10 @@ function setStage(stage, options = {}) {
 
 export function configureReviewTestAffordance(button, {
   available = false,
-  validated = false
+  validationAttempted = false
 } = {}) {
   if (!button) return button;
-  button.disabled = !available || !validated;
+  button.disabled = !available || !validationAttempted;
   return button;
 }
 
@@ -1661,16 +1661,16 @@ function renderStageAvailability() {
     if (stage === "review") button.disabled = !state.reviewStarted;
     if (stage === "tune") {
       configureReviewTestAffordance(button, {
-        available: state.reviewStarted,
-        validated: reviewIsComplete() && state.validation?.ok === true
+        available: state.reviewStarted && reviewIsComplete(),
+        validationAttempted: Boolean(state.validation)
       });
     }
     if (stage === "validate") {
-      button.disabled = !canEnterPublish(state.draft) || state.validation?.ok !== true;
+      button.disabled = !canEnterPublish(state.draft) || !state.validation;
     }
   });
   configurePublishContinueAffordance(elements.testPublishButton, {
-    ready: canEnterPublish(state.draft) && state.validation?.ok === true
+    ready: canEnterPublish(state.draft) && Boolean(state.validation)
   });
 }
 
@@ -3877,12 +3877,12 @@ function renderReviewReadiness() {
   const ready = blockingPhaseEvaluationFindings(state.draft).length === 0;
   if (elements.reviewContinueButton) {
     configureReviewTestAffordance(elements.reviewContinueButton, {
-      available: state.reviewStarted,
-      validated: ready && state.validation?.ok === true
+      available: state.reviewStarted && ready,
+      validationAttempted: Boolean(state.validation)
     });
     elements.reviewContinueButton.title = !ready
       ? "Complete the highlighted learning objective details before downloading."
-      : state.validation?.ok === true
+      : state.validation
         ? ""
         : "Validate the conversation before downloading.";
   }
@@ -8503,7 +8503,16 @@ export function actionableBlockingIssues(validation = {}, { draft = null } = {})
     ].includes(code)
       ? String(issue.fix || issue.message || "").trim()
       : "";
-    const message = messageRule?.message || blockerFix || creatorAction.message;
+    const preciseCriterionMessage = [
+      "second_person_criterion",
+      "non_imperative_criterion",
+      "unlinked_objective_criterion",
+      "linked_criterion_action_missing",
+      "positive_prohibited_reference"
+    ].includes(code)
+      ? String(issue.message || issue.fix || "").trim()
+      : "";
+    const message = messageRule?.message || blockerFix || preciseCriterionMessage || creatorAction.message;
     const issueFieldIdentity = normalizedIssuePath(issue) || reviewFieldPath;
     const normalizedFieldIdentity = issueFieldIdentity.trim().toLowerCase();
     const messageIdentity = normalizedFinalCheckMessageIdentity(issue);
@@ -9009,7 +9018,7 @@ function portableRuntimeValue(value) {
 }
 
 export function portableValidatedScenarioFiles({ validation, scenarios = [] } = {}) {
-  if (validation?.ok !== true || !Array.isArray(validation?.files)) return [];
+  if (!Array.isArray(validation?.files)) return [];
   if (validation.files.every((file) => file?.scenario && file?.filename)) {
     return validation.files.flatMap((file) => {
       const scenario = file.scenario;
@@ -9166,8 +9175,8 @@ export function finalCheckDisplayState(validation, channels = []) {
   }
   if (actionableBlockingIssues(validation).length) {
     return {
-      headline: "Changes needed",
-      description: "Fix the items below, then validate again."
+      headline: "Review suggested changes",
+      description: "Update these items or continue to download your conversation."
     };
   }
   const readyChannels = Array.isArray(channels)
@@ -9306,7 +9315,10 @@ async function runValidation() {
     if (state.validation.ok) {
       showToast(buildFinalCheckReadyCopy(state.draft.scenario.channels).toast);
     } else {
-      showToast("Changes are needed before downloading.");
+      showToast(finalCheckDisplayState(
+        state.validation,
+        state.draft?.scenario?.channels || []
+      ).description);
     }
   } catch (error) {
     state.validation = validationUnavailableState(error);
@@ -9790,7 +9802,7 @@ function wireControls() {
   });
   elements.reviewContinueButton.addEventListener("click", async () => {
     const canEnter = handleReviewTestEntry({
-      canEnter: reviewIsComplete() && state.validation?.ok === true,
+      canEnter: reviewIsComplete() && Boolean(state.validation),
       onBlocked: () => {
         revealReviewBlockingIssues();
         showToast(reviewIsComplete()
@@ -9823,7 +9835,7 @@ function wireControls() {
     closePreview("");
     await saveDraft({ quiet: true });
     handlePublishContinueEntry({
-      canEnter: canEnterPublish(state.draft) && state.validation?.ok === true,
+      canEnter: canEnterPublish(state.draft) && Boolean(state.validation),
       onBlocked: () => {
         setStage("review");
         elements.reviewFinalCheck?.scrollIntoView({ behavior: "smooth", block: "center" });

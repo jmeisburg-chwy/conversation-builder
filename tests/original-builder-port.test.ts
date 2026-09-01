@@ -198,7 +198,43 @@ test("maps standalone validation paths back to the original Review/Edit controls
 
   assert.equal(action.reviewFieldPath, "evaluation.objectives.1.criteria.2.text");
   assert.equal(action.actionLabel, "Review objectives");
-  assert.equal(action.message, "Add at least one evaluation criterion.");
+  assert.equal(action.message, "Observable criteria must begin with an imperative action.");
+});
+
+test("keeps Continue to Download available when validation has advisory findings", () => {
+  const button = { disabled: true };
+
+  builderApp.configureReviewTestAffordance(button, {
+    available: true,
+    validationAttempted: true,
+  });
+
+  assert.equal(button.disabled, false);
+});
+
+test("describes failed validation as advisory before download", () => {
+  assert.deepEqual(builderApp.finalCheckDisplayState({
+    issues: [{ severity: "FAIL", code: "future_check", message: "Review this detail." }],
+  }), {
+    headline: "Review suggested changes",
+    description: "Update these items or continue to download your conversation.",
+  });
+});
+
+test("offers generated JSON files when validation findings are advisory", () => {
+  const files = builderApp.portableValidatedScenarioFiles({
+    validation: {
+      ok: false,
+      issues: [{ severity: "FAIL", code: "future_check", message: "Review this detail." }],
+      files: [{
+        filename: "advisory_chat.json",
+        scenario: { id: "advisory_chat", channels: ["chat"], title: "Advisory draft" },
+      }],
+    },
+  });
+
+  assert.equal(files.length, 1);
+  assert.equal(files[0].filename, "advisory_chat.json");
 });
 
 test("routes five-blocker corrections to the earned turn and preserves their actionable fix", () => {
