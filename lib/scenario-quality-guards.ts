@@ -26,10 +26,12 @@ const GENERIC_CHAT_GATE_PHRASES = new Set([
   "issue",
   "ok",
   "okay",
+  "next steps",
   "process",
   "thank",
   "thank you",
   "thanks",
+  "what to expect",
 ]);
 
 const PROHIBITED_OPTION_ACTION = /^(?:approv(?:e|ed|ing)|choos(?:e|ing)|creat(?:e|ed|ing)|giv(?:e|ing)|issu(?:e|ed|ing)|offer(?:ed|ing)?|process(?:ed|ing)?|provid(?:e|ed|ing)|select(?:ed|ing)?|send(?:ing)?|use|using)\s+(.+)$/i;
@@ -132,7 +134,7 @@ interface ProhibitionAllowlistConstraint {
   allowed: Set<string>;
 }
 
-const PROHIBITION_ALLOWLIST_DELIMITER = /\b(?:(?:anything\s+)?other\s+than|different\s+from|except)\b/iu;
+const PROHIBITION_ALLOWLIST_DELIMITER = /\b(?:(?:anything\s+)?other\s+than|different\s+from|except|beyond)\b/iu;
 
 function canonicalAmount(value: string): string | undefined {
   const amount = Number.parseFloat(value.replace(/,/gu, ""));
@@ -1398,8 +1400,92 @@ export function prohibitedResolutionAlternativeGatePhrases(
         resolutionReferenceGatePhrases(normalized).forEach((phrase) => phrases.add(phrase));
       }
     });
+
+    const normalizedAction = normalizeComparableText(action);
+    if (!DIRECT_NEGATIVE_SEQUENCE_START.test(normalizedAction)) return;
+    const prohibited = normalizedAction.replace(/^(?:do not|dont|never|avoid)\s+/, "");
+    if (/\bblam\w*\b/u.test(prohibited) && /\b(?:carrier|driver|customer|pet parent)\b/u.test(prohibited)) {
+      [
+        "blame",
+        "carrier lost",
+        "carrier clearly lost",
+        "carrier definitely lost",
+        "carrier fault",
+        "driver lost",
+        "driver fault",
+        "customer fault",
+      ].forEach((phrase) => phrases.add(phrase));
+    }
+    if (/\b(?:guarantee\w*|promis\w*)\b/u.test(prohibited)
+      && /\b(?:arriv\w*|deliver\w*|date|timeframe|timing|tomorrow)\b/u.test(prohibited)) {
+      [
+        "i guarantee",
+        "we guarantee",
+        "guarantee delivery",
+        "guarantee arrival",
+        "definitely arrive",
+        "will definitely arrive",
+      ].forEach((phrase) => phrases.add(phrase));
+    }
+    if (/\b(?:compensation|concession|discount)\b/u.test(prohibited)
+      && /\b(?:add|give|offer|provide)\w*\b/u.test(prohibited)) {
+      [
+        "add compensation",
+        "offer compensation",
+        "provide compensation",
+        "give compensation",
+        "add a discount",
+        "offer a discount",
+      ].forEach((phrase) => phrases.add(phrase));
+    }
   });
   return [...phrases];
+}
+
+type DiscoveryConcept = "checked_locations" | "remaining_supply";
+
+function discoveryConcepts(value: string, requireQuestionIntent: boolean): Set<DiscoveryConcept> {
+  const normalized = normalizeComparableText(value);
+  if (requireQuestionIntent
+    && !/\b(?:ask\w*|check\w*|clarif\w*|confirm\w*|discover\w*|find out|how much|how many|what|where)\b/u.test(normalized)) {
+    return new Set();
+  }
+  const concepts = new Set<DiscoveryConcept>();
+  if (/\b(?:check\w*|look\w*|search\w*)\b/u.test(normalized)
+    && /\b(?:address|door|garage|location|mailroom|neighbor|package|porch|spot)\w*\b/u.test(normalized)) {
+    concepts.add("checked_locations");
+  }
+  if (/\b(?:food|medication|medicine|product|supply)\w*\b/u.test(normalized)
+    && /\b(?:almost out|enough|has left|have left|how many|how much|left|remain\w*|run out|running out|through tomorrow)\b/u.test(normalized)) {
+    concepts.add("remaining_supply");
+  }
+  return concepts;
+}
+
+export interface PrematureCustomerRevealFinding {
+  responsePhaseIndex: number;
+  discoveryPhaseIndex: number;
+  concept: DiscoveryConcept;
+}
+
+export function findPrematureCustomerRevealFindings(
+  phases: PhaseDraft[],
+): PrematureCustomerRevealFinding[] {
+  const findings: PrematureCustomerRevealFinding[] = [];
+  phases.forEach((phase, responsePhaseIndex) => {
+    const responseConcepts = discoveryConcepts(phase.partnerResponse, false);
+    if (!responseConcepts.size) return;
+    const currentConcepts = discoveryConcepts(phase.learnerActions.join(" "), true);
+    phases.slice(responsePhaseIndex + 1).forEach((futurePhase, offset) => {
+      const discoveryPhaseIndex = responsePhaseIndex + offset + 1;
+      discoveryConcepts(futurePhase.learnerActions.join(" "), true).forEach((concept) => {
+        if (!currentConcepts.has(concept) && responseConcepts.has(concept)) {
+          findings.push({ responsePhaseIndex, discoveryPhaseIndex, concept });
+        }
+      });
+    });
+  });
+  return findings;
 }
 
 export function findOverlappingResolutionProhibitionGroups(actions: string[]): number[][] {

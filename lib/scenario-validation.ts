@@ -15,6 +15,7 @@ import {
   findChatAdvanceRequirementQualityFindings,
   findNondeterministicResolutionStep,
   findOverlappingResolutionProhibitionGroups,
+  findPrematureCustomerRevealFindings,
   findPreferenceResponseOrderConflicts,
   openingPreanswersRequiredPreference,
   operationalCriterionMatchingPhaseIndexes,
@@ -200,6 +201,14 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
   requireText("draft.customer.goal", draft.customer.goal, "Customer goal");
   requireText("draft.customer.openingLine", draft.customer.openingLine, "Opening line");
   requireText("draft.customer.closingLine", draft.customer.closingLine, "Closing line");
+  if (/\?|\bwhat happens next\b/iu.test(draft.customer.closingLine)) {
+    issues.push({
+      code: "unresolved_closing_question",
+      path: "draft.customer.closingLine",
+      message: "The final Conversation Partner line asks a question, but the scenario ends before the Learner can answer.",
+      fix: "Replace it with a true closing statement or add a final Learner-response phase before the closing.",
+    });
+  }
   requireLines("draft.correctProcess", draft.correctProcess, "Correct process");
   const nondeterministicResolutionIndex = findNondeterministicResolutionStep(draft.correctProcess);
   if (nondeterministicResolutionIndex >= 0) {
@@ -347,6 +356,25 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       });
     }
   });
+  findPrematureCustomerRevealFindings(draft.phases).forEach((finding) => {
+    issues.push({
+      code: "premature_customer_reveal",
+      path: `draft.phases[${finding.responsePhaseIndex}].partnerResponse`,
+      message: "This Conversation Partner response reveals information before the Learner reaches the phase that asks for it.",
+      fix: `Move this answer to the Conversation Partner response after phase ${finding.discoveryPhaseIndex + 1}'s discovery question.`,
+    });
+  });
+  const finalPhase = draft.phases.at(-1);
+  if (finalPhase && !finalPhase.customerRemainsSilent
+    && /\?|\bwhat happens next\b/iu.test(finalPhase.partnerResponse)
+    && finalPhase.partnerResponse.trim() !== draft.customer.closingLine.trim()) {
+    issues.push({
+      code: "unresolved_closing_question",
+      path: `draft.phases[${draft.phases.length - 1}].partnerResponse`,
+      message: "The final Conversation Partner response asks a question, but no Learner response follows it.",
+      fix: "Replace it with a true closing response or add a final Learner-response phase.",
+    });
+  }
   const phaseIds = draft.phases.map((phase) => phase.id);
   phaseIds.forEach((id, index) => {
     if (phaseIds.indexOf(id) !== index) {

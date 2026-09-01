@@ -21,6 +21,7 @@ import {
   editChatAdvanceRequirementPhrases,
   reviewFindingTargets,
   runCreateDraftBuild,
+  finalCheckDisplayState,
   saveDraft,
   stepPassingScore,
   standalonePublishChecks,
@@ -40,12 +41,32 @@ test("ports the original complete Review/Edit surface into the standalone Builde
   assert.match(html, /id="reviewPractice"/);
   assert.match(html, /id="hotkeyLibrary"/);
   assert.match(html, /id="reviewFinalCheck"/);
-  assert.match(html, /Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid\./);
-  assert.match(script, /Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid\./);
+  assert.match(html, /exact approved actions and outcome/i);
+  assert.match(script, /exact approved actions and outcome/i);
   assert.match(script, /Final Conversation Partner response/);
   assert.match(script, /closing-partner-turn:/);
   assert.match(html, /id="deidentificationConfirmed"/);
   assert.match(html, /I confirm these conversation details are fictional or de-identified\./i);
+});
+
+test("distinguishes downloadable warnings from Scenario Factory readiness", () => {
+  assert.deepEqual(
+    finalCheckDisplayState({ issues: [], files: [{ channel: "chat" }] }),
+    {
+      headline: "Scenario Factory–ready",
+      description: "Chat is ready to test with 0 failures and 0 warnings.",
+    },
+  );
+  assert.deepEqual(
+    finalCheckDisplayState({
+      issues: [{ severity: "WARN", code: "manual_review", message: "Review this item." }],
+      files: [{ channel: "chat" }],
+    }),
+    {
+      headline: "Downloadable — needs review",
+      description: "You can download this JSON, but it is not Scenario Factory–ready until the warnings are fixed.",
+    },
+  );
 });
 
 test("keeps internal Chat matching controls out of Review/Edit", () => {

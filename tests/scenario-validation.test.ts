@@ -168,6 +168,67 @@ test("composes Rise none gates from prohibited operations without blocking detai
     runtimeNonePhrases(["Do not issue the refund before the customer confirms they want it."]),
     [],
   );
+
+  const behavioralNone = runtimeNonePhrases([
+    "Do not blame the delivery carrier.",
+    "Do not guarantee delivery.",
+    "Do not offer or add compensation.",
+  ]);
+  for (const unsafeTurn of [
+    "The delivery carrier clearly lost your package.",
+    "I guarantee delivery tomorrow.",
+    "I will add compensation.",
+  ]) {
+    assert.equal(
+      behavioralNone.some((phrase) => unsafeTurn.toLowerCase().includes(phrase)),
+      true,
+      unsafeTurn,
+    );
+  }
+});
+
+test("rejects a final Conversation Partner question that has no Learner response", async () => {
+  const unresolved = draft();
+  unresolved.customer.closingLine = "Okay, that helps. What happens next?";
+  unresolved.phases[0].partnerResponse = unresolved.customer.closingLine;
+
+  const response = await createValidateHandler()(request({ draft: unresolved }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "unresolved_closing_question"),
+    true,
+  );
+});
+
+test("rejects a Conversation Partner response that reveals a later discovery answer", async () => {
+  const outOfOrder = draft();
+  outOfOrder.phases = [
+    {
+      ...outOfOrder.phases[0],
+      partnerResponse: "Pepper is almost out of dog food.",
+    },
+    {
+      ...outOfOrder.phases[0],
+      id: "discover_remaining_food",
+      title: "Discover remaining food",
+      learnerActions: ["Ask how much dog food Pepper has left."],
+      chatAdvanceRequirements: [
+        { id: "remaining_food", phrases: ["food left", "food remaining"] },
+      ],
+      partnerResponse: "Pepper has enough food through tomorrow.",
+    },
+  ];
+
+  const response = await createValidateHandler()(request({ draft: outOfOrder }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "premature_customer_reveal"),
+    true,
+  );
 });
 
 test("accepts equivalent option and alternative wording when a prohibition is visibly covered", async () => {

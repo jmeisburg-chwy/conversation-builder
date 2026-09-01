@@ -9015,9 +9015,9 @@ export function buildFinalCheckReadyCopy(channels = []) {
         ? "Chat is"
         : "The conversation is";
   return {
-    headline: "Validated",
-    description: `${channelLabel} ready to test.`,
-    toast: `Validation passed. ${channelLabel} ready to test.`
+    headline: "Scenario Factory–ready",
+    description: `${channelLabel} ready to test with 0 failures and 0 warnings.`,
+    toast: `Scenario Factory–ready. ${channelLabel} ready to test.`
   };
 }
 
@@ -9040,7 +9040,15 @@ export function finalCheckDisplayState(validation, channels = []) {
       description: "Fix the items below, then validate again."
     };
   }
-  const readyChannels = Array.isArray(channels)
+  const warningIssues = (Array.isArray(validation?.issues) ? validation.issues : [])
+    .filter((issue) => String(issue?.severity || issue?.level || issue?.type || "FAIL").toUpperCase() === "WARN");
+  if (warningIssues.length) {
+    return {
+      headline: "Downloadable — needs review",
+      description: "You can download this JSON, but it is not Scenario Factory–ready until the warnings are fixed."
+    };
+  }
+  const readyChannels = Array.isArray(channels) && channels.length
     ? channels
     : Array.isArray(validation?.files)
       ? validation.files.map((file) => file.channel)
@@ -9526,7 +9534,7 @@ function wireControls() {
     await playBuildCoachAcknowledgement({
       coach: elements.buildHandlingCoach,
       message: elements.buildHandlingCoachMessage,
-      acknowledgement: "Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid."
+      acknowledgement: "Describe the exact approved actions and outcome, including any amount or timing. Include what the Learner must avoid. If this practice stops before resolution, state exactly where it stops."
     });
   });
   elements.editBuildConversationButton.addEventListener("click", () => {

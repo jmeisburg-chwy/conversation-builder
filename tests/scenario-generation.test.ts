@@ -124,6 +124,61 @@ const generated = {
   assumptions: ["All names and order details are fictional."],
 };
 
+function generatedRefundWithAmount(amount: string) {
+  return {
+    ...generated,
+    customer: {
+      ...generated.customer,
+      name: "Jamie",
+      openingLine: "The dry dog food bag arrived torn and unusable.",
+    },
+    phases: [
+      {
+        ...generated.phases[0],
+        id: "confirm_refund_preference",
+        title: "Confirm refund preference",
+        learnerActions: [
+          "Acknowledge the damaged delivery.",
+          "Ask whether Jamie wants a full refund.",
+        ],
+        chatAdvanceRequirements: [
+          { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
+          { id: "refund_question_intent", phrases: expectedQuestionIntentPhrases },
+          { id: "refund", phrases: ["refund"] },
+        ],
+        partnerResponse: "Yes, I want a full refund.",
+      },
+      {
+        ...generated.phases[0],
+        id: "complete_refund",
+        title: "Complete the refund",
+        learnerActions: [
+          `Issue a full refund of ${amount} to the original payment card.`,
+          "Explain that the refund will post within 3–5 business days.",
+        ],
+        chatAdvanceRequirements: [
+          { id: "refund_amount", phrases: [`${amount} refund`, `refund amount is ${amount}.`] },
+          { id: "refund_destination", phrases: ["original card", "original payment card"] },
+          { id: "refund_timeline", phrases: ["3-5 business days", "3 to 5 business days"] },
+          { id: "refund_completion", phrases: expectedRefundCompletionPhrases },
+        ],
+        partnerResponse: "Thank you for resolving this.",
+      },
+    ],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "refund_resolution",
+      criteria: [
+        "Acknowledge the damaged delivery.",
+        "Ask whether Jamie wants a full refund.",
+        `Issue a full refund of ${amount} to the original payment card.`,
+        "Explain that the refund will post within 3–5 business days.",
+      ],
+    }],
+    prohibitedActions: ["Do not offer store credit, a replacement, or an exchange."],
+  };
+}
+
 function importedDraft(overrides: Partial<StudioDraft> = {}): StudioDraft {
   const base: StudioDraft = {
     baseId: "existing_scenario",
@@ -262,6 +317,33 @@ test("keeps the server-approved new-scenario outcome authoritative when the prov
   assert.deepEqual(payload.draft.correctProcess, [validBody.correctProcess]);
   assert.equal(payload.assumptions.some((value: string) => value.startsWith("MISSING_POLICY")), false);
   assert.match(developerInstructions, /MISSING_POLICY/);
+});
+
+test("deterministically grounds generated resolution facts to the creator-approved amount", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse(generatedRefundWithAmount("$0.49"));
+    },
+  });
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dry dog food.",
+    correctProcess: "Acknowledge the damaged delivery, ask whether Jamie wants a full refund, then issue a $32.49 refund to the original payment card and explain it will post in 3–5 business days. Do not offer store credit, a replacement, or an exchange.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 1);
+  assert.doesNotMatch(JSON.stringify(payload.draft), /\$0\.49/u);
+  assert.match(JSON.stringify(payload.draft.phases), /\$32\.49/u);
+  assert.match(JSON.stringify(payload.draft.objectives), /\$32\.49/u);
+  assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements[0], {
+    id: "refund_amount",
+    phrases: expectedRefundAmountPhrases,
+  });
 });
 
 test("rejects a missing-policy marker for an imported scenario without a server-approved outcome", async () => {
@@ -586,13 +668,14 @@ test("normalizes positive model output into explicit prohibited actions before R
     apiKey: "test-key",
     fetchImpl: async () => {
       providerCalls += 1;
+      const groundedRefund = generatedRefundWithAmount("$32.49");
       const resolutionBoundary = providerCalls === 1
         ? "Offer store credit instead of refund."
         : "Offer store credit, a replacement, or an exchange.";
       return providerResponse({
-        ...generated,
+        ...groundedRefund,
         correctProcess: [
-          ...generated.correctProcess,
+          ...groundedRefund.correctProcess,
           resolutionBoundary,
         ],
         prohibitedActions: [
@@ -601,21 +684,15 @@ test("normalizes positive model output into explicit prohibited actions before R
           "Promise immediate or expedited refund beyond 3-5 business days.",
           "Provide medical advice or product guarantees.",
         ],
-        phases: [{
-          ...generated.phases[0],
-          learnerActions: [
-            ...generated.phases[0].learnerActions,
-            resolutionBoundary,
-          ],
-          coachGuidance: [
-            ...generated.phases[0].coachGuidance,
-            resolutionBoundary,
-          ],
-        }],
+        phases: groundedRefund.phases.map((phase, index) => index === 0 ? {
+          ...phase,
+          learnerActions: [...phase.learnerActions, resolutionBoundary],
+          coachGuidance: [...phase.coachGuidance, resolutionBoundary],
+        } : phase),
         objectives: [{
-          ...generated.objectives[0],
+          ...groundedRefund.objectives[0],
           criteria: [
-            ...generated.objectives[0].criteria,
+            ...groundedRefund.objectives[0].criteria,
             resolutionBoundary,
           ],
         }],

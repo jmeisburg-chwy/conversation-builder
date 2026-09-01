@@ -8,6 +8,7 @@ import {
   customerBehaviorRuleToNegativeGuardrail,
   customerFollowUpConflictsWithLearner,
 } from "../public/builder-studio/src/scenarioQualityGuards.js";
+import { runScenarioHealthCheck } from "../public/builder-studio/src/scenarioQuality.js";
 
 const deliveryDiscovery = ["Ask what the customer has already checked for the package."];
 
@@ -106,4 +107,21 @@ test("preserves customer reactions and questions with a different purpose", () =
   ]) {
     assert.equal(customerFollowUpConflictsWithLearner(followUp, deliveryDiscovery), false, followUp);
   }
+});
+
+test("does not flag explicit negative guardrails as unsupported promises", () => {
+  const health = runScenarioHealthCheck({
+    handling: {
+      correct: ["Do not guarantee delivery."],
+      avoid: [],
+    },
+    guidance: {
+      sections: [{ title: "Boundary", body: "Do not guarantee delivery.", bullets: [] }],
+    },
+    evaluation: { objectives: [] },
+    scenario: { channels: ["chat"] },
+    chat: { standardText: [] },
+  });
+
+  assert.equal(health.findings.some((finding) => finding.category === "Unsupported promise"), false);
 });

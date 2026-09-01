@@ -16,6 +16,7 @@ const STOP_WORDS = new Set([
 ]);
 
 const PROMISE_PATTERN = /\b(guarantee(?:d|s)?|definitely|certain(?:ly)?|always|immediately|same[- ]day|will arrive by|will be fixed by)\b/i;
+const EXPLICIT_NEGATIVE_GUARDRAIL = /^\s*(?:do not|don't|never|avoid|must not|should not)\b/i;
 const PRIVACY_PATTERNS = [
   { label: "email address", pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i },
   { label: "phone number", pattern: /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/ },
@@ -449,7 +450,7 @@ export function runScenarioHealthCheck(draft = {}) {
     ...collectTextEntries(draft?.chat?.standardText || [], "chat.standardText")
   ];
   promiseEntries.forEach(({ fieldPath, value }) => {
-    if (!PROMISE_PATTERN.test(value)) return;
+    if (!PROMISE_PATTERN.test(value) || EXPLICIT_NEGATIVE_GUARDRAIL.test(value)) return;
     findings.push(finding({
       id: `promise-${fieldPath}`,
       category: "Unsupported promise",

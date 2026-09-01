@@ -18,6 +18,7 @@ import {
   findChatAdvanceRequirementQualityFindings,
   findOperationalCriterionCoverageFindings,
   findOverlappingResolutionProhibitionGroups,
+  findPrematureCustomerRevealFindings,
   findPreferenceResponseOrderConflicts,
   hasDeterministicResolutionText,
   isNondeterministicResolutionText,
@@ -222,7 +223,9 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
         try {
           const candidate = sanitizeProviderOutput(parseProviderOutput(providerRaw));
           assertGeneratedContent(candidate);
-          content = candidate;
+          const groundedCandidate = groundGeneratedResolutionFacts(candidate, input.correctProcess);
+          assertGeneratedContent(groundedCandidate);
+          content = groundedCandidate;
           break;
         } catch (caught) {
           if (caught instanceof RepairableGeneratedContentError && attempt === 0) {
@@ -255,7 +258,9 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
             repairDetails = safeGeneratedRepairDetails(repaired);
             try {
               assertGeneratedContent(repaired);
-              content = repaired;
+              const groundedRepaired = groundGeneratedResolutionFacts(repaired, input.correctProcess);
+              assertGeneratedContent(groundedRepaired);
+              content = groundedRepaired;
             } catch (repairFailure) {
               const rebuildResult = repairFailure instanceof RepairableGeneratedContentError
                 && repairFailure.repairCodes.every((code) =>
@@ -275,7 +280,9 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
               const rebuilt = rebuildResult.content;
               repairDetails = safeGeneratedRepairDetails(rebuilt);
               assertGeneratedContent(rebuilt);
-              content = rebuilt;
+              const groundedRebuilt = groundGeneratedResolutionFacts(rebuilt, input.correctProcess);
+              assertGeneratedContent(groundedRebuilt);
+              content = groundedRebuilt;
             }
             break;
           }
@@ -526,6 +533,92 @@ function authoritativeProhibitedActions(correctProcess: string | undefined): str
     .filter(nonempty));
 }
 
+function canonicalResolutionTimeline(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[–—]/gu, "-")
+    .replace(/\b(\d+)\s+to\s+(\d+)\b/gu, "$1-$2")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function currencyValues(values: string[]): Set<string> {
+  return new Set(values.flatMap((value) =>
+    [...value.matchAll(/\$\s*\d+\.\d{2}\b/gu)].map((match) => match[0].replace(/\s+/gu, ""))
+  ));
+}
+
+function timelineValuesForFidelity(values: string[]): Set<string> {
+  return new Set(values.flatMap((value) =>
+    [...value.matchAll(
+      /\b(?:\d+\s*(?:-|–|—|to)\s*\d+\s+(?:business days?|days?|hours?|weeks?)|\d+\s+(?:business days?|days?|hours?|weeks?)|end of day|today|tomorrow)\b/giu,
+    )].map((match) => canonicalResolutionTimeline(match[0]))
+  ));
+}
+
+function positiveResolutionValues(values: string[]): string[] {
+  return values.filter((value) => !generatedNegativeAction(value));
+}
+
+function generatedResolutionFactsDrift(
+  content: GeneratedContent,
+  blueprint: ApprovedResolutionBlueprint,
+): boolean {
+  if (!blueprint.amount && !blueprint.timeline && !blueprint.useOriginalPaymentCard) return false;
+  const groups = [
+    positiveResolutionValues(content.phases.flatMap((phase) => phase.learnerActions)),
+    positiveResolutionValues(content.phases.flatMap((phase) =>
+      phase.chatAdvanceRequirements.flatMap((requirement) => requirement.phrases)
+    )),
+    positiveResolutionValues(content.objectives.flatMap((objective) => objective.criteria)),
+  ];
+
+  if (blueprint.amount && groups.some((values) => {
+    const amounts = currencyValues(values);
+    return amounts.size !== 1 || !amounts.has(blueprint.amount!);
+  })) return true;
+
+  if (blueprint.timeline) {
+    const expectedTimeline = canonicalResolutionTimeline(blueprint.timeline);
+    if (groups.some((values) => {
+      const timelines = timelineValuesForFidelity(values);
+      return timelines.size !== 1 || !timelines.has(expectedTimeline);
+    })) return true;
+  }
+
+  if (blueprint.useOriginalPaymentCard && groups.some((values) =>
+    !/\boriginal (?:payment(?: card| method)?|card)\b/iu.test(values.join(" "))
+  )) return true;
+
+  return false;
+}
+
+function groundGeneratedResolutionFacts(
+  content: GeneratedContent,
+  correctProcess: string | undefined,
+): GeneratedContent {
+  const blueprint = approvedResolutionBlueprint(correctProcess);
+  if (!blueprint || !generatedResolutionFactsDrift(content, blueprint)) return content;
+  const rebuilt = rebuildGeneratedResolutionPhases(content, correctProcess).content;
+  if (!rebuilt) throw new Error("approved_resolution_grounding_failed");
+  const primaryObjective = rebuilt.objectives[0];
+  const grounded = {
+    ...rebuilt,
+    objectives: [{
+      ...primaryObjective,
+      criteria: uniqueStrings([
+        ...rebuilt.phases.flatMap((phase) => phase.learnerActions),
+        ...rebuilt.prohibitedActions,
+      ]),
+    }],
+  };
+  if (generatedResolutionFactsDrift(grounded, blueprint)) {
+    throw new Error("approved_resolution_grounding_failed");
+  }
+  return grounded;
+}
+
 function compileBlueprintPhase(
   phase: Omit<PhaseDraft, "chatAdvanceRequirements">,
   prohibitedActions: string[],
@@ -684,6 +777,20 @@ function assertGeneratedContent(value: GeneratedContent): void {
     repairCodes.push("preference_response_order");
     repairCorrections.push(
       "Use a separate question phase for the unresolved customer preference, let its Conversation Partner response provide the earned Conversation Partner answer, and put outcome execution, completion, or recap evidence in a later phase.",
+    );
+  }
+  if (findPrematureCustomerRevealFindings(value.phases).length > 0) {
+    repairCodes.push("premature_customer_reveal");
+    repairCorrections.push(
+      "Do not reveal an answer in an earlier Conversation Partner response when a later Learner phase is supposed to ask for that information. Put each answer only after the phase that asks for it.",
+    );
+  }
+  const finalPhase = value.phases.at(-1);
+  if (/\?|\bwhat happens next\b/iu.test(value.customer.closingLine)
+    || (finalPhase && !finalPhase.customerRemainsSilent && /\?|\bwhat happens next\b/iu.test(finalPhase.partnerResponse))) {
+    repairCodes.push("unresolved_closing_question");
+    repairCorrections.push(
+      "End with a true Conversation Partner closing statement. Do not end customer.closingLine or the final phase.partnerResponse with a question unless another Learner-response phase follows.",
     );
   }
   if (findOperationalCriterionCoverageFindings(value.objectives, value.phases).length > 0) {
