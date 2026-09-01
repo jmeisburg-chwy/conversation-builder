@@ -19,8 +19,7 @@ import {
   findOperationalCriterionCoverageFindings,
   findOverlappingResolutionProhibitionGroups,
   findPreferenceResponseOrderConflicts,
-  hasDeterministicResolutionText,
-  isNondeterministicResolutionText,
+  hasDeterministicConversationHandlingText,
   removePreansweredPreferenceFromOpening,
 } from "./scenario-quality-guards";
 import { parseStudioDraft } from "./scenario-validation";
@@ -142,13 +141,12 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       return errorResponse(400, "confirmation_required", "Confirm that the content is fictional or de-identified before generating.");
     }
 
-    const hasServerApprovedNewResolution = Boolean(
+    const hasServerApprovedNewHandling = Boolean(
       input.mode === "new"
       && input.correctProcess
-      && hasDeterministicResolutionText(input.correctProcess)
-      && !isNondeterministicResolutionText(input.correctProcess),
+      && hasDeterministicConversationHandlingText(input.correctProcess),
     );
-    if (input.mode === "new" && !hasServerApprovedNewResolution) {
+    if (input.mode === "new" && !hasServerApprovedNewHandling) {
       return approvedResolutionRequiredResponse();
     }
 
@@ -287,7 +285,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       const providerMarkedPolicyMissing = content.assumptions.some((assumption) =>
         missingPolicyPattern.test(assumption.trim())
       );
-      if (providerMarkedPolicyMissing && !hasServerApprovedNewResolution) {
+      if (providerMarkedPolicyMissing && !hasServerApprovedNewHandling) {
         return approvedResolutionRequiredResponse();
       }
       const groundedContent = providerMarkedPolicyMissing

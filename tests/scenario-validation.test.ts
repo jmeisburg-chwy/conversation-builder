@@ -1145,6 +1145,23 @@ test("requires a concrete outcome even when the process contains no known placeh
   );
 });
 
+test("accepts a behavior-only process without requiring a policy outcome", async () => {
+  const valid = draft();
+  valid.correctProcess = [
+    "Acknowledge the customer's concern.",
+    "Ask what happened and summarize the customer's priorities.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "nondeterministic_resolution"),
+    false,
+  );
+});
+
 test("accepts an exact resolution even when process wording introduces it", async () => {
   for (const exactStep of [
     "Follow the approved process to issue a full refund.",

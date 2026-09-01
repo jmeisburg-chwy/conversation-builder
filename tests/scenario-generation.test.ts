@@ -188,6 +188,47 @@ test("accepts a concrete approved outcome and calls the provider", async () => {
   assert.equal(called, true);
 });
 
+test("accepts behavior-focused handling guidance before calling the provider", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse({ ...generated, assumptions: ["MISSING_POLICY"] });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: "Acknowledge the customer's concern and ask what happened.",
+    correctProcess: "Acknowledge the customer's concern and ask what happened.",
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+  assert.equal((await response.json()).assumptions.includes("MISSING_POLICY"), false);
+});
+
+test("accepts discovery-question guidance before calling the provider", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse(generated);
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: "Ask open-ended questions about the customer's concern.",
+    correctProcess: "Ask open-ended questions about the customer's concern.",
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+});
+
 test("requires a concrete approved outcome before calling the provider", async () => {
   let called = false;
   const handler = createGenerateHandler({

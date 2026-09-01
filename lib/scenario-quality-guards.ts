@@ -1508,6 +1508,15 @@ const OUTCOME_ACTION_AFTER_LINK_PATTERN = new RegExp(
   String.raw`(\b(?:to|by|must|should|will|then)\s+)(${OUTCOME_ACTION_SOURCE})\b`,
   "i",
 );
+const BEHAVIOR_ACTION_SOURCE = String.raw`(?:acknowledg(?:e|es|ed|ing)|ask(?:s|ed|ing)?)`;
+const BEHAVIOR_ACTION_AT_START_PATTERN = new RegExp(
+  String.raw`^(\s*(?:(?:the\s+)?learner\s+(?:(?:must|should|will|can)\s+)?)?)(${BEHAVIOR_ACTION_SOURCE})\b`,
+  "i",
+);
+const BEHAVIOR_ACTION_AFTER_LINK_PATTERN = new RegExp(
+  String.raw`(\b(?:to|by|must|should|will|then)\s+)(${BEHAVIOR_ACTION_SOURCE})\b`,
+  "i",
+);
 const UNRESOLVED_DISCRETION_PATTERN = new RegExp([
   String.raw`\b(?:if|when|as)\s+(?:appropriate|needed|necessary|applicable|possible)\b`,
   String.raw`\b(?:available|approved|possible)\b[^.?!]{0,40}\b(?:options?|choices?|next steps?)\b`,
@@ -1519,12 +1528,24 @@ const NEGATED_ALTERNATIVE_PATTERN = /\b(?:do\s+not|don't|never|without|no)\b[^.?
 const GENERIC_RESULT_PHRASE_PATTERN = /^(?:(?:an?|the|approved|available|appropriate|best|next)\s+)*(?:request|options?|choices?|alternatives?|next\s+steps?|details?|information|status|expectations?|resolution|outcome|actions?|process|path|support|help|plans?)\.?$/i;
 const UNQUALIFIED_ARTIFACT_PATTERN = /^(?:(?:an?|the|approved|specific)\s+)?(?:[a-z][a-z'-]*\s+){0,3}(?:request|case|plan)\.?$/i;
 const RECIPIENT_PADDING_PATTERN = /\s+(?:to|with|for)\s+(?:(?:a|the)\s+)?customer\.?$/i;
+const GENERIC_HELP_PLACEHOLDER_PATTERN = /\bhelp\s+(?:the\s+)?customer(?:\s+with\s+(?:(?:the|this|that)\s+)?(?:issue|problem|situation|request|concern|order))?\.?\s*$/i;
+const GENERIC_POLICY_DISCUSSION_PATTERN = /\bdiscuss(?:es|ed|ing)?\b[^.?!]{0,50}\b(?:policy|process)\b/i;
 const DETAIL_STOP_WORDS = new Set([
   "a", "an", "and", "at", "by", "for", "from", "in", "is", "of", "on", "or", "the", "then", "to", "was", "with",
 ]);
 
 function findOutcomeAction(value: string): { index: number; text: string } | null {
   for (const pattern of [OUTCOME_ACTION_AT_START_PATTERN, OUTCOME_ACTION_AFTER_LINK_PATTERN]) {
+    const match = pattern.exec(value);
+    if (match && match.index !== undefined) {
+      return { index: match.index + match[1].length, text: match[2] };
+    }
+  }
+  return null;
+}
+
+function findBehaviorAction(value: string): { index: number; text: string } | null {
+  for (const pattern of [BEHAVIOR_ACTION_AT_START_PATTERN, BEHAVIOR_ACTION_AFTER_LINK_PATTERN]) {
     const match = pattern.exec(value);
     if (match && match.index !== undefined) {
       return { index: match.index + match[1].length, text: match[2] };
@@ -1574,6 +1595,24 @@ function hasDetailedOutcomeAction(value: string): boolean {
   });
 }
 
+function hasDetailedBehaviorAction(value: string): boolean {
+  const clauses = value.split(/(?:[.;!?]+|,\s+|\b(?:and\s+then|then|and|but)\b)/i);
+  return clauses.some((clause) => {
+    const action = findBehaviorAction(clause);
+    if (!action) return false;
+
+    const outcomePhrase = clause.slice(action.index + action.text.length).trim();
+    if (!outcomePhrase || GENERIC_RESULT_PHRASE_PATTERN.test(outcomePhrase)) return false;
+
+    const detailWords = normalizeComparableText(outcomePhrase)
+      .split(" ")
+      .filter((word) => word && !DETAIL_STOP_WORDS.has(word));
+    if (detailWords.length >= 2) return true;
+
+    return /^(?:the|this|that|their|its|our|your|customer(?:s|'s))\s+/i.test(outcomePhrase);
+  });
+}
+
 export function hasDeterministicResolutionText(value: string): boolean {
   const candidate = value.trim();
   return Boolean(candidate)
@@ -1582,12 +1621,20 @@ export function hasDeterministicResolutionText(value: string): boolean {
     && hasDetailedOutcomeAction(candidate);
 }
 
+export function hasDeterministicConversationHandlingText(value: string): boolean {
+  const candidate = value.trim();
+  if (!candidate || isNondeterministicResolutionText(candidate)) return false;
+  return hasDeterministicResolutionText(candidate) || hasDetailedBehaviorAction(candidate);
+}
+
 export function isNondeterministicResolutionText(value: string): boolean {
   const candidate = value.trim();
   if (!candidate) return false;
   if (hasUnresolvedDecision(candidate)) return true;
   if (hasAmbiguousResolutionAlternative(candidate)) return true;
   if (hasDeterministicResolutionText(candidate)) return false;
+  if (GENERIC_HELP_PLACEHOLDER_PATTERN.test(candidate)) return true;
+  if (GENERIC_POLICY_DISCUSSION_PATTERN.test(candidate)) return true;
   if (/\binitiat(?:e|es|ed|ing)\s+(?:a |an |the )?resolution\b/i.test(candidate)) return true;
   if (/\bfollow\s+(?:(?:the\s+)?approved\s+(?:process|path|support path)|policy)\b/i.test(candidate)) return true;
   if (/\bdetermine\s+(?:the\s+)?(?:best|appropriate|approved)\s+(?:resolution|outcome|next step)\b/i.test(candidate)) return true;
@@ -1601,6 +1648,7 @@ export function findNondeterministicResolutionStep(correctProcess: string[]): nu
   if (correctProcess.some(hasDeterministicResolutionText)) return -1;
   const vagueIndex = correctProcess.findIndex(isNondeterministicResolutionText);
   if (vagueIndex >= 0) return vagueIndex;
+  if (correctProcess.some(hasDetailedBehaviorAction)) return -1;
   for (let index = correctProcess.length - 1; index >= 0; index -= 1) {
     if (correctProcess[index]?.trim()) return index;
   }
