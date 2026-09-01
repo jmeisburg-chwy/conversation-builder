@@ -93,7 +93,7 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
     return /\b(?:business days?|days?|duration|end of day|hours?|timeframe|timeline|timing|today|tomorrow|weeks?)\b/u.test(normalized);
   }
   if (concept === "completion") {
-    return /\b(?:complete|completed|confirmed|issued|processed|recap|review|summarize|summary)\b/u.test(normalized);
+    return /\b(?:complete|completed|confirmed|issued|placed|processed|recap|review|sent|submitted|summarize|summary|transferred)\b/u.test(normalized);
   }
   if (concept === "closing") return /\b(?:anything else|appreciate|close|closing|thank|thanks)\b/u.test(normalized);
   if (concept === "empathy") {
@@ -358,7 +358,11 @@ function preferencePhrases(option: ReturnType<typeof detectedResolutionOption>):
   return ["like a refund", "want a refund"];
 }
 
-function compileTimelineRequirement(learnerText: string): ChatAdvanceRequirementDraft | undefined {
+function compileTimelineRequirement(
+  learnerText: string,
+  option: ReturnType<typeof detectedResolutionOption> = detectedResolutionOption(learnerText),
+): ChatAdvanceRequirementDraft | undefined {
+  const timelineId = `${option ?? "outcome"}_timeline`;
   const businessDayRange = learnerText.match(/\b(\d+)\s*(-|–|to)\s*(\d+)\s+(business days?)\b/iu);
   if (businessDayRange) {
     const unit = businessDayRange[4].toLowerCase();
@@ -366,7 +370,7 @@ function compileTimelineRequirement(learnerText: string): ChatAdvanceRequirement
     const enDashRange = `${businessDayRange[1]}–${businessDayRange[3]} ${unit}`;
     const toRange = `${businessDayRange[1]} to ${businessDayRange[3]} ${unit}`;
     return {
-      id: "refund_timeline",
+      id: timelineId,
       phrases: businessDayRange[2] === "to" ? [toRange, asciiRange] : [asciiRange, enDashRange],
     };
   }
@@ -379,18 +383,18 @@ function compileTimelineRequirement(learnerText: string): ChatAdvanceRequirement
       .replace(/hours$/u, "hour")
       .replace(/weeks$/u, "week");
     return {
-      id: "outcome_timeline",
+      id: timelineId,
       phrases: [`${quantified[1]} ${unit}`, `${quantified[1]}-${singularUnit}`],
     };
   }
 
   const normalized = normalizeComparableText(learnerText);
   if (/\bend of day\b/u.test(normalized)) {
-    return { id: "outcome_timeline", phrases: ["end of day", "by end of day"] };
+    return { id: timelineId, phrases: ["end of day", "by end of day"] };
   }
   const namedDay = normalized.match(/\b(today|tomorrow)\b/u)?.[1];
   return namedDay
-    ? { id: "outcome_timeline", phrases: [namedDay, `by ${namedDay}`] }
+    ? { id: timelineId, phrases: [namedDay, `by ${namedDay}`] }
     : undefined;
 }
 
@@ -403,7 +407,40 @@ function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
   if (/\$\s*\d+\.\d{2}\b/u.test(clause)) return true;
   if (/\boriginal (?:payment(?: card| method)?|card)\b/u.test(normalized)) return true;
   if (compileTimelineRequirement(clause)) return true;
-  return phaseOperationalConcepts([clause]).has("refund");
+  const operationalConcepts = phaseOperationalConcepts([clause]);
+  return operationalConcepts.has("refund")
+    || operationalConcepts.has("replacement")
+    || /\b(?:creat\w*|plac\w*|send\w*|sent|submi\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(normalized);
+}
+
+function compileOperationalCompletionRequirement(
+  learnerText: string,
+  amount: string | undefined,
+): ChatAdvanceRequirementDraft | undefined {
+  const operationalConcepts = phaseOperationalConcepts([learnerText]);
+  if (operationalConcepts.has("refund")) {
+    return {
+      id: "refund_completion",
+      phrases: amount
+        ? [`issued the ${amount} refund`, `processed the ${amount} refund`]
+        : ["issued the refund", "processed the refund"],
+    };
+  }
+  const normalized = normalizeComparableText(learnerText);
+  const hasReplacementOperation = operationalConcepts.has("replacement")
+    || /\b(?:creat\w*|plac\w*|send\w*|sent|submi\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(normalized);
+  if (!hasReplacementOperation) return undefined;
+
+  const outcome = /\breship\w*\b/u.test(normalized) ? "reshipment" : "replacement";
+  return /\b(?:plac\w*|submit\w*|send|sent)\b/u.test(normalized)
+    ? {
+        id: `${outcome}_completion`,
+        phrases: [`placed the ${outcome} order`, `submitted the ${outcome} order`],
+      }
+    : {
+        id: `${outcome}_completion`,
+        phrases: [`issued the ${outcome}`, `processed the ${outcome}`],
+      };
 }
 
 /**
@@ -428,15 +465,16 @@ export function compileSafeChatAdvanceRequirements(
   }
 
   const amount = learnerText.match(/\$\s*\d+\.\d{2}\b/u)?.[0]?.replace(/\s+/gu, "");
-  if (amount) compiled.push({ id: "refund_amount", phrases: [amount, amount.slice(1)] });
+  const completion = compileOperationalCompletionRequirement(learnerText, amount);
+  if (amount && completion?.id !== "refund_completion") {
+    compiled.push({ id: `${option ?? "outcome"}_amount`, phrases: [amount, amount.slice(1)] });
+  }
   if (/\boriginal (?:payment(?: card| method)?|card)\b/u.test(normalized)) {
     compiled.push({ id: "refund_destination", phrases: ["original card", "original payment card"] });
   }
-  const timeline = compileTimelineRequirement(learnerText);
+  const timeline = compileTimelineRequirement(learnerText, option);
   if (timeline) compiled.push(timeline);
-  if (phaseOperationalConcepts(phase.learnerActions).has("refund")) {
-    compiled.push({ id: "refund_completion", phrases: ["issued the", "processed the"] });
-  }
+  if (completion) compiled.push(completion);
 
   const actionClauses = phase.learnerActions.flatMap((action) =>
     action.split(/[,;!?]+|(?<!\d)\.(?!\d)|\b(?:and then|then|and|before|after|while)\b/iu)

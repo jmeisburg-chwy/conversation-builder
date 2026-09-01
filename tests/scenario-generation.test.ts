@@ -1266,10 +1266,9 @@ test("deterministically compiles the final corrective draft's Chat gates", async
       { id: "refund_preference", phrases: ["like a refund", "want a refund"] },
     ],
     [
-      { id: "refund_amount", phrases: ["$32.49", "32.49"] },
       { id: "refund_destination", phrases: ["original card", "original payment card"] },
       { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
-      { id: "refund_completion", phrases: ["issued the", "processed the"] },
+      { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
     ],
     [
       { id: "case_reference", phrases: ["case reference", "reference number"] },
@@ -1288,9 +1287,54 @@ test("compiles an exact non-range timeline instead of a generic deadline", () =>
   }, []);
 
   assert.deepEqual(requirements, [{
-    id: "outcome_timeline",
+    id: "refund_timeline",
     phrases: ["24 hours", "24-hour"],
   }]);
+});
+
+test("compiles a replacement completion gate without weakening the outcome", () => {
+  const requirements = compileSafeChatAdvanceRequirements({
+    ...generated.phases[0],
+    learnerActions: [
+      "Place a no-cost replacement order and explain that it will arrive in 3-5 business days.",
+    ],
+    chatAdvanceRequirements: [{
+      id: "replacement_completion",
+      phrases: ["process", "help"],
+    }],
+  }, []);
+
+  assert.deepEqual(requirements, [
+    { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+    {
+      id: "replacement_completion",
+      phrases: ["placed the replacement order", "submitted the replacement order"],
+    },
+  ]);
+});
+
+test("compiled refund completion blocks a prohibited replacement outcome", () => {
+  const requirements = compileSafeChatAdvanceRequirements({
+    ...generated.phases[0],
+    learnerActions: [
+      "Issue the $32.49 refund to the original payment card and explain it will post within 3-5 business days.",
+    ],
+    chatAdvanceRequirements: [{
+      id: "refund_completion",
+      phrases: ["issued the", "processed the"],
+    }],
+  }, ["Do not offer a replacement."]);
+  assert.ok(requirements);
+
+  const matchesRiseGate = (message: string) => requirements!.every((requirement) =>
+    requirement.phrases.some((phrase) => message.toLowerCase().includes(phrase))
+  );
+  assert.equal(matchesRiseGate(
+    "I've issued the $32.49 refund to your original card. It should appear in 3-5 business days.",
+  ), true);
+  assert.equal(matchesRiseGate(
+    "I processed the replacement for $32.49 to the original card; the refund timeline is 3-5 business days.",
+  ), false);
 });
 
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {
