@@ -22,6 +22,7 @@ import {
   findPrematureCustomerRevealFindings,
   findPreferenceResponseOrderConflicts,
   hasDeterministicConversationHandlingText,
+  learnerActionsDescribeNoCostReplacement,
   removePreansweredPreferenceFromOpening,
 } from "./scenario-quality-guards";
 import { parseStudioDraft } from "./scenario-validation";
@@ -605,14 +606,46 @@ interface ApprovedResolutionBlueprint {
   needsPreference: boolean;
   fullRefund: boolean;
   noCostReplacement: boolean;
+  needsReplacementOffer: boolean;
+  noCostReplacementOffer: boolean;
+  needsNoReturnGuidance: boolean;
 }
 
 const APPROVED_PROCESS_ACTION_START = /^\s*(?:acknowledge\w*|apolog\w*|ask\w*|check\w*|clarif\w*|collect\w*|confirm\w*|creat\w*|determin\w*|document\w*|empath\w*|explain\w*|find\w*|gather\w*|identify\w*|inform\w*|issu\w*|locat\w*|offer\w*|plac\w*|process\w*|provid\w*|recap\w*|recognize\w*|request\w*|review\w*|send\w*|sent|stat\w*|submi\w*|tell\w*|thank\w*|transfer\w*|updat\w*|verif\w*)\b/iu;
+const APPROVED_PROCESS_SEQUENCE_PREFIX = /^\s*(?:after|once)\s+(?:(?:the\s+)?customer\s+confirms?(?:\s+they\s+want(?:\s+it|\s+the\s+replacement)?)?|confirmation)\s*[,;:]?\s*/iu;
+const APPROVED_NO_COST_REPLACEMENT = /\b(?:no[- ]cost|at no charge|free of charge)\b/iu;
+const APPROVED_EXPLICIT_NO_RETURN_GUIDANCE = /\b(?:(?:(?:do|does|will)\s+not|don['’]t|doesn['’]t|won['’]t)\s+(?:need\s+to|have\s+to)|(?:(?:is|are)\s+not|isn['’]t|aren['’]t|(?:will\s+not|won['’]t)\s+be)\s+required\s+to|need\s+not|no need to|not need to)\s+return\w*\b/iu;
+const APPROVED_PERMISSION_TO_KEEP_GUIDANCE = /\b(?:can|may|feel free to)\s+keep\s+(?:(?:the|this|that|your|their|wrong|damaged|original|delivered|received)\s+){0,3}(?:bag|item|product)\b(?=\s*(?:[.!?]|$|rather than\b|instead of\b))/iu;
+const APPROVED_PERMISSION_TO_DISPOSE_GUIDANCE = /\b(?:can|may|feel free to)\s+dispose(?:\s+of)?\s+(?:(?:the|this|that|your|their|wrong|damaged|original|delivered|received)\s+){0,3}(?:bag|item|product)\b(?=\s*(?:[.!?]|$|rather than\b|instead of\b))/iu;
+const APPROVED_PERMISSION_TO_KEEP_OR_DISPOSE_GUIDANCE = /\b(?:can|may|feel free to)\s+(?:keep\s+or\s+dispose(?:\s+of)?\s+(?:(?:the|this|that|your|their|wrong|damaged|original|delivered|received)\s+){0,3}(?:bag|item|product)|keep\s+(?:(?:the|this|that|your|their|wrong|damaged|original|delivered|received)\s+){0,3}(?:bag|item|product)\s+or\s+dispose(?:\s+of)?\s+it)\b(?=\s*(?:[.!?]|$|rather than\b|instead of\b))/iu;
+const APPROVED_DIRECT_KEEP_OR_DISPOSE_INSTRUCTION = /\b(?:tell|inform)\w*\s+(?:(?:the|a)\s+)?(?:customer|conversation partner|them)\s+to\s+(?:keep|dispose(?:\s+of)?)\s+(?:(?:the|this|that|your|their|wrong|damaged|original|delivered|received)\s+){0,3}(?:bag|item|product)\b(?=\s*(?:[.!?]|$|rather than\b|instead of\b))/iu;
+const APPROVED_RETURN_COLLECTION_CONTEXT = /\b(?:carrier (?:pickup|collection)|(?:fedex|ups|carrier)\b.{0,30}\b(?:collect|pick[ -]?up)|send (?:it|the .{0,20}) back)\b/iu;
+const APPROVED_RETURN_REQUIRED_CONTEXT = /\b(?:carrier (?:pickup|collection)|pick[ -]?up|(?:fedex|ups|carrier)\b.{0,30}\b(?:collect|pick[ -]?up)|(?:for|to|must|should|need|required to)\s+(?:a\s+)?return|send (?:it|the .{0,20}) back)\b/iu;
+
+function approvedNoReturnGuidance(value: string): boolean {
+  if (APPROVED_RETURN_COLLECTION_CONTEXT.test(value)) return false;
+  if (APPROVED_EXPLICIT_NO_RETURN_GUIDANCE.test(value)) return true;
+  if (APPROVED_RETURN_REQUIRED_CONTEXT.test(value)) return false;
+  return APPROVED_PERMISSION_TO_KEEP_GUIDANCE.test(value)
+    || APPROVED_PERMISSION_TO_DISPOSE_GUIDANCE.test(value)
+    || APPROVED_PERMISSION_TO_KEEP_OR_DISPOSE_GUIDANCE.test(value)
+    || APPROVED_DIRECT_KEEP_OR_DISPOSE_INSTRUCTION.test(value);
+}
+
+function stripApprovedProcessSequencePrefix(value: string): string {
+  return value.replace(APPROVED_PROCESS_SEQUENCE_PREFIX, "").trim();
+}
 
 function supportedApprovedProcessClause(clause: string): boolean {
   const normalized = clause.trim();
   if (/^(?:acknowledge\w*|apolog\w*|empath\w*|recognize\w*)\b/iu.test(normalized)) return true;
-  if (/^(?:ask\w*|clarif\w*|confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:prefer\w*|want|whether)\b/iu.test(normalized)) return true;
+  if (/^(?:ask\w*|clarif\w*|confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:prefer\w*|want\w*|whether)\b/iu.test(normalized)) return true;
+  if (/^offer\w*\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(normalized)) return true;
+  if (/^(?:explain\w*|inform\w*|stat\w*|tell\w*)\b/iu.test(normalized)
+    && (approvedNoReturnGuidance(normalized) || APPROVED_NO_COST_REPLACEMENT.test(normalized))) return true;
+  if (/^(?:explain\w*|inform\w*|stat\w*|tell\w*)\b/iu.test(normalized)
+    && APPROVED_RETURN_REQUIRED_CONTEXT.test(normalized)) return true;
+  if (/^(?:explain\w*|inform\w*|stat\w*|tell\w*)\b.{0,120}\b(?:replac\w*|reship\w*)\b/iu.test(normalized)) return true;
   if (/^(?:complet\w*|issu\w*|process\w*|provid\w*)\b.{0,80}\brefund\w*\b/iu.test(normalized)) return true;
   if (/^(?:creat\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(normalized)) return true;
   return /^(?:explain\w*|inform\w*|stat\w*|tell\w*)\b.{0,120}\b(?:arriv\w*|business days?|days?|end of day|hours?|post\w*|timeframe|timeline|timing|today|tomorrow|weeks?)\b/iu.test(normalized);
@@ -621,8 +654,10 @@ function supportedApprovedProcessClause(clause: string): boolean {
 function approvedResolutionBlueprint(correctProcess: string | undefined): ApprovedResolutionBlueprint | undefined {
   if (!correctProcess) return undefined;
   const positiveSentences = correctProcess
-    .split(/(?<=[.!?])\s+/u)
-    .filter((sentence) => !generatedNegativeAction(sentence.trim()));
+    .split(/\r?\n+|(?<=[.!?])\s+/u)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => !generatedNegativeAction(sentence))
+    .map(stripApprovedProcessSequencePrefix);
   const actionClauses = positiveSentences.flatMap((sentence) => {
     if (!APPROVED_PROCESS_ACTION_START.test(sentence)) return [];
     return sentence
@@ -637,6 +672,11 @@ function approvedResolutionBlueprint(correctProcess: string | undefined): Approv
   const refundAction = /\b(?:complet\w*|issu\w*|process\w*|provid\w*)\b.{0,80}\brefund\w*\b/iu.test(positiveProcess);
   const replacementAction = /\b(?:creat\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(positiveProcess);
   if (refundAction === replacementAction) return undefined;
+  const replacementOfferClauses = actionClauses.filter((clause) =>
+    /^offer\w*\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(clause)
+  );
+  const noCostReplacement = learnerActionsDescribeNoCostReplacement(actionClauses);
+  if (refundAction && replacementOfferClauses.length > 0) return undefined;
 
   const amounts = [...new Set(
     [...positiveProcess.matchAll(/\$\s*\d+\.\d{2}\b/gu)].map((match) => match[0].replace(/\s+/gu, "")),
@@ -653,9 +693,12 @@ function approvedResolutionBlueprint(correctProcess: string | undefined): Approv
     ...(timelines[0] ? { timeline: timelines[0] } : {}),
     useOriginalPaymentCard: /\boriginal (?:payment(?: card| method)?|card)\b/iu.test(positiveProcess),
     needsAcknowledgement: /\b(?:acknowledge\w*|apolog\w*|empath\w*|recognize\w*)\b/iu.test(positiveProcess),
-    needsPreference: /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:prefer\w*|want|whether)\b/iu.test(positiveProcess),
+    needsPreference: /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:prefer\w*|want\w*|whether)\b/iu.test(positiveProcess),
     fullRefund: /\bfull refund\b/iu.test(positiveProcess),
-    noCostReplacement: /\bno[- ]cost\b/iu.test(positiveProcess),
+    noCostReplacement,
+    needsReplacementOffer: replacementOfferClauses.length > 0,
+    noCostReplacementOffer: replacementOfferClauses.length > 0 && noCostReplacement,
+    needsNoReturnGuidance: actionClauses.some(approvedNoReturnGuidance),
   };
 }
 
@@ -698,11 +741,41 @@ function positiveResolutionValues(values: string[]): string[] {
   return values.filter((value) => !generatedNegativeAction(value));
 }
 
+function hasApprovedAcknowledgement(value: string): boolean {
+  return /\b(?:acknowledge\w*|apolog\w*|empath\w*|recognize\w*)\b/iu.test(value);
+}
+
+function hasApprovedPreferenceConfirmation(value: string): boolean {
+  return /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:prefer\w*|want\w*|whether)\b/iu.test(value);
+}
+
+function hasApprovedReplacementOffer(value: string): boolean {
+  return /\b(?:offer\w*|provid\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(value);
+}
+
+function hasApprovedReplacementCompletion(value: string): boolean {
+  return /\b(?:creat\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(value);
+}
+
+function hasApprovedRefundCompletion(value: string): boolean {
+  return /(?:\b(?:complet\w*|issu\w*|process\w*|provid\w*)\b.{0,80}\brefund\w*\b|^\s*refund\w*\b)/iu.test(value);
+}
+
+function hasApprovedNoReturnGuidance(value: string): boolean {
+  return approvedNoReturnGuidance(value);
+}
+
+function everyResolutionGroupIncludes(
+  groups: string[][],
+  predicate: (value: string) => boolean,
+): boolean {
+  return groups.every((values) => values.some(predicate));
+}
+
 function generatedResolutionFactsDrift(
   content: GeneratedContent,
   blueprint: ApprovedResolutionBlueprint,
 ): boolean {
-  if (!blueprint.amount && !blueprint.timeline && !blueprint.useOriginalPaymentCard) return false;
   const groups = [
     positiveResolutionValues(content.phases.flatMap((phase) => phase.learnerActions)),
     positiveResolutionValues(content.phases.flatMap((phase) =>
@@ -710,6 +783,28 @@ function generatedResolutionFactsDrift(
     )),
     positiveResolutionValues(content.objectives.flatMap((objective) => objective.criteria)),
   ];
+  const authoredBehaviorGroups = [groups[0], groups[2]];
+
+  if (blueprint.needsAcknowledgement
+    && !everyResolutionGroupIncludes(authoredBehaviorGroups, hasApprovedAcknowledgement)) return true;
+
+  if (blueprint.needsPreference
+    && !everyResolutionGroupIncludes(authoredBehaviorGroups, hasApprovedPreferenceConfirmation)) return true;
+
+  if (blueprint.needsReplacementOffer
+    && !everyResolutionGroupIncludes(authoredBehaviorGroups, hasApprovedReplacementOffer)) return true;
+
+  if (blueprint.option === "replacement"
+    && !everyResolutionGroupIncludes(authoredBehaviorGroups, hasApprovedReplacementCompletion)) return true;
+
+  if (blueprint.option === "refund"
+    && !everyResolutionGroupIncludes(authoredBehaviorGroups, hasApprovedRefundCompletion)) return true;
+
+  if ((blueprint.noCostReplacementOffer || blueprint.noCostReplacement)
+    && !authoredBehaviorGroups.every(learnerActionsDescribeNoCostReplacement)) return true;
+
+  if (blueprint.needsNoReturnGuidance
+    && !everyResolutionGroupIncludes(authoredBehaviorGroups, hasApprovedNoReturnGuidance)) return true;
 
   if (blueprint.amount && groups.some((values) => {
     const amounts = currencyValues(values);
@@ -731,12 +826,47 @@ function generatedResolutionFactsDrift(
   return false;
 }
 
+function groundGeneratedResolutionGates(
+  content: GeneratedContent,
+  blueprint: ApprovedResolutionBlueprint,
+): GeneratedContent | undefined {
+  let failed = false;
+  const phases = content.phases.map((phase) => {
+    const actions = positiveResolutionValues(phase.learnerActions);
+    const needsGrounding =
+      (blueprint.needsAcknowledgement && actions.some(hasApprovedAcknowledgement))
+      || (blueprint.needsPreference && actions.some(hasApprovedPreferenceConfirmation))
+      || (blueprint.needsReplacementOffer && actions.some(hasApprovedReplacementOffer))
+      || (blueprint.option === "replacement" && actions.some(hasApprovedReplacementCompletion))
+      || (blueprint.option === "refund" && actions.some(hasApprovedRefundCompletion))
+      || ((blueprint.noCostReplacementOffer || blueprint.noCostReplacement)
+        && learnerActionsDescribeNoCostReplacement(actions))
+      || (blueprint.needsNoReturnGuidance && actions.some(hasApprovedNoReturnGuidance));
+    if (!needsGrounding) return phase;
+    const chatAdvanceRequirements = compileSafeChatAdvanceRequirements(
+      { ...phase, chatAdvanceRequirements: [] },
+      content.prohibitedActions,
+      content.customer.name,
+    );
+    if (!chatAdvanceRequirements) {
+      failed = true;
+      return phase;
+    }
+    return { ...phase, chatAdvanceRequirements };
+  });
+  return failed ? undefined : { ...content, phases };
+}
+
 function groundGeneratedResolutionFacts(
   content: GeneratedContent,
   correctProcess: string | undefined,
 ): GeneratedContent {
   const blueprint = approvedResolutionBlueprint(correctProcess);
-  if (!blueprint || !generatedResolutionFactsDrift(content, blueprint)) return content;
+  if (!blueprint) return content;
+  const gateGroundedContent = groundGeneratedResolutionGates(content, blueprint);
+  if (gateGroundedContent && !generatedResolutionFactsDrift(gateGroundedContent, blueprint)) {
+    return gateGroundedContent;
+  }
   const rebuilt = rebuildGeneratedResolutionPhases(content, correctProcess).content;
   if (!rebuilt) throw new Error("approved_resolution_grounding_failed");
   const primaryObjective = rebuilt.objectives[0];
@@ -750,10 +880,11 @@ function groundGeneratedResolutionFacts(
       ]),
     }],
   };
-  if (generatedResolutionFactsDrift(grounded, blueprint)) {
+  const gateGrounded = groundGeneratedResolutionGates(grounded, blueprint);
+  if (!gateGrounded || generatedResolutionFactsDrift(gateGrounded, blueprint)) {
     throw new Error("approved_resolution_grounding_failed");
   }
-  return grounded;
+  return gateGrounded;
 }
 
 function compileBlueprintPhase(
@@ -793,9 +924,12 @@ function rebuildGeneratedResolutionPhases(
     ? `${blueprint.fullRefund ? "full " : ""}refund`
     : "replacement";
 
-  if (blueprint.needsAcknowledgement || blueprint.needsPreference) {
+  if (blueprint.needsAcknowledgement || blueprint.needsReplacementOffer || blueprint.needsPreference) {
     const learnerActions = [
       ...(blueprint.needsAcknowledgement ? ["Acknowledge the Conversation Partner's concern."] : []),
+      ...(blueprint.needsReplacementOffer
+        ? [`Offer ${blueprint.noCostReplacementOffer ? "a no-cost" : "a"} replacement.`]
+        : []),
       ...(blueprint.needsPreference ? [`Ask whether ${partnerName} wants a ${optionLabel}.`] : []),
     ];
     const preferencePhase = compileBlueprintPhase({
@@ -804,9 +938,14 @@ function rebuildGeneratedResolutionPhases(
       learnerActions,
       partnerResponse: blueprint.needsPreference
         ? `Yes, I want a ${optionLabel}.`
-        : "Thank you for understanding.",
+        : blueprint.needsReplacementOffer
+          ? "A replacement would work for me."
+          : "Thank you for understanding.",
       coachGuidance: [
         ...(blueprint.needsAcknowledgement ? ["Acknowledge what happened before discussing the resolution."] : []),
+        ...(blueprint.needsReplacementOffer
+          ? [`Offer ${blueprint.noCostReplacementOffer ? "a no-cost" : "the approved"} replacement.`]
+          : []),
         ...(blueprint.needsPreference ? ["Ask for the Conversation Partner's preferred resolution before taking action."] : []),
       ],
       customerRemainsSilent: false,
@@ -823,6 +962,9 @@ function rebuildGeneratedResolutionPhases(
     ...(blueprint.timeline
       ? [`Explain that the ${blueprint.option} will ${blueprint.option === "refund" ? "post" : "arrive"} within ${blueprint.timeline}.`]
       : []),
+    ...(blueprint.needsNoReturnGuidance
+      ? ["Tell the Conversation Partner they do not need to return the item."]
+      : []),
   ];
   const outcomePhase = compileBlueprintPhase({
     id: `complete_${blueprint.option}`,
@@ -832,6 +974,7 @@ function rebuildGeneratedResolutionPhases(
     coachGuidance: [
       `Complete the approved ${blueprint.option} accurately.`,
       ...(blueprint.timeline ? [`Explain the approved ${blueprint.timeline} timing.`] : []),
+      ...(blueprint.needsNoReturnGuidance ? ["Explain that no return is needed."] : []),
     ],
     customerRemainsSilent: false,
   }, effectiveProhibitedActions, partnerName);
@@ -1182,7 +1325,7 @@ const GENERATED_IMPERATIVE_FORMS = new Map([
   ["protects", "Protect"], ["provides", "Provide"], ["reads", "Read"], ["reassures", "Reassure"],
   ["recaps", "Recap"], ["recognizes", "Recognize"], ["remains", "Remain"], ["requests", "Request"],
   ["requires", "Require"], ["responds", "Respond"], ["restates", "Restate"], ["reviews", "Review"],
-  ["selects", "Select"], ["shares", "Share"], ["shows", "Show"], ["states", "State"],
+  ["selects", "Select"], ["shares", "Share"], ["shows", "Show"], ["states", "State"], ["tells", "Tell"],
   ["stops", "Stop"], ["takes", "Take"], ["thanks", "Thank"], ["updates", "Update"],
   ["uses", "Use"], ["verifies", "Verify"], ["waits", "Wait"],
 ]);
@@ -1191,7 +1334,7 @@ const GENERATED_GERUND_FORMS = new Map([
   ["acknowledging", "Acknowledge"], ["apologizing", "Apologize"], ["asking", "Ask"], ["avoiding", "Avoid"], ["checking", "Check"],
   ["clarifying", "Clarify"], ["communicating", "Communicate"], ["confirming", "Confirm"], ["explaining", "Explain"], ["expressing", "Express"],
   ["identifying", "Identify"], ["informing", "Inform"], ["issuing", "Issue"], ["offering", "Offer"],
-  ["processing", "Process"], ["providing", "Provide"], ["recapping", "Recap"], ["stating", "State"],
+  ["processing", "Process"], ["providing", "Provide"], ["recapping", "Recap"], ["stating", "State"], ["telling", "Tell"],
   ["thanking", "Thank"], ["verifying", "Verify"],
 ]);
 

@@ -932,6 +932,21 @@ const QUESTION_INTENT_PHRASES = [
 ];
 const REPLACEMENT_PHRASES = ["replacement", "replacement order", "replacement bag", "new bag", "replace it"];
 const NO_COST_PHRASES = ["no cost", "no-cost", "at no charge", "free of charge"];
+const NO_COST_LANGUAGE_PATTERN = /\b(?:at no charge|free of charge|no[- ]cost)\b/u;
+const NON_REPLACEMENT_NO_COST_CONTEXT_PATTERN = /\b(?:postage|prepaid return label|return label|shipping|delivery fee)\b/u;
+const NO_COST_REPLACEMENT_PRONOUN_SUBJECT_PATTERN = /\b(?:it|this|that)\s+(?:is|will be|would be)\s+(?:at no charge|free of charge|no[- ]cost)\b/u;
+
+export function learnerActionsDescribeNoCostReplacement(values: string[]): boolean {
+  const hasReplacementContext = values.some((value) => detectedResolutionOption(value) === "replacement");
+  return values.some((value) => {
+    const normalized = normalizeComparableText(value);
+    if (!NO_COST_LANGUAGE_PATTERN.test(normalized)
+      || NON_REPLACEMENT_NO_COST_CONTEXT_PATTERN.test(normalized)) return false;
+    if (detectedResolutionOption(value) === "replacement") return true;
+    return hasReplacementContext && NO_COST_REPLACEMENT_PRONOUN_SUBJECT_PATTERN.test(normalized);
+  });
+}
+
 const NO_RETURN_PHRASES = [
   "not need to return",
   "don't need to return",
@@ -1268,6 +1283,10 @@ function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
   if (/\b(?:recap\w*|summar\w*)\b/u.test(normalized)) return true;
   if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) return true;
   if (/\b(?:offer\w*|provide\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(normalized)) return true;
+  if (NO_COST_LANGUAGE_PATTERN.test(normalized)
+    && !NON_REPLACEMENT_NO_COST_CONTEXT_PATTERN.test(normalized)
+    && (detectedResolutionOption(clause) === "replacement"
+      || NO_COST_REPLACEMENT_PRONOUN_SUBJECT_PATTERN.test(normalized))) return true;
   if (/\b(?:do not|dont|no|not)\b.{0,30}\breturn\w*\b/u.test(normalized)
     || /\b(?:dont send it back|keep the damaged bag|dispose of the damaged bag)\b/u.test(normalized)) return true;
   const option = detectedResolutionOption(clause);
@@ -1301,7 +1320,18 @@ function compileOperationalCompletionRequirement(
   return /\b(?:plac\w*|submit\w*|send|sent)\b/u.test(normalized)
     ? {
         id: `${outcome}_completion`,
-        phrases: [`placed the ${outcome} order`, `submitted the ${outcome} order`],
+        phrases: [
+          `placed the ${outcome} order`,
+          `placed a ${outcome} order`,
+          `placed your ${outcome} order`,
+          `submitted the ${outcome} order`,
+          `submitted a ${outcome} order`,
+          `submitted your ${outcome} order`,
+          `${outcome} order has been placed`,
+          `${outcome} order was placed`,
+          `${outcome} order has been submitted`,
+          `${outcome} order was submitted`,
+        ],
       }
     : {
         id: `${outcome}_completion`,
@@ -1355,10 +1385,12 @@ export function compileSafeChatAdvanceRequirements(
     }
   }
 
-  if (option === "replacement" && /\b(?:offer\w*|provide\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(normalized)) {
+  if (option === "replacement"
+    && /\b(?:offer\w*|provide\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(normalized)
+    && !compiled.some((requirement) => requirement.id === "replacement_resolution")) {
     compiled.push({ id: "replacement_offer", phrases: REPLACEMENT_PHRASES });
   }
-  if (option === "replacement" && /\b(?:at no charge|free of charge|no[- ]cost)\b/u.test(normalized)) {
+  if (option === "replacement" && learnerActionsDescribeNoCostReplacement(phase.learnerActions)) {
     compiled.push({ id: "replacement_no_cost", phrases: NO_COST_PHRASES });
   }
 

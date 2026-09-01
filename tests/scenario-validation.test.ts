@@ -118,6 +118,34 @@ test("accepts Apologize as an observable imperative criterion", async () => {
   );
 });
 
+test("accepts Tell as an observable imperative criterion", async () => {
+  const valid = draft();
+  valid.objectives[0].criteria[0] = "Tell the customer they do not need to return the damaged bag.";
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "non_imperative_criterion"),
+    false,
+  );
+});
+
+test("accepts Place as an observable imperative criterion", async () => {
+  const valid = draft();
+  valid.objectives[0].criteria[0] = "Place a no-cost replacement order.";
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "non_imperative_criterion"),
+    false,
+  );
+});
+
 test("exports only Chat match fields the current Rise runtime evaluates", () => {
   const candidate = draft();
   candidate.channels = ["chat"];

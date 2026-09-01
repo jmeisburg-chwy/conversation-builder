@@ -528,6 +528,448 @@ test("deterministically grounds generated resolution facts to the creator-approv
   });
 });
 
+test("grounds valid provider output that omits approved replacement requirements", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse(generated);
+    },
+  });
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer received the wrong dog food and needs the correct item.",
+    correctProcess: "Acknowledge the concern. Offer a no-cost replacement. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement. Tell the customer they do not need to return the wrong item. Do not offer a refund or store credit.",
+  }));
+  const payload = await response.json();
+  const learnerActions = payload.draft.phases.flatMap((phase: { learnerActions: string[] }) => phase.learnerActions);
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 1);
+  assert.equal(learnerActions.includes("Offer a no-cost replacement."), true);
+  assert.equal(learnerActions.includes("Ask whether Jordan wants a replacement."), true);
+  assert.equal(learnerActions.includes("Place a no-cost replacement order."), true);
+  assert.equal(learnerActions.includes("Tell the Conversation Partner they do not need to return the item."), true);
+});
+
+test("recompiles incomplete Chat gates from verified approved replacement actions", async () => {
+  const providerDraft = {
+    ...generated,
+    customer: {
+      ...generated.customer,
+      openingLine: "The wrong dog food arrived and I need the correct item.",
+    },
+    prohibitedActions: ["Do not offer a refund or store credit."],
+    phases: [
+      {
+        ...generated.phases[0],
+        id: "offer_and_confirm_replacement",
+        learnerActions: [
+          "Acknowledge the Conversation Partner's concern.",
+          "Offer a no-cost replacement.",
+          "Ask whether Jordan wants a replacement.",
+        ],
+        chatAdvanceRequirements: [{ id: "acknowledge_empathy", phrases: expectedEmpathyPhrases }],
+        partnerResponse: "Yes, I want a replacement.",
+        coachGuidance: [
+          "Acknowledge the concern.",
+          "Offer a no-cost replacement.",
+          "Ask whether Jordan wants a replacement.",
+        ],
+      },
+      {
+        ...generated.phases[0],
+        id: "complete_replacement",
+        learnerActions: [
+          "Place a no-cost replacement order.",
+          "Tell the Conversation Partner they do not need to return the item.",
+        ],
+        chatAdvanceRequirements: [{
+          id: "replacement_completion",
+          phrases: ["placed the replacement order", "submitted the replacement order"],
+        }],
+        partnerResponse: "Thank you for resolving this.",
+        coachGuidance: [
+          "Place the no-cost replacement.",
+          "Explain that no return is needed.",
+        ],
+      },
+    ],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "replacement_resolution",
+      criteria: [
+        "Acknowledge the Conversation Partner's concern.",
+        "Offer a no-cost replacement.",
+        "Ask whether Jordan wants a replacement.",
+        "Place a no-cost replacement order.",
+        "Tell the Conversation Partner they do not need to return the item.",
+      ],
+    }],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(providerDraft),
+  });
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer received the wrong dog food and needs the correct item.",
+    correctProcess: "Acknowledge the concern. Offer a no-cost replacement. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement. Tell the customer they do not need to return the wrong item. Do not offer a refund or store credit.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(
+    payload.draft.phases[0].chatAdvanceRequirements.map((requirement: { id: string }) => requirement.id),
+    ["acknowledge_empathy", "replacement_question_intent", "replacement_resolution", "replacement_no_cost"],
+  );
+  assert.deepEqual(
+    payload.draft.phases[1].chatAdvanceRequirements.map((requirement: { id: string }) => requirement.id),
+    ["replacement_no_cost", "replacement_completion", "no_return"],
+  );
+
+  const authoring = normalizeStudioDraft(standaloneToAuthoringDraft(payload.draft, {
+    conversationAbout: "A fictional customer received the wrong dog food and needs the correct item.",
+    learnerApproach: "Offer and place a no-cost replacement after confirmation, with no return required.",
+    deidentificationConfirmed: true,
+  }));
+  const downloadableDraft = authoringToStandaloneDraft(authoring);
+  const validationResponse = await createValidateHandler()(new Request("http://localhost/api/builder/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      draft: downloadableDraft,
+      deidentificationConfirmed: true,
+      objectiveApproval: {
+        required: true,
+        approved: true,
+        fingerprint: objectiveFingerprint(downloadableDraft.objectives),
+      },
+    }),
+  }));
+  const validationPayload = await validationResponse.json();
+
+  assert.equal(validationResponse.status, 200, JSON.stringify(validationPayload.issues));
+  assert.equal(validationPayload.ok, true);
+  const chat = validationPayload.files.find((file: { scenario: { channels: string[] } }) =>
+    file.scenario.channels[0] === "chat"
+  ).scenario;
+  const completionStep = chat.chatConfig.stepProgression[1];
+  assert.deepEqual(Object.keys(completionStep.match).sort(), ["all", "any"]);
+  const riseMatches = (message: string) => {
+    const normalized = message.toLowerCase();
+    const conditionMatches = (condition: { op: string; phrases: string[] }) =>
+      condition.op === "contains_any"
+      && condition.phrases.some((phrase) => normalized.includes(phrase.toLowerCase()));
+    return (!completionStep.match.all.length || completionStep.match.all.every(conditionMatches))
+      && (!completionStep.match.any.length || completionStep.match.any.some(conditionMatches));
+  };
+  assert.equal(riseMatches("I placed the replacement order at no charge, and you don't need to return the item."), true);
+  assert.equal(riseMatches("I placed a replacement order at no charge, and you don't need to return the item."), true);
+  assert.equal(riseMatches("Your replacement order has been placed at no charge, and you don't need to return the item."), true);
+  assert.equal(riseMatches("It is at no charge, and you don't need to return the item."), false);
+  assert.equal(riseMatches("I placed the replacement order, and you don't need to return the item."), false);
+  assert.equal(riseMatches("I placed the replacement order at no charge."), false);
+});
+
+test("recompiles ordinary replacement completion gates without a no-cost requirement", async () => {
+  const providerDraft = {
+    ...generated,
+    prohibitedActions: ["Do not offer a refund."],
+    phases: [
+      {
+        ...generated.phases[0],
+        id: "confirm_replacement",
+        learnerActions: ["Ask whether Jordan wants a replacement."],
+        chatAdvanceRequirements: [
+          { id: "replacement_question_intent", phrases: expectedQuestionIntentPhrases },
+          { id: "replacement_resolution", phrases: ["replacement", "replacement order"] },
+        ],
+        partnerResponse: "Yes, I want a replacement.",
+      },
+      {
+        ...generated.phases[0],
+        id: "complete_replacement",
+        learnerActions: ["Place the replacement order."],
+        chatAdvanceRequirements: [{
+          id: "replacement_resolution",
+          phrases: ["replacement", "replacement order"],
+        }],
+        partnerResponse: "Thank you for resolving this.",
+      },
+    ],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "replacement_resolution",
+      criteria: [
+        "Ask whether Jordan wants a replacement.",
+        "Place the replacement order.",
+      ],
+    }],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(providerDraft),
+  });
+  const response = await handler(request({
+    ...validBody,
+    correctProcess: "Confirm the customer wants the replacement before placing it. After confirmation, place the replacement.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(
+    payload.draft.phases[1].chatAdvanceRequirements.map((requirement: { id: string }) => requirement.id),
+    ["replacement_completion"],
+  );
+});
+
+test("grounds an omitted ordinary replacement completion action", async () => {
+  const providerDraft = {
+    ...generated,
+    prohibitedActions: ["Do not offer a refund."],
+    phases: [{
+      ...generated.phases[0],
+      id: "confirm_replacement",
+      learnerActions: ["Ask whether Jordan wants a replacement."],
+      chatAdvanceRequirements: [
+        { id: "replacement_question_intent", phrases: expectedQuestionIntentPhrases },
+        { id: "replacement_resolution", phrases: ["replacement", "replacement order"] },
+      ],
+      partnerResponse: "Yes, I want a replacement.",
+    }],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "replacement_resolution",
+      criteria: ["Ask whether Jordan wants a replacement."],
+    }],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(providerDraft),
+  });
+  const response = await handler(request({
+    ...validBody,
+    correctProcess: "Confirm the customer wants the replacement before placing it. After confirmation, place the replacement.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(
+    payload.draft.phases.flatMap((phase: { learnerActions: string[] }) => phase.learnerActions)
+      .includes("Place the replacement order."),
+    true,
+  );
+});
+
+test("grounds keep and dispose no-return guidance when the provider omits it", async () => {
+  for (const noReturnGuidance of [
+    "Tell the customer to keep the damaged bag.",
+    "Tell the customer to dispose of the damaged bag.",
+    "Tell the customer they can keep the wrong item.",
+    "Tell the customer they can keep the wrong item rather than return it.",
+    "Tell the customer they can keep or dispose of the wrong item.",
+    "Tell the customer they can keep the wrong item or dispose of it.",
+    "Tell the customer they do not have to return the wrong item.",
+    "Tell the customer they will not have to return the wrong item.",
+    "Tell the customer they won't have to return the wrong item.",
+    "Tell the customer they are not required to return the wrong item.",
+    "Tell the customer they will not be required to return the wrong item.",
+    "Tell the customer they won't be required to return the wrong item.",
+    "Tell the customer they may dispose of the wrong item.",
+  ]) {
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse(generated),
+    });
+    const response = await handler(request({
+      ...validBody,
+      correctProcess: `Offer a replacement. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement. ${noReturnGuidance} Do not offer a refund.`,
+    }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 200, JSON.stringify(payload.error));
+    assert.equal(
+      payload.draft.phases.flatMap((phase: { learnerActions: string[] }) => phase.learnerActions)
+        .includes("Tell the Conversation Partner they do not need to return the item."),
+      true,
+      noReturnGuidance,
+    );
+  }
+});
+
+test("does not invent no-return guidance from information, care, safety, or carrier wording", async () => {
+  const providerDraft = {
+    ...generated,
+    prohibitedActions: ["Do not offer a refund."],
+    phases: [
+      {
+        ...generated.phases[0],
+        id: "offer_and_confirm_replacement",
+        learnerActions: ["Offer a replacement.", "Ask whether Jordan wants a replacement."],
+        chatAdvanceRequirements: [{ id: "replacement_resolution", phrases: ["replacement", "replacement order"] }],
+        partnerResponse: "Yes, I want a replacement.",
+      },
+      {
+        ...generated.phases[0],
+        id: "complete_replacement",
+        learnerActions: ["Place the replacement order."],
+        chatAdvanceRequirements: [{ id: "replacement_resolution", phrases: ["replacement", "replacement order"] }],
+        partnerResponse: "Thank you for resolving this.",
+      },
+    ],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "replacement_resolution",
+      criteria: [
+        "Offer a replacement.",
+        "Ask whether Jordan wants a replacement.",
+        "Place the replacement order.",
+      ],
+    }],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(providerDraft),
+  });
+  const response = await handler(request({
+    ...validBody,
+    correctProcess: "Offer a replacement. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement. Tell the customer to keep informed about the replacement item. Tell the customer to keep the item in its original packaging for carrier pickup. Tell the customer to keep the replacement product refrigerated. Tell the customer to keep the replacement item away from children. Tell the customer not to dispose of the damaged replacement item because FedEx will collect it. Tell the customer they do not need a box to return the wrong item. Tell the customer they do not need to return the item today because UPS will collect it tomorrow. Do not offer a refund.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.doesNotMatch(JSON.stringify(payload.draft.phases), /do not need to return/i);
+});
+
+test("preserves atomic offer and no-cost wording while grounding its Chat gates", async () => {
+  const offerActions = [
+    "Acknowledge the Conversation Partner's concern.",
+    "Offer a replacement.",
+    "Explain that it is at no charge.",
+    "Ask whether Jordan wants a replacement.",
+  ];
+  const providerDraft = {
+    ...generated,
+    prohibitedActions: ["Do not offer a refund."],
+    phases: [
+      {
+        ...generated.phases[0],
+        id: "offer_and_confirm_replacement",
+        learnerActions: offerActions,
+        chatAdvanceRequirements: [{ id: "acknowledge_empathy", phrases: expectedEmpathyPhrases }],
+        partnerResponse: "Yes, I want a replacement.",
+      },
+      {
+        ...generated.phases[0],
+        id: "complete_replacement",
+        learnerActions: ["Place the replacement order."],
+        chatAdvanceRequirements: [{ id: "replacement_resolution", phrases: ["replacement", "replacement order"] }],
+        partnerResponse: "Thank you for resolving this.",
+      },
+    ],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "replacement_resolution",
+      criteria: [...offerActions, "Place the replacement order."],
+    }],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(providerDraft),
+  });
+  const response = await handler(request({
+    ...validBody,
+    correctProcess: "Acknowledge the concern. Offer a replacement. Explain that the replacement is at no charge. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement. Do not offer a refund.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.phases[0].learnerActions, offerActions);
+  assert.deepEqual(
+    payload.draft.phases[0].chatAdvanceRequirements.map((requirement: { id: string }) => requirement.id),
+    ["acknowledge_empathy", "replacement_question_intent", "replacement_resolution", "replacement_no_cost"],
+  );
+  assert.deepEqual(
+    payload.draft.phases[1].chatAdvanceRequirements.map((requirement: { id: string }) => requirement.id),
+    ["replacement_completion"],
+  );
+});
+
+test("does not treat free return shipping as a no-cost replacement", async () => {
+  const providerDraft = {
+    ...generated,
+    prohibitedActions: ["Do not offer a refund."],
+    phases: [
+      {
+        ...generated.phases[0],
+        id: "offer_and_confirm_replacement",
+        learnerActions: ["Offer a replacement.", "Ask whether Jordan wants a replacement."],
+        chatAdvanceRequirements: [{ id: "replacement_resolution", phrases: ["replacement", "replacement order"] }],
+        partnerResponse: "Yes, I want a replacement.",
+      },
+      {
+        ...generated.phases[0],
+        id: "explain_return_shipping",
+        learnerActions: [
+          "Explain that return shipping is free of charge.",
+          "Explain that shipping is free of charge.",
+          "Explain that the prepaid return label is at no charge.",
+          "Explain that gift wrap is at no charge.",
+        ],
+        chatAdvanceRequirements: [{
+          id: "return_shipping_cost",
+          phrases: ["free return shipping", "no return shipping cost"],
+        }],
+        partnerResponse: "That helps.",
+      },
+      {
+        ...generated.phases[0],
+        id: "complete_replacement",
+        learnerActions: ["Place the replacement order."],
+        chatAdvanceRequirements: [{ id: "replacement_resolution", phrases: ["replacement", "replacement order"] }],
+        partnerResponse: "Thank you for resolving this.",
+      },
+    ],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "replacement_resolution",
+      criteria: [
+        "Offer a replacement.",
+        "Ask whether Jordan wants a replacement.",
+        "Explain that return shipping is free of charge.",
+        "Explain that shipping is free of charge.",
+        "Explain that the prepaid return label is at no charge.",
+        "Explain that gift wrap is at no charge.",
+        "Place the replacement order.",
+      ],
+    }],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(providerDraft),
+  });
+  const response = await handler(request({
+    ...validBody,
+    correctProcess: "Offer a replacement. Explain that return shipping is free of charge. Explain that shipping is free of charge. Explain that the prepaid return label is at no charge. Explain that gift wrap is at no charge. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement. Do not offer a refund.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(
+    payload.draft.phases.flatMap((phase: { chatAdvanceRequirements: Array<{ id: string }> }) =>
+      phase.chatAdvanceRequirements.map((requirement) => requirement.id)
+    ).includes("replacement_no_cost"),
+    false,
+  );
+  assert.equal(
+    payload.draft.phases.flatMap((phase: { learnerActions: string[] }) => phase.learnerActions)
+      .includes("Place the replacement order."),
+    true,
+  );
+});
+
 test("rejects a missing-policy marker for an imported scenario without a server-approved outcome", async () => {
   const handler = createGenerateHandler({
     apiKey: "test-key",
@@ -827,6 +1269,8 @@ test("normalizes generated objective criteria to neutral imperative wording", as
         criteria: [
           "Acknowledges the customer's concern clearly.",
           "Clearly explains the expected delivery window.",
+          "Tells the customer no return is needed.",
+          "Telling the customer to keep the damaged bag.",
           "Does not guarantee the delivery date.",
         ],
       }],
@@ -840,8 +1284,34 @@ test("normalizes generated objective criteria to neutral imperative wording", as
   assert.deepEqual(payload.draft.objectives[0].criteria, [
     "Acknowledge the customer's concern clearly.",
     "Explain clearly the expected delivery window.",
+    "Tell the customer no return is needed.",
+    "Tell the customer to keep the damaged bag.",
     "Do not guarantee the delivery date.",
   ]);
+
+  const authoring = normalizeStudioDraft(standaloneToAuthoringDraft(payload.draft));
+  const downloadableDraft = authoringToStandaloneDraft(authoring);
+  assert.deepEqual(downloadableDraft.objectives[0].criteria.slice(2, 4), [
+    "Tell the customer no return is needed.",
+    "Tell the customer to keep the damaged bag.",
+  ]);
+  const validationResponse = await createValidateHandler()(new Request("http://localhost/api/builder/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      draft: downloadableDraft,
+      deidentificationConfirmed: true,
+      objectiveApproval: {
+        required: true,
+        approved: true,
+        fingerprint: objectiveFingerprint(downloadableDraft.objectives),
+      },
+    }),
+  }));
+  const validationPayload = await validationResponse.json();
+
+  assert.equal(validationResponse.status, 200, JSON.stringify(validationPayload.issues));
+  assert.equal(validationPayload.ok, true);
 });
 
 test("normalizes positive model output into explicit prohibited actions before Review/Edit", async () => {
@@ -2071,6 +2541,106 @@ test("does not copy prohibited-alternative facts into a rebuilt approved outcome
   assert.doesNotMatch(JSON.stringify(payload.draft.phases), /10\.00|tomorrow|store credit|replacement/i);
 });
 
+test("rebuilds an after-confirmation replacement with no-return guidance when corrective output remains invalid", async () => {
+  const diagnostics: Array<Record<string, unknown>> = [];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    logError: (diagnostic) => diagnostics.push(diagnostic as unknown as Record<string, unknown>),
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        openingLine: "The dog food bag arrived torn and unusable.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge the concern and document the delayed order."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["thank", "help"] }],
+      }],
+    }),
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer received a torn dog food bag and needs a usable replacement.",
+    correctProcess: "Acknowledge the frustration and apologize. Offer a no-cost replacement. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement and explain that it should arrive within 2-3 business days. Tell the customer they do not need to return the damaged bag. Do not offer a refund or store credit.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify({ error: payload.error, diagnostics }));
+  assert.deepEqual(payload.draft.phases.map((phase: { learnerActions: string[] }) => phase.learnerActions), [
+    [
+      "Acknowledge the Conversation Partner's concern.",
+      "Offer a no-cost replacement.",
+      "Ask whether Jordan wants a replacement.",
+    ],
+    [
+      "Place a no-cost replacement order.",
+      "Explain that the replacement will arrive within 2-3 business days.",
+      "Tell the Conversation Partner they do not need to return the item.",
+    ],
+  ]);
+  assert.deepEqual(
+    payload.draft.phases[0].chatAdvanceRequirements.map((requirement: { id: string }) => requirement.id),
+    [
+      "acknowledge_empathy",
+      "replacement_question_intent",
+      "replacement_resolution",
+      "replacement_no_cost",
+    ],
+  );
+  assert.deepEqual(
+    payload.draft.phases[1].chatAdvanceRequirements.map((requirement: { id: string }) => requirement.id),
+    ["replacement_no_cost", "replacement_timeline", "replacement_completion", "no_return"],
+  );
+  assert.deepEqual(payload.draft.prohibitedActions, ["Do not offer a refund or store credit."]);
+});
+
+test("rebuilds newline-delimited free replacement steps without inventing damage", async () => {
+  for (const noCostPhrase of ["at no charge", "free of charge"]) {
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse({
+        ...generated,
+        phases: [{
+          ...generated.phases[0],
+          learnerActions: ["Acknowledge the concern and document the delayed order."],
+          chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["thank", "help"] }],
+        }],
+      }),
+    });
+
+    const response = await handler(request({
+      ...validBody,
+      situation: "A fictional customer received the wrong dog food and needs the correct item.",
+      correctProcess: [
+        "Acknowledge the concern",
+        `Offer a replacement ${noCostPhrase}`,
+        "Confirm the customer wants the replacement before placing it",
+        "After confirmation, place the replacement and explain it should arrive within 2-3 business days",
+        "Tell the customer they do not need to return the wrong item",
+        "Do not offer a refund or store credit",
+      ].join("\n"),
+    }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 200, JSON.stringify(payload.error));
+    assert.deepEqual(payload.draft.phases.map((phase: { learnerActions: string[] }) => phase.learnerActions), [
+      [
+        "Acknowledge the Conversation Partner's concern.",
+        "Offer a no-cost replacement.",
+        "Ask whether Jordan wants a replacement.",
+      ],
+      [
+        "Place a no-cost replacement order.",
+        "Explain that the replacement will arrive within 2-3 business days.",
+        "Tell the Conversation Partner they do not need to return the item.",
+      ],
+    ]);
+    assert.doesNotMatch(JSON.stringify(payload.draft.phases), /damaged item/i);
+  }
+});
+
 test("fails closed when a phase blueprint would drop prerequisites or choose conflicting facts", async () => {
   for (const correctProcess of [
     "Verify that the torn bag is eligible for a refund. Issue a full refund of $32.49 to the original payment card.",
@@ -2372,7 +2942,18 @@ test("compiles a replacement completion gate without weakening the outcome", () 
     { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
     {
       id: "replacement_completion",
-      phrases: ["placed the replacement order", "submitted the replacement order"],
+      phrases: [
+        "placed the replacement order",
+        "placed a replacement order",
+        "placed your replacement order",
+        "submitted the replacement order",
+        "submitted a replacement order",
+        "submitted your replacement order",
+        "replacement order has been placed",
+        "replacement order was placed",
+        "replacement order has been submitted",
+        "replacement order was submitted",
+      ],
     },
   ]);
 });
