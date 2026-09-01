@@ -44,10 +44,16 @@ test("ports the original complete Review/Edit surface into the standalone Builde
   assert.match(script, /Now describe what the Learner should accomplish, how they should approach it, and anything they should avoid\./);
   assert.match(script, /Final Conversation Partner response/);
   assert.match(script, /closing-partner-turn:/);
-  assert.match(script, /Chat advance requirements/);
-  assert.match(script, /Add required concept/);
   assert.doesNotMatch(html, /id="deidentificationConfirmed"/);
   assert.doesNotMatch(html, /I confirm these conversation details are fictional or de-identified\./i);
+});
+
+test("keeps internal Chat matching controls out of Review/Edit", () => {
+  const script = readFileSync(new URL("public/builder-studio/app.js", root), "utf8");
+
+  assert.doesNotMatch(script, /label: "Chat advance requirements"/);
+  assert.doesNotMatch(script, /Add required concept/);
+  assert.doesNotMatch(script, /Every required concept must match before Chat advances\./);
 });
 
 test("creates a draft without asking the author for a de-identification confirmation", async () => {

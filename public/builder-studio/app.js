@@ -5231,7 +5231,6 @@ export function createConversationPhaseEditorCoordinator({
       let closingPartnerReview = null;
       let guidanceReview = null;
       let strongReview = null;
-      let chatRequirementsReview = null;
       const title = labeledControl("Title", phase.title, `phase-title:${phase.id}`, "input");
       title.label.className = "visually-hidden";
       const titleCitationPaths = phaseCitationPaths(phase.id, "title");
@@ -5725,123 +5724,6 @@ export function createConversationPhaseEditorCoordinator({
         `flow.phases.${phaseIndex}.coachGuidance`
       );
 
-      const chatRequirementsSection = editorDocument.createElement("section");
-      chatRequirementsSection.className = "phase-guidance";
-      const updateChatRequirementsSummary = () => {
-        if (!chatRequirementsReview) return;
-        const index = phaseIndexForId(phase.id);
-        const requirements = currentDraft.flow.phases[index]?.chatAdvanceRequirements || [];
-        chatRequirementsReview.preview.textContent = requirements.length
-          ? "Every required concept must match before Chat advances."
-          : "Needs review — add required Learner phrases.";
-        if (chatRequirementsReview.count) {
-          chatRequirementsReview.count.textContent = `${requirements.length} ${requirements.length === 1 ? "concept" : "concepts"}`;
-        }
-      };
-      const renderChatRequirementsEditor = () => {
-        chatRequirementsSection.innerHTML = "";
-        const index = phaseIndexForId(phase.id);
-        if (index < 0) return;
-        const requirements = currentDraft.flow.phases[index].chatAdvanceRequirements || [];
-        const explanation = editorDocument.createElement("p");
-        explanation.className = "phase-guidance-empty";
-        explanation.textContent = "Add one group for each required Learner concept. Put alternative phrases for the same concept on separate lines; every group is required.";
-        chatRequirementsSection.append(explanation);
-        requirements.forEach((requirement, requirementIndex) => {
-          const item = editorDocument.createElement("article");
-          item.className = "phase-guidance-item";
-          item.dataset.chatRequirementId = requirement.id;
-          const phrases = labeledControl(
-            `Required concept ${requirementIndex + 1} phrases (one per line)`,
-            (requirement.phrases || []).join("\n"),
-            `chat-requirement-phrases:${phase.id}:${requirement.id}`
-          );
-          phrases.input.addEventListener("input", runMountedOperation(phrases.input, () => {
-            const currentIndex = phaseIndexForId(phase.id);
-            if (currentIndex < 0) return;
-            currentDraft.flow.phases[currentIndex] = editChatAdvanceRequirementPhrases(
-              currentDraft.flow.phases[currentIndex],
-              requirement.id,
-              phrases.input.value
-            );
-            projectLegacy();
-            notifyCommit();
-            updateChatRequirementsSummary();
-            refreshPhaseFindings(phase.id);
-          }));
-          wirePhaseBlur(phrases.input, phase.id);
-          const actions = editorDocument.createElement("div");
-          actions.className = "guidance-actions";
-          actions.append(phaseAction(
-            "Remove",
-            `remove-chat-requirement:${phase.id}:${requirement.id}`,
-            `Remove required Chat concept ${requirementIndex + 1} from phase ${phaseIndex + 1}`,
-            () => {
-              const currentIndex = phaseIndexForId(phase.id);
-              if (currentIndex < 0) return;
-              currentDraft.flow.phases[currentIndex] = removeChatAdvanceRequirement(
-                currentDraft.flow.phases[currentIndex],
-                requirement.id
-              );
-              projectLegacy();
-              notifyCommit();
-              renderChatRequirementsEditor();
-              updateChatRequirementsSummary();
-              refreshPhaseFindings(phase.id);
-              const remaining = currentDraft.flow.phases[currentIndex].chatAdvanceRequirements || [];
-              const nextRequirement = remaining[Math.min(requirementIndex, remaining.length - 1)];
-              focusPhaseEditorControl(
-                container,
-                nextRequirement
-                  ? `chat-requirement-phrases:${phase.id}:${nextRequirement.id}`
-                  : `add-chat-requirement:${phase.id}`
-              );
-              onToast("Required Chat concept removed.");
-            },
-            false,
-            true,
-            "minus"
-          ));
-          item.append(phrases.field, actions);
-          chatRequirementsSection.append(item);
-        });
-        const addRequirement = phaseAction(
-          "Add required concept",
-          `add-chat-requirement:${phase.id}`,
-          `Add required Chat concept to phase ${phaseIndex + 1}`,
-          () => {
-            const currentIndex = phaseIndexForId(phase.id);
-            if (currentIndex < 0) return;
-            currentDraft.flow.phases[currentIndex] = addChatAdvanceRequirement(
-              currentDraft.flow.phases[currentIndex]
-            );
-            const added = currentDraft.flow.phases[currentIndex].chatAdvanceRequirements.at(-1);
-            projectLegacy();
-            notifyCommit();
-            renderChatRequirementsEditor();
-            updateChatRequirementsSummary();
-            refreshPhaseFindings(phase.id);
-            focusPhaseEditorControl(
-              container,
-              `chat-requirement-phrases:${phase.id}:${added.id}`
-            );
-            onToast("Required Chat concept added.");
-          }
-        );
-        addRequirement.className = "button secondary compact-button phase-list-add";
-        chatRequirementsSection.append(addRequirement);
-      };
-      const includesChat = currentDraft.scenario?.channels?.includes("chat");
-      if (includesChat) {
-        renderChatRequirementsEditor();
-        appendPhaseFindings(
-          chatRequirementsSection,
-          phase.id,
-          phaseIndex,
-          `flow.phases.${phaseIndex}.chatAdvanceRequirements`
-        );
-      }
-
       const strong = labeledControl(
         "Example of a strong Learner response",
         phase.strongLearnerResponse,
@@ -5853,9 +5735,6 @@ export function createConversationPhaseEditorCoordinator({
         const index = phaseIndexForId(phase.id);
         if (index < 0) return;
         const before = clone(currentDraft.flow.phases);
-        const hadChatRequirements = Boolean(
-          currentDraft.flow.phases[index].chatAdvanceRequirements?.length
-        );
         currentDraft.flow.phases[index] = updatePhaseStrongLearnerResponse(
           currentDraft.flow.phases[index],
           strong.input.value
@@ -5870,12 +5749,6 @@ export function createConversationPhaseEditorCoordinator({
           `${phase.id}:strongLearnerResponse`,
           strong.input
         );
-        if (hadChatRequirements && includesChat) {
-          renderChatRequirementsEditor();
-          updateChatRequirementsSummary();
-          refreshPhaseFindings(phase.id);
-          onToast("Required Chat phrases cleared because the strong response changed.");
-        }
       }));
       wirePhaseBlur(strong.input, phase.id);
       renderFieldCitations(
@@ -5963,20 +5836,6 @@ export function createConversationPhaseEditorCoordinator({
         iconName: "shield-check",
         content: strong.field
       });
-      if (includesChat) {
-        const requirements = phase.chatAdvanceRequirements || [];
-        chatRequirementsReview = phaseReviewSection({
-          phaseId: phase.id,
-          key: "chat-requirements",
-          label: "Chat advance requirements",
-          preview: requirements.length
-            ? "Every required concept must match before Chat advances."
-            : "Needs review — add required Learner phrases.",
-          count: `${requirements.length} ${requirements.length === 1 ? "concept" : "concepts"}`,
-          iconName: "square-check",
-          content: chatRequirementsSection
-        });
-      }
       if (closingPartner) {
         closingPartnerReview = phaseReviewSection({
           phaseId: phase.id,
@@ -5993,7 +5852,6 @@ export function createConversationPhaseEditorCoordinator({
         partnerReview.details,
         guidanceReview.details,
         strongReview.details,
-        ...(chatRequirementsReview ? [chatRequirementsReview.details] : []),
         ...(closingPartnerReview ? [closingPartnerReview.details] : []),
         evaluates
       );
