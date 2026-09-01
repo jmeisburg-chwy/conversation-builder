@@ -1238,7 +1238,7 @@ test("logs only structural compiler diagnostics for an unrepairable Chat phase",
   assert.doesNotMatch(JSON.stringify(diagnostics), /Jordan|delayed order/);
 });
 
-test("deterministically compiles the final corrective draft's Chat gates", async () => {
+test("deterministically repairs the final corrective draft's Chat gates and split resolution boundaries", async () => {
   let providerCalls = 0;
   const phases = [
     {
@@ -1287,14 +1287,29 @@ test("deterministically compiles the final corrective draft's Chat gates", async
           ...generated.customer,
           openingLine: "The dog food bag arrived torn and unusable.",
         },
-        phases,
+        phases: phases.map((phase) => ({
+          ...phase,
+          coachGuidance: [
+            ...phase.coachGuidance,
+            ...(phase.id === "confirm_refund_preference"
+              ? ["Use empathy when discussing store credit."]
+              : []),
+            "Avoid mentioning store credit.",
+            "Never offer a replacement or exchange.",
+          ],
+        })),
         objectives: [{
           ...generated.objectives[0],
           id: "refund_resolution",
-          criteria: ["Issue a full refund of $32.49 to the original payment card."],
+          criteria: [
+            "Issue a full refund of $32.49 to the original payment card.",
+            "Do not offer store credit.",
+            "Avoid proposing a replacement or exchange.",
+          ],
         }],
         prohibitedActions: [
-          "Do not offer store credit, a replacement, or an exchange.",
+          "Do not mention store credit.",
+          "Do not mention replacement or exchange.",
           "Do not issue a refund for an amount other than $32.49.",
           "Do not state a timeline other than 3-5 business days.",
         ],
@@ -1307,6 +1322,25 @@ test("deterministically compiles the final corrective draft's Chat gates", async
 
   assert.equal(response.status, 200, JSON.stringify(payload.error));
   assert.equal(providerCalls, 2);
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not mention store credit, a replacement, or an exchange.",
+    "Do not issue a refund for an amount other than $32.49.",
+    "Do not state a timeline other than 3-5 business days.",
+  ]);
+  assert.deepEqual(
+    payload.draft.objectives[0].criteria.filter((criterion: string) => /^Do not/iu.test(criterion)),
+    ["Do not mention store credit, a replacement, or an exchange."],
+  );
+  payload.draft.phases.forEach((phase: { coachGuidance: string[] }) => {
+    assert.deepEqual(
+      phase.coachGuidance.filter((guidance) => /^Do not mention/iu.test(guidance)),
+      ["Do not mention store credit, a replacement, or an exchange."],
+    );
+  });
+  assert.equal(
+    payload.draft.phases[0].coachGuidance.includes("Use empathy when discussing store credit."),
+    true,
+  );
   assert.deepEqual(payload.draft.phases.map((phase: { chatAdvanceRequirements: unknown }) => phase.chatAdvanceRequirements), [
     [
       { id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] },

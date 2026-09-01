@@ -231,12 +231,17 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
           }
           if (caught instanceof RepairableGeneratedContentError
             && caught.repairCodes.every((code) =>
-              code === "chat_advance_requirements" || code === "operational_criterion_coverage"
+              code === "chat_advance_requirements"
+              || code === "operational_criterion_coverage"
+              || code === "overlapping_resolution_prohibitions"
             )) {
             const candidate = sanitizeProviderOutput(parseProviderOutput(providerRaw));
-            const operationallyRepaired = caught.repairCodes.includes("operational_criterion_coverage")
-              ? repairGeneratedMissingOperationalCriteria(candidate)
+            const resolutionRepaired = caught.repairCodes.includes("overlapping_resolution_prohibitions")
+              ? repairGeneratedResolutionProhibitions(candidate)
               : candidate;
+            const operationallyRepaired = caught.repairCodes.includes("operational_criterion_coverage")
+              ? repairGeneratedMissingOperationalCriteria(resolutionRepaired)
+              : resolutionRepaired;
             const repaired = caught.repairCodes.some((code) =>
               code === "chat_advance_requirements" || code === "operational_criterion_coverage"
             )
@@ -256,7 +261,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
                 && repairFailure.repairCodes.every((code) =>
                   code === "chat_advance_requirements" || code === "operational_criterion_coverage"
                 )
-                ? rebuildGeneratedResolutionPhases(candidate, input.correctProcess)
+                ? rebuildGeneratedResolutionPhases(resolutionRepaired, input.correctProcess)
                 : undefined;
               if (!rebuildResult?.content) {
                 if (rebuildResult?.failureCode) {
@@ -896,6 +901,134 @@ function normalizeGeneratedProhibitedAction(value: string): string {
   if (!action) return "";
   const lowerAction = action.replace(/^./u, (character) => character.toLowerCase());
   return `Do not ${lowerAction}${punctuation}`;
+}
+
+const GENERATED_RESOLUTION_BOUNDARY_VERBS: Array<[RegExp, string]> = [
+  [/\bmention\w*\b/iu, "mention"],
+  [/\boffer\w*\b/iu, "offer"],
+  [/\bpresent\w*\b/iu, "present"],
+  [/\bpropos\w*\b/iu, "propose"],
+  [/\bprovid\w*\b/iu, "provide"],
+  [/\brecommend\w*\b/iu, "recommend"],
+  [/\bsuggest\w*\b/iu, "suggest"],
+  [/\bissu\w*\b/iu, "issue"],
+  [/\bgiv\w*\b/iu, "give"],
+  [/\bsend\w*\b/iu, "send"],
+  [/\bcreat\w*\b/iu, "create"],
+  [/\bselect\w*\b/iu, "select"],
+  [/\bus(?:e|es|ed|ing)\b/iu, "use"],
+];
+
+function readableList(values: string[]): string {
+  if (values.length <= 1) return values[0] || "";
+  if (values.length === 2) return `${values[0]} or ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, or ${values.at(-1)}`;
+}
+
+function generatedResolutionAlternativeConcepts(value: string): Set<string> {
+  const normalized = value.toLowerCase();
+  const concepts = new Set<string>();
+  if (/\bstore credit\b/u.test(normalized)) concepts.add("credit");
+  if (/\b(?:replac\w*|reship\w*)\b/u.test(normalized)
+    && !/\breplacement\s+(?:delivery\s+date|order\s+confirmation)\b/u.test(normalized)) {
+    concepts.add("replacement");
+  }
+  if (/\bexchang\w*\b/u.test(normalized)) concepts.add("exchange");
+  if (/\b(?:alternatives?|options?)\s+(?:other than|to)\s+(?:a )?full refund\b/u.test(normalized)) {
+    concepts.add("wildcard");
+  }
+  return concepts;
+}
+
+function generatedResolutionBoundaryLike(value: string): boolean {
+  if (generatedNegativeAction(value)) return true;
+  const normalized = normalizeGeneratedCriterion(value).toLowerCase();
+  const tokens = normalized.match(/[a-z]+/gu) || [];
+  if (!tokens.length || !GENERATED_RESOLUTION_BOUNDARY_VERBS.some(([pattern]) => pattern.test(tokens[0]))) {
+    return false;
+  }
+  const alternativeIndex = tokens.findIndex((token, index) =>
+    (token === "store" && tokens[index + 1] === "credit")
+    || /^(?:replac|reship|exchang)/u.test(token)
+    || /^(?:alternative|option)/u.test(token)
+  );
+  const directObjectBridge = new Set(["a", "an", "approved", "customer", "full", "the", "with"]);
+  return alternativeIndex > 0
+    && tokens.slice(1, alternativeIndex).every((token) => directObjectBridge.has(token));
+}
+
+function compositeGeneratedResolutionBoundary(actions: string[]): string {
+  const normalizedActions = actions.map(normalizeGeneratedProhibitedAction);
+  const verbs = uniqueStrings(normalizedActions.flatMap((action) => {
+    const match = GENERATED_RESOLUTION_BOUNDARY_VERBS.find(([pattern]) => pattern.test(action));
+    return match ? [match[1]] : [];
+  }));
+  const concepts = new Set(normalizedActions.flatMap((action) =>
+    [...generatedResolutionAlternativeConcepts(action)]
+  ));
+  const alternatives: string[] = [];
+  if (concepts.has("credit")) alternatives.push("store credit");
+  if (concepts.has("replacement")) alternatives.push("a replacement");
+  if (concepts.has("exchange")) alternatives.push("an exchange");
+  if (concepts.has("wildcard")) {
+    alternatives.push(alternatives.length
+      ? "any other option instead of the approved full refund"
+      : "any option other than the approved full refund");
+  }
+  return `Do not ${readableList(verbs.length ? verbs : ["use"])} ${readableList(alternatives)}.`;
+}
+
+function repairGeneratedResolutionProhibitions(content: GeneratedContent): GeneratedContent {
+  const normalizedActions = content.prohibitedActions.map(normalizeGeneratedProhibitedAction);
+  const groups = findOverlappingResolutionProhibitionGroups(normalizedActions);
+  if (!groups.length) return content;
+
+  const replacementAtIndex = new Map<number, string>();
+  const removedIndexes = new Set<number>();
+  const echoReplacements = new Map<string, string>();
+  const semanticEchoReplacements: Array<{ concepts: Set<string>; replacement: string }> = [];
+  groups.forEach((group) => {
+    const composite = compositeGeneratedResolutionBoundary(group.map((index) => normalizedActions[index]));
+    const concepts = new Set(group.flatMap((index) =>
+      [...generatedResolutionAlternativeConcepts(normalizedActions[index])]
+    ));
+    semanticEchoReplacements.push({ concepts, replacement: composite });
+    replacementAtIndex.set(group[0], composite);
+    group.slice(1).forEach((index) => removedIndexes.add(index));
+    group.forEach((index) => {
+      echoReplacements.set(generatedProhibitedActionBodyKey(content.prohibitedActions[index]), composite);
+      echoReplacements.set(generatedProhibitedActionBodyKey(normalizedActions[index]), composite);
+    });
+  });
+  const replaceEcho = (value: string) => {
+    const exactReplacement = echoReplacements.get(generatedProhibitedActionBodyKey(value));
+    if (exactReplacement) return exactReplacement;
+    if (!generatedResolutionBoundaryLike(value)) return value;
+    const concepts = generatedResolutionAlternativeConcepts(value);
+    if (!concepts.size) return value;
+    const semanticReplacement = semanticEchoReplacements.find(({ concepts: groupConcepts }) =>
+      [...concepts].every((concept) => groupConcepts.has("wildcard") || groupConcepts.has(concept))
+    );
+    return semanticReplacement?.replacement || value;
+  };
+
+  return {
+    ...content,
+    correctProcess: uniqueStrings(content.correctProcess.map(replaceEcho)),
+    prohibitedActions: uniqueStrings(content.prohibitedActions.flatMap((action, index) => {
+      if (replacementAtIndex.has(index)) return [replacementAtIndex.get(index)!];
+      return removedIndexes.has(index) ? [] : [action];
+    })),
+    phases: content.phases.map((phase) => ({
+      ...phase,
+      learnerActions: uniqueStrings(phase.learnerActions.map(replaceEcho)),
+      coachGuidance: uniqueStrings(phase.coachGuidance.map(replaceEcho)),
+    })),
+    objectives: content.objectives.map((objective) => ({
+      ...objective,
+      criteria: uniqueStrings(objective.criteria.map(replaceEcho)),
+    })),
+  };
 }
 
 function normalizeGeneratedCriterion(value: string): string {
