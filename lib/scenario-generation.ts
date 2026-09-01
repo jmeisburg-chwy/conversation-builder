@@ -9,6 +9,7 @@ import type {
 } from "./scenario-contract";
 import { createDefaultVoiceExperience } from "./scenario-contract";
 import {
+  chatAdvanceCompilationFailureCode,
   compileSafeChatAdvanceRequirements,
   customerBehaviorRuleConflictsWithLearner,
   customerBehaviorRuleHasNegativeLearnerPolarity,
@@ -74,6 +75,18 @@ interface GenerationDiagnostic {
   errorName?: string;
   errorMessage?: string;
   repairCodes?: string[];
+  repairDetails?: {
+    chatPhases: Array<{
+      phaseIndex: number;
+      findingCodes: string[];
+      compilerFailureCode?: string;
+    }>;
+    operationalCriteria: Array<{
+      objectiveIndex: number;
+      criterionIndex: number;
+      matchingPhaseCount: number;
+    }>;
+  };
 }
 
 class RepairableGeneratedContentError extends Error {
@@ -149,6 +162,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
     }
 
     let failureStage: GenerationDiagnostic["stage"] = "provider_request";
+    let repairDetails: GenerationDiagnostic["repairDetails"] | undefined;
     try {
       const providerInput = input.sourceDraft
         ? redactPrivacyValues({ ...input, sourceDraft: stripSourceEnvelope(input.sourceDraft) })
@@ -232,6 +246,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
                     : new Set(),
                 )
               : operationallyRepaired;
+            repairDetails = safeGeneratedRepairDetails(repaired);
             assertGeneratedContent(repaired);
             content = repaired;
             break;
@@ -282,6 +297,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
         ...(caught instanceof RepairableGeneratedContentError
           ? { repairCodes: caught.repairCodes }
           : {}),
+        ...(repairDetails ? { repairDetails } : {}),
       });
       if (caught instanceof Error && caught.name === "TimeoutError") {
         return errorResponse(504, "generation_timeout", "Coach Chewy took too long to create the draft. Try again.");
@@ -403,6 +419,32 @@ function repairGeneratedMissingOperationalCriteria(content: GeneratedContent): G
     phases: content.phases.map((phase, phaseIndex) => phaseIndex === finalPhaseIndex
       ? { ...phase, learnerActions: uniqueStrings([...phase.learnerActions, ...missingCriteria]) }
       : phase),
+  };
+}
+
+function safeGeneratedRepairDetails(content: GeneratedContent): NonNullable<GenerationDiagnostic["repairDetails"]> {
+  return {
+    chatPhases: content.phases.flatMap((phase, phaseIndex) => {
+      const findings = findChatAdvanceRequirementQualityFindings(
+        phase.chatAdvanceRequirements,
+        content.prohibitedActions,
+      );
+      if (!findings.length) return [];
+      const compilerFailureCode = chatAdvanceCompilationFailureCode(phase, content.prohibitedActions);
+      return [{
+        phaseIndex,
+        findingCodes: [...new Set(findings.map((finding) => finding.code))],
+        ...(compilerFailureCode ? { compilerFailureCode } : {}),
+      }];
+    }),
+    operationalCriteria: findOperationalCriterionCoverageFindings(
+      content.objectives,
+      content.phases,
+    ).map((finding) => ({
+      objectiveIndex: finding.objectiveIndex,
+      criterionIndex: finding.criterionIndex,
+      matchingPhaseCount: finding.matchingPhaseIndexes.length,
+    })),
   };
 }
 

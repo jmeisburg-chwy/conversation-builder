@@ -1195,6 +1195,37 @@ test("logs only safe guard codes when the corrective draft is still rejected", a
   assert.doesNotMatch(JSON.stringify(diagnostics), /Jordan|32\.49|original payment card/);
 });
 
+test("logs only structural compiler diagnostics for an unrepairable Chat phase", async () => {
+  const diagnostics: Array<Record<string, unknown>> = [];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge Jordan's concern and document the delayed order."],
+        chatAdvanceRequirements: [{
+          id: "acknowledgement",
+          phrases: ["thank", "help"],
+        }],
+      }],
+    }),
+    logError: (diagnostic) => diagnostics.push(diagnostic as unknown as Record<string, unknown>),
+  });
+
+  const response = await handler(request(validBody));
+  assert.equal(response.status, 502);
+  assert.deepEqual(diagnostics.at(-1)?.repairDetails, {
+    chatPhases: [{
+      phaseIndex: 0,
+      findingCodes: ["generic_chat_advance_phrase", "chat_advance_phrase_concept_mismatch"],
+      compilerFailureCode: "unsupported_action_clause",
+    }],
+    operationalCriteria: [],
+  });
+  assert.doesNotMatch(JSON.stringify(diagnostics), /Jordan|delayed order/);
+});
+
 test("deterministically compiles the final corrective draft's Chat gates", async () => {
   let providerCalls = 0;
   const phases = [

@@ -514,6 +514,37 @@ export function compileSafeChatAdvanceRequirements(
     : undefined;
 }
 
+export type ChatAdvanceCompilationFailureCode =
+  | "unsupported_action_clause"
+  | "unsafe_unknown_requirement"
+  | "unrepaired_known_or_candidate_quality";
+
+export function chatAdvanceCompilationFailureCode(
+  phase: PhaseDraft,
+  prohibitedActions: string[],
+): ChatAdvanceCompilationFailureCode | undefined {
+  const actionClauses = phase.learnerActions.flatMap((action) =>
+    action.split(/[,;!?]+|(?<!\d)\.(?!\d)|\b(?:and then|then|and|before|after|while)\b/iu)
+  );
+  if (actionClauses.some((clause) => !learnerActionClauseHasCompilableGateConcept(clause))) {
+    return "unsupported_action_clause";
+  }
+  const findings = findChatAdvanceRequirementQualityFindings(
+    phase.chatAdvanceRequirements ?? [],
+    prohibitedActions,
+  );
+  const unsafeRequirementIndexes = new Set(findings.map((finding) => finding.requirementIndex));
+  if ((phase.chatAdvanceRequirements ?? []).some((requirement, requirementIndex) =>
+    unsafeRequirementIndexes.has(requirementIndex)
+    && chatRequirementConcept(requirement.id) === undefined
+  )) {
+    return "unsafe_unknown_requirement";
+  }
+  return compileSafeChatAdvanceRequirements(phase, prohibitedActions)
+    ? undefined
+    : "unrepaired_known_or_candidate_quality";
+}
+
 export function operationalCriterionMatchingPhaseIndexes(
   criterion: string,
   phases: PhaseDraft[],
