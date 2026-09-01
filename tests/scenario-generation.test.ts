@@ -260,6 +260,108 @@ test("accepts detailed behavior guidance when resolution remains open for review
   assert.equal((await response.json()).assumptions.includes("MISSING_POLICY"), false);
 });
 
+test("repairs behavior-focused phases when the approved resolution remains open for review", async () => {
+  let providerCalls = 0;
+  const diagnostics: Array<Record<string, unknown>> = [];
+  const correctProcess = [
+    "Acknowledge the pet parent’s frustration and concern about having enough food for Pepper.",
+    "Ask focused questions to understand what happened, what the pet parent has already checked, and how much food they have remaining.",
+    "Confirm the outcome the pet parent needs before recommending a resolution.",
+    "Explain the available next steps clearly and set accurate expectations.",
+    "Confirm the agreed resolution, recap what will happen next, and ask whether the pet parent needs anything else.",
+    "Avoid: Do not blame the delivery carrier or suggest that the pet parent did not look carefully enough.",
+    "Avoid: Do not guarantee a delivery date or outcome that has not been confirmed.",
+    "Avoid: Do not offer compensation or make exceptions that have not been approved.",
+  ].join("\n");
+  const behaviorPhases = [
+    {
+      ...generated.phases[0],
+      id: "acknowledge_concern",
+      learnerActions: ["Acknowledge the pet parent's frustration and concern."],
+      chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["show empathy", "customer concern"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "discover_context",
+      learnerActions: ["Ask what happened, what the pet parent has already checked, and how much food remains."],
+      chatAdvanceRequirements: [{ id: "discovery_questions", phrases: ["ask focused questions", "understand situation"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "confirm_needed_outcome",
+      learnerActions: ["Confirm the outcome the pet parent needs before recommending a resolution."],
+      chatAdvanceRequirements: [{ id: "outcome_preference", phrases: ["confirm the outcome", "recommended resolution"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "explain_next_steps",
+      learnerActions: ["Explain the available next steps clearly and set accurate expectations."],
+      chatAdvanceRequirements: [{ id: "next_steps", phrases: ["explain the next steps", "set clear expectations"] }],
+    },
+    {
+      ...generated.phases[0],
+      id: "confirm_and_close",
+      learnerActions: [
+        "Confirm the agreed resolution, recap what will happen next, and ask whether the pet parent needs anything else.",
+      ],
+      chatAdvanceRequirements: [{ id: "closing", phrases: ["confirm resolution and recap", "anything else I can help with"] }],
+    },
+  ];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    logError: (diagnostic) => diagnostics.push(diagnostic as unknown as Record<string, unknown>),
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        learnerGoal: correctProcess,
+        customer: {
+          ...generated.customer,
+          name: "Taylor",
+          petName: "Pepper",
+          openingLine: "My Autoship order says delivered, but I cannot find it.",
+        },
+        phases: behaviorPhases,
+        objectives: [{
+          ...generated.objectives[0],
+          id: "handle_missing_order",
+          criteria: [
+            "Acknowledge the pet parent's concern.",
+            "Ask focused discovery questions.",
+            "Confirm the needed outcome before recommending a resolution.",
+            "Explain next steps and set accurate expectations.",
+            "Recap the agreed resolution and offer additional help.",
+          ],
+        }],
+        assumptions: ["MISSING_POLICY"],
+      });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional pet parent cannot find an Autoship order marked delivered and has food through tomorrow.",
+    learnerGoal: correctProcess,
+    correctProcess,
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify({ error: payload.error, diagnostics }));
+  assert.equal(providerCalls, 2);
+  assert.equal(payload.draft.phases.length, 5);
+  assert.equal(payload.assumptions.includes("MISSING_POLICY"), false);
+  assert.deepEqual(payload.draft.phases.map((phase: { chatAdvanceRequirements: Array<{ id: string }> }) =>
+    phase.chatAdvanceRequirements.map((requirement) => requirement.id)
+  ), [
+    ["acknowledgement"],
+    ["discovery_question"],
+    ["outcome_question_intent", "outcome_preference"],
+    ["next_steps", "expectation_setting"],
+    ["agreed_resolution", "recap", "closing"],
+  ]);
+  assert.doesNotMatch(JSON.stringify(payload.draft), /refund|replacement/iu);
+});
+
 test("requires a concrete approved outcome before calling the provider", async () => {
   let called = false;
   const handler = createGenerateHandler({

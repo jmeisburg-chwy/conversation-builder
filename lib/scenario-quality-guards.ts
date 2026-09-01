@@ -65,24 +65,32 @@ function isBrittleChatAdvancePhrase(value: string): boolean {
 }
 
 type ChatRequirementConcept =
+  | "agreement"
   | "amount"
+  | "discovery"
   | "destination"
+  | "expectation"
   | "timeline"
   | "completion"
   | "closing"
   | "empathy"
+  | "next_steps"
   | "question_intent"
   | "preference"
   | "refund";
 
 function chatRequirementConcept(requirementId: string): ChatRequirementConcept | undefined {
   const id = normalizeComparableText(requirementId);
+  if (/\b(?:agreed resolution|agreement)\b/u.test(id)) return "agreement";
   if (/\b(?:amount|price|total)\b/u.test(id)) return "amount";
+  if (/\b(?:discover|discovery|focused question)\b/u.test(id)) return "discovery";
   if (/\b(?:card|destination|method|payment)\b/u.test(id)) return "destination";
+  if (/\b(?:expectation|what to expect)\b/u.test(id)) return "expectation";
   if (/\b(?:duration|timeframe|timeline|timing|window)\b/u.test(id)) return "timeline";
   if (/\b(?:complete|completed|completion|confirm outcome|recap|review outcome|summarize|summary)\b/u.test(id)) return "completion";
   if (/\b(?:close|closing|farewell)\b/u.test(id)) return "closing";
   if (/\b(?:acknowledge|acknowledgement|empathy|empathetic|inconvenience|recognize)\b/u.test(id)) return "empathy";
+  if (/\b(?:next steps?|what happens next)\b/u.test(id)) return "next_steps";
   if (/\b(?:question|questioning)\b/u.test(id)) return "question_intent";
   if (/\b(?:choice|prefer|preference)\b/u.test(id)) return "preference";
   if (id === "refund" || id === "refund action" || id === "refund resolution") return "refund";
@@ -93,25 +101,31 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
   const concept = chatRequirementConcept(requirementId);
   if (!concept) return true;
   const normalized = normalizeComparableText(phrase);
+  if (concept === "agreement") return /\b(?:agreed|agreement|confirmed resolution|resolution we agreed)\b/u.test(normalized);
   if (concept === "amount") {
     return /(?:\$\s*)?\d+\.\d{2}\b/u.test(phrase) || /\b(?:amount|price|total)\b/u.test(normalized);
   }
   if (concept === "destination") {
     return /\b(?:destination|original card|original payment|payment card|payment method)\b/u.test(normalized);
   }
+  if (concept === "discovery") {
+    return /\b(?:can you tell me|have you checked|how much|tell me what happened|what happened|what have you checked)\b/u.test(normalized);
+  }
+  if (concept === "expectation") return /\b(?:expect\w*|expectation\w*)\b/u.test(normalized);
   if (concept === "timeline") {
     return /\b(?:business days?|days?|duration|end of day|hours?|timeframe|timeline|timing|today|tomorrow|weeks?)\b/u.test(normalized);
   }
   if (concept === "completion") {
     return /\b(?:complete|completed|confirmed|issued|placed|processed|recap|refunded|review|sent|submitted|summarize|summary|transferred)\b/u.test(normalized);
   }
-  if (concept === "closing") return /\b(?:anything else|appreciate|close|closing|thank|thanks)\b/u.test(normalized);
+  if (concept === "closing") return /\b(?:anything else|anything more|appreciate|close|closing|else i can help|thank|thanks)\b/u.test(normalized);
   if (concept === "empathy") {
     return /\b(?:acknowledge|apologize|apology|concern|empathy|frustrat\w*|inconvenience|recognize|see|sorry|sounds|understand)\b/u.test(normalized);
   }
   if (concept === "question_intent") {
-    return /\b(?:ask|can i|do you want|may i|would you like|would you prefer)\b/u.test(normalized);
+    return /\b(?:ask|can i|do you need|do you want|may i|what do you need|what outcome|what would you like|would you like|would you prefer)\b/u.test(normalized);
   }
+  if (concept === "next_steps") return /\b(?:next steps?|what happens next|what will happen next)\b/u.test(normalized);
   if (concept === "preference") {
     if (/\b(?:choice|prefer\w*|request\w*|want|whether)\b/u.test(normalized)) return true;
     const optionConcepts = resolutionOptionConcepts(intentTokens(normalized));
@@ -898,6 +912,25 @@ const QUESTION_INTENT_PHRASES = [
   "may i complete",
   "may i send",
 ];
+const DISCOVERY_QUESTION_PHRASES = [
+  "what happened",
+  "can you tell me",
+  "what have you checked",
+  "have you checked",
+  "how much",
+];
+const OUTCOME_QUESTION_PHRASES = [
+  "what outcome",
+  "what would you like",
+  "what do you need",
+  "do you need",
+];
+const OUTCOME_PREFERENCE_PHRASES = ["preferred outcome", "preferred resolution"];
+const NEXT_STEPS_PHRASES = ["next steps", "what happens next"];
+const EXPECTATION_PHRASES = ["set expectations", "what to expect"];
+const AGREED_RESOLUTION_PHRASES = ["agreed resolution", "resolution we agreed"];
+const RECAP_PHRASES = ["to recap", "quick recap"];
+const CLOSING_PHRASES = ["anything else", "anything more"];
 const COMPLETED_REFUND_ACTION_PHRASES = [
   "refund was issued",
   "refund has been issued",
@@ -1134,6 +1167,14 @@ function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
   const normalized = normalizeComparableText(clause);
   if (!normalized) return true;
   if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) return true;
+  if (/\b(?:ask\w*|question\w*)\b/u.test(normalized)
+    || /^(?:can you tell me|how much|what happened|what .{0,40}checked)\b/u.test(normalized)) return true;
+  if (/\b(?:confirm\w*|determin\w*|verif\w*)\b.{0,80}\b(?:need\w* outcome|outcome .{0,30}need\w*|prefer\w* outcome|resolution)\b/u.test(normalized)) return true;
+  if (/\brecommend\w*\b.{0,50}\bresolution\b/u.test(normalized)) return true;
+  if (/\b(?:agreed resolution|confirm\w* .{0,30}resolution)\b/u.test(normalized)) return true;
+  if (/\b(?:explain\w* .{0,40}next steps?|next steps?|set\w* .{0,30}expectations?|accurate expectations?|what to expect)\b/u.test(normalized)) return true;
+  if (/\b(?:recap\w*|summar\w*)\b/u.test(normalized)) return true;
+  if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) return true;
   const option = detectedResolutionOption(clause);
   if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) return true;
   if (/\$\s*\d+\.\d{2}\b/u.test(clause)) return true;
@@ -1193,6 +1234,16 @@ export function compileSafeChatAdvanceRequirements(
   if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) {
     compiled.push({ id: "acknowledge_empathy", phrases: NATURAL_EMPATHY_PHRASES });
   }
+  if (/\b(?:ask\w*|question\w*)\b/u.test(normalized)
+    && /\b(?:already checked|can you tell me|focused questions?|have checked|how much|understand what happened|what happened)\b/u.test(normalized)) {
+    compiled.push({ id: "discovery_question", phrases: DISCOVERY_QUESTION_PHRASES });
+  }
+  if (/\b(?:confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:need\w* outcome|outcome .{0,30}need\w*|prefer\w* outcome|resolution)\b/u.test(normalized)
+    && !option
+    && !/\bagreed resolution\b/u.test(normalized)) {
+    compiled.push({ id: "outcome_question_intent", phrases: OUTCOME_QUESTION_PHRASES });
+    compiled.push({ id: "outcome_preference", phrases: OUTCOME_PREFERENCE_PHRASES });
+  }
   if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) {
     compiled.push({ id: `${option}_question_intent`, phrases: QUESTION_INTENT_PHRASES });
     if (!completion) {
@@ -1216,6 +1267,21 @@ export function compileSafeChatAdvanceRequirements(
   const timeline = compileTimelineRequirement(learnerText, option);
   if (timeline) compiled.push(timeline);
   if (completion) compiled.push(completion);
+  if (/\b(?:explain\w* .{0,40}next steps?|next steps?)\b/u.test(normalized)) {
+    compiled.push({ id: "next_steps", phrases: NEXT_STEPS_PHRASES });
+  }
+  if (/\b(?:accurate expectations?|set\w* .{0,30}expectations?|what to expect)\b/u.test(normalized)) {
+    compiled.push({ id: "expectation_setting", phrases: EXPECTATION_PHRASES });
+  }
+  if (/\b(?:agreed resolution|confirm\w* .{0,30}resolution)\b/u.test(normalized)) {
+    compiled.push({ id: "agreed_resolution", phrases: AGREED_RESOLUTION_PHRASES });
+  }
+  if (/\b(?:recap\w*|summar\w*)\b/u.test(normalized)) {
+    compiled.push({ id: "recap", phrases: RECAP_PHRASES });
+  }
+  if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) {
+    compiled.push({ id: "closing", phrases: CLOSING_PHRASES });
+  }
 
   const actionClauses = phase.learnerActions.flatMap((action) =>
     action.split(/[,;!?]+|(?<!\d)\.(?!\d)|\b(?:and then|then|and|before|after|while)\b/iu)
