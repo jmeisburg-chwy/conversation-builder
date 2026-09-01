@@ -247,8 +247,21 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
                 )
               : operationallyRepaired;
             repairDetails = safeGeneratedRepairDetails(repaired);
-            assertGeneratedContent(repaired);
-            content = repaired;
+            try {
+              assertGeneratedContent(repaired);
+              content = repaired;
+            } catch (repairFailure) {
+              const rebuilt = repairFailure instanceof RepairableGeneratedContentError
+                && repairFailure.repairCodes.every((code) =>
+                  code === "chat_advance_requirements" || code === "operational_criterion_coverage"
+                )
+                ? rebuildGeneratedResolutionPhases(candidate, input.correctProcess)
+                : undefined;
+              if (!rebuilt) throw repairFailure;
+              repairDetails = safeGeneratedRepairDetails(rebuilt);
+              assertGeneratedContent(rebuilt);
+              content = rebuilt;
+            }
             break;
           }
           throw caught;
@@ -420,6 +433,138 @@ function repairGeneratedMissingOperationalCriteria(content: GeneratedContent): G
       ? { ...phase, learnerActions: uniqueStrings([...phase.learnerActions, ...missingCriteria]) }
       : phase),
   };
+}
+
+interface ApprovedResolutionBlueprint {
+  option: "refund" | "replacement";
+  amount?: string;
+  timeline?: string;
+  useOriginalPaymentCard: boolean;
+  needsAcknowledgement: boolean;
+  needsPreference: boolean;
+  fullRefund: boolean;
+  noCostReplacement: boolean;
+}
+
+const APPROVED_PROCESS_ACTION_START = /^\s*(?:acknowledge\w*|apolog\w*|ask\w*|check\w*|clarif\w*|collect\w*|confirm\w*|creat\w*|determin\w*|document\w*|empath\w*|explain\w*|find\w*|gather\w*|identify\w*|inform\w*|issu\w*|locat\w*|offer\w*|plac\w*|process\w*|provid\w*|recap\w*|recognize\w*|request\w*|review\w*|send\w*|sent|stat\w*|submi\w*|tell\w*|thank\w*|transfer\w*|updat\w*|verif\w*)\b/iu;
+
+function supportedApprovedProcessClause(clause: string): boolean {
+  const normalized = clause.trim();
+  if (/^(?:acknowledge\w*|apolog\w*|empath\w*|recognize\w*)\b/iu.test(normalized)) return true;
+  if (/^(?:ask\w*|clarif\w*|confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:prefer\w*|want|whether)\b/iu.test(normalized)) return true;
+  if (/^(?:complet\w*|issu\w*|process\w*|provid\w*)\b.{0,80}\brefund\w*\b/iu.test(normalized)) return true;
+  if (/^(?:creat\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(normalized)) return true;
+  return /^(?:explain\w*|inform\w*|stat\w*|tell\w*)\b.{0,120}\b(?:arriv\w*|business days?|days?|end of day|hours?|post\w*|timeframe|timeline|timing|today|tomorrow|weeks?)\b/iu.test(normalized);
+}
+
+function approvedResolutionBlueprint(correctProcess: string | undefined): ApprovedResolutionBlueprint | undefined {
+  if (!correctProcess) return undefined;
+  const positiveSentences = correctProcess
+    .split(/(?<=[.!?])\s+/u)
+    .filter((sentence) => !/^\s*(?:avoid|do not|don't|never)\b/iu.test(sentence));
+  const actionClauses = positiveSentences.flatMap((sentence) => {
+    if (!APPROVED_PROCESS_ACTION_START.test(sentence)) return [];
+    return sentence
+      .split(/[,;]+|\b(?:and then|then|and)\b/iu)
+      .map((clause) => clause.trim())
+      .filter((clause) => APPROVED_PROCESS_ACTION_START.test(clause));
+  });
+  if (!actionClauses.length || actionClauses.some((clause) => !supportedApprovedProcessClause(clause))) {
+    return undefined;
+  }
+  const positiveProcess = actionClauses.join(". ");
+  const refundAction = /\b(?:complet\w*|issu\w*|process\w*|provid\w*)\b.{0,80}\brefund\w*\b/iu.test(positiveProcess);
+  const replacementAction = /\b(?:creat\w*|issu\w*|plac\w*|process\w*|provid\w*|send\w*|sent|submi\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/iu.test(positiveProcess);
+  if (refundAction === replacementAction) return undefined;
+
+  const amounts = [...new Set(
+    [...positiveProcess.matchAll(/\$\s*\d+\.\d{2}\b/gu)].map((match) => match[0].replace(/\s+/gu, "")),
+  )];
+  const timelines = [...new Set(
+    [...positiveProcess.matchAll(
+      /\b(?:\d+\s*(?:-|–|to)\s*\d+\s+business days?|\d+\s+(?:business days?|days?|hours?|weeks?)|end of day|today|tomorrow)\b/giu,
+    )].map((match) => match[0].replace(/\s+/gu, " ").toLowerCase()),
+  )];
+  if (amounts.length > 1 || timelines.length > 1) return undefined;
+  return {
+    option: refundAction ? "refund" : "replacement",
+    ...(amounts[0] ? { amount: amounts[0] } : {}),
+    ...(timelines[0] ? { timeline: timelines[0] } : {}),
+    useOriginalPaymentCard: /\boriginal (?:payment(?: card| method)?|card)\b/iu.test(positiveProcess),
+    needsAcknowledgement: /\b(?:acknowledge\w*|apolog\w*|empath\w*|recognize\w*)\b/iu.test(positiveProcess),
+    needsPreference: /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|verif\w*)\b.{0,100}\b(?:prefer\w*|want|whether)\b/iu.test(positiveProcess),
+    fullRefund: /\bfull refund\b/iu.test(positiveProcess),
+    noCostReplacement: /\bno[- ]cost\b/iu.test(positiveProcess),
+  };
+}
+
+function compileBlueprintPhase(
+  phase: Omit<PhaseDraft, "chatAdvanceRequirements">,
+  prohibitedActions: string[],
+): PhaseDraft | undefined {
+  const provisional = { ...phase, chatAdvanceRequirements: [] };
+  const chatAdvanceRequirements = compileSafeChatAdvanceRequirements(provisional, prohibitedActions);
+  return chatAdvanceRequirements ? { ...provisional, chatAdvanceRequirements } : undefined;
+}
+
+function rebuildGeneratedResolutionPhases(
+  content: GeneratedContent,
+  correctProcess: string | undefined,
+): GeneratedContent | undefined {
+  const blueprint = approvedResolutionBlueprint(correctProcess);
+  if (!blueprint) return undefined;
+  const phases: PhaseDraft[] = [];
+  const partnerName = content.customer.name.trim() || "the Conversation Partner";
+  const optionLabel = blueprint.option === "refund"
+    ? `${blueprint.fullRefund ? "full " : ""}refund`
+    : "replacement";
+
+  if (blueprint.needsAcknowledgement || blueprint.needsPreference) {
+    const learnerActions = [
+      ...(blueprint.needsAcknowledgement ? ["Acknowledge the Conversation Partner's concern."] : []),
+      ...(blueprint.needsPreference ? [`Ask whether ${partnerName} wants a ${optionLabel}.`] : []),
+    ];
+    const preferencePhase = compileBlueprintPhase({
+      id: `acknowledge_and_confirm_${blueprint.option}_preference`,
+      title: `Acknowledge and confirm ${blueprint.option} preference`,
+      learnerActions,
+      partnerResponse: blueprint.needsPreference
+        ? `Yes, I want a ${optionLabel}.`
+        : "Thank you for understanding.",
+      coachGuidance: [
+        ...(blueprint.needsAcknowledgement ? ["Acknowledge what happened before discussing the resolution."] : []),
+        ...(blueprint.needsPreference ? ["Ask for the Conversation Partner's preferred resolution before taking action."] : []),
+      ],
+      customerRemainsSilent: false,
+    }, content.prohibitedActions);
+    if (!preferencePhase) return undefined;
+    phases.push(preferencePhase);
+  }
+
+  const outcomeAction = blueprint.option === "refund"
+    ? `Issue ${blueprint.fullRefund ? "a full" : "the"} refund${blueprint.amount ? ` of ${blueprint.amount}` : ""}${blueprint.useOriginalPaymentCard ? " to the original payment card" : ""}.`
+    : `Place ${blueprint.noCostReplacement ? "a no-cost" : "the"} replacement order.`;
+  const learnerActions = [
+    outcomeAction,
+    ...(blueprint.timeline
+      ? [`Explain that the ${blueprint.option} will ${blueprint.option === "refund" ? "post" : "arrive"} within ${blueprint.timeline}.`]
+      : []),
+  ];
+  const outcomePhase = compileBlueprintPhase({
+    id: `complete_${blueprint.option}`,
+    title: `Complete the ${blueprint.option}`,
+    learnerActions,
+    partnerResponse: "Thank you for resolving this.",
+    coachGuidance: [
+      `Complete the approved ${blueprint.option} accurately.`,
+      ...(blueprint.timeline ? [`Explain the approved ${blueprint.timeline} timing.`] : []),
+    ],
+    customerRemainsSilent: false,
+  }, content.prohibitedActions);
+  if (!outcomePhase) return undefined;
+  phases.push(outcomePhase);
+
+  return phases.length ? { ...content, phases } : undefined;
 }
 
 function safeGeneratedRepairDetails(content: GeneratedContent): NonNullable<GenerationDiagnostic["repairDetails"]> {

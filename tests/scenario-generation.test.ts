@@ -1213,7 +1213,10 @@ test("logs only structural compiler diagnostics for an unrepairable Chat phase",
     logError: (diagnostic) => diagnostics.push(diagnostic as unknown as Record<string, unknown>),
   });
 
-  const response = await handler(request(validBody));
+  const response = await handler(request({
+    ...validBody,
+    correctProcess: "Transfer the conversation to the approved pharmacy support queue and confirm the transfer is complete.",
+  }));
   assert.equal(response.status, 502);
   assert.deepEqual(diagnostics.at(-1)?.repairDetails, {
     chatPhases: [{
@@ -1305,6 +1308,132 @@ test("deterministically compiles the final corrective draft's Chat gates", async
       { id: "case_reference", phrases: ["case reference", "reference number"] },
     ],
   ]);
+});
+
+test("rebuilds unrepairable model phases from the approved refund process", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          name: "Jamie",
+          openingLine: "The dog food bag arrived torn and unusable.",
+        },
+        phases: [
+          {
+            ...generated.phases[0],
+            id: "document_issue",
+            learnerActions: ["Acknowledge the torn bag and document what happened."],
+            chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["document issue", "take notes"] }],
+          },
+          {
+            ...generated.phases[0],
+            id: "ask_preference",
+            learnerActions: ["Ask whether Jamie wants a full refund."],
+            chatAdvanceRequirements: [{ id: "refund_preference", phrases: ["like a refund", "want a refund"] }],
+            partnerResponse: "Yes, I want a full refund.",
+          },
+          {
+            ...generated.phases[0],
+            id: "recap_refund",
+            learnerActions: ["Explain the refund timeline and recap the resolution."],
+            chatAdvanceRequirements: [{ id: "refund_timeline", phrases: ["recap refund", "review outcome"] }],
+          },
+          {
+            ...generated.phases[0],
+            id: "complete_and_close",
+            learnerActions: ["Issue the $32.49 refund to the original payment card and close the conversation."],
+            chatAdvanceRequirements: [{ id: "refund_completion", phrases: ["offer replacement", "issue store credit"] }],
+          },
+        ],
+        objectives: [{
+          ...generated.objectives[0],
+          id: "refund_resolution",
+          criteria: ["Issue a full refund of $32.49 to the original payment card."],
+        }],
+        prohibitedActions: ["Do not offer store credit, a replacement, or an exchange."],
+      });
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer named Jamie received a torn bag of dog food.",
+    correctProcess: "Issue a full refund of exactly $32.49 to the original payment card. Explain that the refund will post within 3–5 business days. Acknowledge the torn bag and ask Jamie whether a full refund is preferred. Do not offer store credit, replacement, or exchange.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.equal(payload.draft.phases.length, 2);
+  assert.deepEqual(payload.draft.phases[0].learnerActions, [
+    "Acknowledge the Conversation Partner's concern.",
+    "Ask whether Jamie wants a full refund.",
+  ]);
+  assert.deepEqual(payload.draft.phases[0].chatAdvanceRequirements, [
+    { id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] },
+    { id: "refund_preference", phrases: ["like a refund", "want a refund"] },
+  ]);
+  assert.deepEqual(payload.draft.phases[1].learnerActions, [
+    "Issue a full refund of $32.49 to the original payment card.",
+    "Explain that the refund will post within 3–5 business days.",
+  ]);
+  assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements, [
+    { id: "refund_destination", phrases: ["original card", "original payment card"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+  ]);
+});
+
+test("does not copy prohibited-alternative facts into a rebuilt approved outcome", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge the concern and document the delayed order."],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["thank", "help"] }],
+      }],
+    }),
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    correctProcess: "Issue the approved refund. Do not offer $10.00 store credit or a replacement arriving tomorrow.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.phases[0].learnerActions, ["Issue the refund."]);
+  assert.doesNotMatch(JSON.stringify(payload.draft.phases), /10\.00|tomorrow|store credit|replacement/i);
+});
+
+test("fails closed when a phase blueprint would drop prerequisites or choose conflicting facts", async () => {
+  for (const correctProcess of [
+    "Verify that the torn bag is eligible for a refund. Issue a full refund of $32.49 to the original payment card.",
+    "Issue a full refund of $10.00 to the original payment card and process a full refund of $20.00 to the original payment card.",
+  ]) {
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse({
+        ...generated,
+        phases: [{
+          ...generated.phases[0],
+          learnerActions: ["Acknowledge the concern and document the delayed order."],
+          chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["thank", "help"] }],
+        }],
+      }),
+    });
+
+    const response = await handler(request({ ...validBody, correctProcess }));
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error.code, "generation_unavailable");
+  }
 });
 
 test("adds a missing approved operational criterion to the final phase before compiling gates", async () => {
