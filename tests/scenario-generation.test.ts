@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createGenerateHandler } from "../lib/scenario-generation";
+import { compileSafeChatAdvanceRequirements } from "../lib/scenario-quality-guards";
 import { createValidateHandler } from "../lib/scenario-validation";
 import { objectiveFingerprint } from "../lib/objective-approval";
 import type { StudioDraft } from "../lib/scenario-contract";
@@ -866,7 +867,7 @@ test("normalizes generic objective IDs and subject-led or gerund criteria", asyn
   assert.doesNotMatch(JSON.stringify(payload.draft.objectives), /Show this behavior:/);
 });
 
-test("rejects generated Chat gates that use weak or prohibited evidence", async () => {
+test("rejects generated Chat gates when required behavior cannot be compiled safely", async () => {
   for (const phases of [
     [{
       ...generated.phases[0],
@@ -1192,6 +1193,104 @@ test("logs only safe guard codes when the corrective draft is still rejected", a
     "overlapping_resolution_prohibitions",
   ]);
   assert.doesNotMatch(JSON.stringify(diagnostics), /Jordan|32\.49|original payment card/);
+});
+
+test("deterministically compiles the final corrective draft's Chat gates", async () => {
+  let providerCalls = 0;
+  const phases = [
+    {
+      ...generated.phases[0],
+      id: "confirm_refund_preference",
+      title: "Confirm refund preference",
+      learnerActions: ["Acknowledge the torn bag and ask whether Jamie wants a full refund."],
+      chatAdvanceRequirements: [{
+        id: "confirm_preference",
+        phrases: ["refund amount $32.49", "original payment card"],
+      }],
+      partnerResponse: "I want a full refund.",
+    },
+    {
+      ...generated.phases[0],
+      id: "complete_refund",
+      title: "Complete the refund",
+      learnerActions: [
+        "Issue the $32.49 refund to the original payment card and explain it will post within 3–5 business days.",
+      ],
+      chatAdvanceRequirements: [{
+        id: "recap_refund",
+        phrases: ["refund $32.49 confirmed", "thank customer"],
+      }],
+      partnerResponse: "Thank you for resolving this.",
+    },
+    {
+      ...generated.phases[0],
+      id: "preserve_valid_reference_gate",
+      title: "Preserve a valid gate",
+      learnerActions: ["Confirm the case reference."],
+      chatAdvanceRequirements: [{
+        id: "case_reference",
+        phrases: ["case reference", "reference number"],
+      }],
+      partnerResponse: "That is the correct case.",
+    },
+  ];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          openingLine: "The dog food bag arrived torn and unusable.",
+        },
+        phases,
+        objectives: [{
+          ...generated.objectives[0],
+          id: "refund_resolution",
+          criteria: ["Issue a full refund of $32.49 to the original payment card."],
+        }],
+        prohibitedActions: ["Do not offer store credit, a replacement, or an exchange."],
+      });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.deepEqual(payload.draft.phases.map((phase: { chatAdvanceRequirements: unknown }) => phase.chatAdvanceRequirements), [
+    [
+      { id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] },
+      { id: "refund_preference", phrases: ["like a refund", "want a refund"] },
+    ],
+    [
+      { id: "refund_amount", phrases: ["$32.49", "32.49"] },
+      { id: "refund_destination", phrases: ["original card", "original payment card"] },
+      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+      { id: "refund_completion", phrases: ["issued the", "processed the"] },
+    ],
+    [
+      { id: "case_reference", phrases: ["case reference", "reference number"] },
+    ],
+  ]);
+});
+
+test("compiles an exact non-range timeline instead of a generic deadline", () => {
+  const requirements = compileSafeChatAdvanceRequirements({
+    ...generated.phases[0],
+    learnerActions: ["Explain that the refund will post within 24 hours."],
+    chatAdvanceRequirements: [{
+      id: "refund_timeline",
+      phrases: ["soon", "expected timeframe"],
+    }],
+  }, []);
+
+  assert.deepEqual(requirements, [{
+    id: "outcome_timeline",
+    phrases: ["24 hours", "24-hour"],
+  }]);
 });
 
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {

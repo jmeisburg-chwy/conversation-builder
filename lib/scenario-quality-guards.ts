@@ -138,7 +138,10 @@ export function findChatAdvanceRequirementQualityFindings(
 
   requirements.forEach((requirement, requirementIndex) => {
     const normalizedPhrases = requirement.phrases.map((phrase) => normalizeComparableText(phrase));
-    if (new Set(normalizedPhrases.filter(Boolean)).size < 2) {
+    const runtimeDistinctPhrases = new Set(
+      requirement.phrases.map((phrase) => phrase.trim().toLowerCase()).filter(Boolean),
+    );
+    if (runtimeDistinctPhrases.size < 2) {
       findings.push({ code: "chat_advance_requirement_alternatives", requirementIndex });
     }
 
@@ -337,6 +340,140 @@ function phaseOperationalConcepts(learnerActions: string[]): Set<OperationalCrit
     });
   });
   return concepts;
+}
+
+function detectedResolutionOption(value: string): "credit" | "exchange" | "refund" | "replacement" | undefined {
+  const normalized = normalizeComparableText(value);
+  if (/\brefund\w*\b/u.test(normalized)) return "refund";
+  if (/\b(?:replac\w*|reship\w*)\b/u.test(normalized)) return "replacement";
+  if (/\bstore credit\b/u.test(normalized)) return "credit";
+  if (/\bexchang\w*\b/u.test(normalized)) return "exchange";
+  return undefined;
+}
+
+function preferencePhrases(option: ReturnType<typeof detectedResolutionOption>): string[] {
+  if (option === "replacement") return ["like a replacement", "want a replacement"];
+  if (option === "credit") return ["like store credit", "want store credit"];
+  if (option === "exchange") return ["like an exchange", "want an exchange"];
+  return ["like a refund", "want a refund"];
+}
+
+function compileTimelineRequirement(learnerText: string): ChatAdvanceRequirementDraft | undefined {
+  const businessDayRange = learnerText.match(/\b(\d+)\s*(-|–|to)\s*(\d+)\s+(business days?)\b/iu);
+  if (businessDayRange) {
+    const unit = businessDayRange[4].toLowerCase();
+    const asciiRange = `${businessDayRange[1]}-${businessDayRange[3]} ${unit}`;
+    const enDashRange = `${businessDayRange[1]}–${businessDayRange[3]} ${unit}`;
+    const toRange = `${businessDayRange[1]} to ${businessDayRange[3]} ${unit}`;
+    return {
+      id: "refund_timeline",
+      phrases: businessDayRange[2] === "to" ? [toRange, asciiRange] : [asciiRange, enDashRange],
+    };
+  }
+
+  const quantified = learnerText.match(/\b(\d+)\s+(business days?|days?|hours?|weeks?)\b/iu);
+  if (quantified) {
+    const unit = quantified[2].toLowerCase();
+    const singularUnit = unit
+      .replace(/days$/u, "day")
+      .replace(/hours$/u, "hour")
+      .replace(/weeks$/u, "week");
+    return {
+      id: "outcome_timeline",
+      phrases: [`${quantified[1]} ${unit}`, `${quantified[1]}-${singularUnit}`],
+    };
+  }
+
+  const normalized = normalizeComparableText(learnerText);
+  if (/\bend of day\b/u.test(normalized)) {
+    return { id: "outcome_timeline", phrases: ["end of day", "by end of day"] };
+  }
+  const namedDay = normalized.match(/\b(today|tomorrow)\b/u)?.[1];
+  return namedDay
+    ? { id: "outcome_timeline", phrases: [namedDay, `by ${namedDay}`] }
+    : undefined;
+}
+
+function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
+  const normalized = normalizeComparableText(clause);
+  if (!normalized) return true;
+  if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) return true;
+  const option = detectedResolutionOption(clause);
+  if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) return true;
+  if (/\$\s*\d+\.\d{2}\b/u.test(clause)) return true;
+  if (/\boriginal (?:payment(?: card| method)?|card)\b/u.test(normalized)) return true;
+  if (compileTimelineRequirement(clause)) return true;
+  return phaseOperationalConcepts([clause]).has("refund");
+}
+
+/**
+ * Compile the small set of quality-critical Chat concepts that Rise evaluates
+ * with literal substring matching. Valid unrecognized provider groups are kept,
+ * but unsafe provider wording never survives this fallback.
+ */
+export function compileSafeChatAdvanceRequirements(
+  phase: PhaseDraft,
+  prohibitedActions: string[],
+): ChatAdvanceRequirementDraft[] | undefined {
+  const learnerText = phase.learnerActions.join(" ");
+  const normalized = normalizeComparableText(learnerText);
+  const compiled: ChatAdvanceRequirementDraft[] = [];
+  const option = detectedResolutionOption(learnerText);
+
+  if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) {
+    compiled.push({ id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] });
+  }
+  if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) {
+    compiled.push({ id: `${option}_preference`, phrases: preferencePhrases(option) });
+  }
+
+  const amount = learnerText.match(/\$\s*\d+\.\d{2}\b/u)?.[0]?.replace(/\s+/gu, "");
+  if (amount) compiled.push({ id: "refund_amount", phrases: [amount, amount.slice(1)] });
+  if (/\boriginal (?:payment(?: card| method)?|card)\b/u.test(normalized)) {
+    compiled.push({ id: "refund_destination", phrases: ["original card", "original payment card"] });
+  }
+  const timeline = compileTimelineRequirement(learnerText);
+  if (timeline) compiled.push(timeline);
+  if (phaseOperationalConcepts(phase.learnerActions).has("refund")) {
+    compiled.push({ id: "refund_completion", phrases: ["issued the", "processed the"] });
+  }
+
+  const actionClauses = phase.learnerActions.flatMap((action) =>
+    action.split(/[,;!?]+|(?<!\d)\.(?!\d)|\b(?:and then|then|and|before|after|while)\b/iu)
+  );
+  if (actionClauses.some((clause) => !learnerActionClauseHasCompilableGateConcept(clause))) return undefined;
+
+  const phaseFindings = findChatAdvanceRequirementQualityFindings(
+    phase.chatAdvanceRequirements ?? [],
+    prohibitedActions,
+  );
+  const unsafeRequirementIndexes = new Set(phaseFindings.map((finding) => finding.requirementIndex));
+  const unsafeUnknown = (phase.chatAdvanceRequirements ?? []).some((requirement, requirementIndex) =>
+    unsafeRequirementIndexes.has(requirementIndex)
+    && chatRequirementConcept(requirement.id) === undefined
+  );
+  if (unsafeUnknown) return undefined;
+
+  const compiledConcepts = new Set(compiled.map((requirement) => chatRequirementConcept(requirement.id)));
+  const hasUnrepairedKnownConcept = (phase.chatAdvanceRequirements ?? []).some((requirement, requirementIndex) => {
+    if (!unsafeRequirementIndexes.has(requirementIndex)) return false;
+    const concept = chatRequirementConcept(requirement.id);
+    return concept !== undefined && !compiledConcepts.has(concept);
+  });
+  if (hasUnrepairedKnownConcept) return undefined;
+
+  const safeUnknown = (phase.chatAdvanceRequirements ?? []).filter((requirement, requirementIndex) =>
+    !unsafeRequirementIndexes.has(requirementIndex)
+    && chatRequirementConcept(requirement.id) === undefined
+  );
+  let candidate = [...compiled, ...safeUnknown];
+  if (candidate.length && findChatAdvanceRequirementQualityFindings(candidate, prohibitedActions).length === 0) {
+    return candidate;
+  }
+  candidate = compiled;
+  return candidate.length && findChatAdvanceRequirementQualityFindings(candidate, prohibitedActions).length === 0
+    ? candidate
+    : undefined;
 }
 
 export function operationalCriterionMatchingPhaseIndexes(

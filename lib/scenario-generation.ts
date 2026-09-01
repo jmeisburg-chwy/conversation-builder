@@ -9,6 +9,7 @@ import type {
 } from "./scenario-contract";
 import { createDefaultVoiceExperience } from "./scenario-contract";
 import {
+  compileSafeChatAdvanceRequirements,
   customerBehaviorRuleConflictsWithLearner,
   customerBehaviorRuleHasNegativeLearnerPolarity,
   customerBehaviorRuleToNegativeGuardrail,
@@ -204,12 +205,23 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
         }
         failureStage = "provider_output";
         try {
-          content = sanitizeProviderOutput(parseProviderOutput(providerRaw));
+          const candidate = sanitizeProviderOutput(parseProviderOutput(providerRaw));
+          assertGeneratedContent(candidate);
+          content = candidate;
           break;
         } catch (caught) {
           if (caught instanceof RepairableGeneratedContentError && attempt === 0) {
             correction = caught.correction;
             continue;
+          }
+          if (caught instanceof RepairableGeneratedContentError
+            && caught.repairCodes.length === 1
+            && caught.repairCodes[0] === "chat_advance_requirements") {
+            const candidate = sanitizeProviderOutput(parseProviderOutput(providerRaw));
+            const repaired = repairGeneratedChatAdvanceRequirements(candidate);
+            assertGeneratedContent(repaired);
+            content = repaired;
+            break;
           }
           throw caught;
         }
@@ -337,9 +349,27 @@ function parseProviderOutput(raw: string): GeneratedContent {
       .map((entry) => String(entry.text));
   });
   if (texts.length !== 1) throw new Error("invalid_provider_output");
-  const generated = JSON.parse(texts[0]) as GeneratedContent;
-  assertGeneratedContent(generated);
-  return generated;
+  return JSON.parse(texts[0]) as GeneratedContent;
+}
+
+function repairGeneratedChatAdvanceRequirements(content: GeneratedContent): GeneratedContent {
+  return {
+    ...content,
+    phases: content.phases.map((phase) => {
+      const findings = findChatAdvanceRequirementQualityFindings(
+        phase.chatAdvanceRequirements,
+        content.prohibitedActions,
+      );
+      if (findings.length === 0) return phase;
+      return {
+        ...phase,
+        chatAdvanceRequirements: compileSafeChatAdvanceRequirements(
+        phase,
+        content.prohibitedActions,
+        ) ?? phase.chatAdvanceRequirements,
+      };
+    }),
+  };
 }
 
 function assertGeneratedContent(value: GeneratedContent): void {
