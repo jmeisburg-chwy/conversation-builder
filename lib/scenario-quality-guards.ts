@@ -5,7 +5,7 @@ import {
   customerBehaviorRuleToNegativeGuardrail as sharedCustomerBehaviorRuleToNegativeGuardrail,
   customerFollowUpConflictsWithLearner as sharedCustomerFollowUpConflictsWithLearner,
 } from "../public/builder-studio/src/scenarioQualityGuards.js";
-import type { ChatAdvanceRequirementDraft } from "./scenario-contract";
+import type { ChatAdvanceRequirementDraft, ObjectiveDraft, PhaseDraft } from "./scenario-contract";
 
 function normalizeComparableText(value: string): string {
   return value
@@ -38,6 +38,7 @@ export type ChatAdvanceRequirementQualityCode =
   | "chat_advance_requirement_alternatives"
   | "blank_chat_advance_phrase"
   | "brittle_chat_advance_phrase"
+  | "chat_advance_phrase_concept_mismatch"
   | "generic_chat_advance_phrase"
   | "overlapping_chat_advance_phrase"
   | "prohibited_chat_advance_phrase";
@@ -61,6 +62,53 @@ function isBrittleChatAdvancePhrase(value: string): boolean {
   if (tokens.length > 6) return true;
   return tokens.length > 4
     && (FULL_TURN_CHAT_GATE_START.test(candidate) || LEARNER_ACTION_CHAT_GATE_START.test(candidate));
+}
+
+type ChatRequirementConcept = "amount" | "destination" | "timeline" | "completion" | "closing" | "empathy" | "preference" | "refund";
+
+function chatRequirementConcept(requirementId: string): ChatRequirementConcept | undefined {
+  const id = normalizeComparableText(requirementId);
+  if (/\b(?:amount|price|total)\b/u.test(id)) return "amount";
+  if (/\b(?:card|destination|method|payment)\b/u.test(id)) return "destination";
+  if (/\b(?:duration|timeframe|timeline|timing|window)\b/u.test(id)) return "timeline";
+  if (/\b(?:complete|completed|completion|confirm outcome|recap|review outcome|summarize|summary)\b/u.test(id)) return "completion";
+  if (/\b(?:close|closing|farewell)\b/u.test(id)) return "closing";
+  if (/\b(?:acknowledge|acknowledgement|empathy|empathetic|inconvenience|recognize)\b/u.test(id)) return "empathy";
+  if (/\b(?:choice|prefer|preference)\b/u.test(id)) return "preference";
+  if (id === "refund" || id === "refund action") return "refund";
+  return undefined;
+}
+
+function phraseExpressesRequirementConcept(requirementId: string, phrase: string): boolean {
+  const concept = chatRequirementConcept(requirementId);
+  if (!concept) return true;
+  const normalized = normalizeComparableText(phrase);
+  if (concept === "amount") {
+    return /(?:\$\s*)?\d+\.\d{2}\b/u.test(phrase) || /\b(?:amount|price|total)\b/u.test(normalized);
+  }
+  if (concept === "destination") {
+    return /\b(?:destination|original card|original payment|payment card|payment method)\b/u.test(normalized);
+  }
+  if (concept === "timeline") {
+    return /\b(?:business days?|days?|duration|end of day|hours?|timeframe|timeline|timing|today|tomorrow|weeks?)\b/u.test(normalized);
+  }
+  if (concept === "completion") {
+    return /\b(?:complete|completed|confirmed|issued|processed|recap|review|summarize|summary)\b/u.test(normalized);
+  }
+  if (concept === "closing") return /\b(?:anything else|appreciate|close|closing|thank|thanks)\b/u.test(normalized);
+  if (concept === "empathy") {
+    return /\b(?:acknowledge|apologize|apology|concern|empathy|frustrat\w*|inconvenience|recognize|sorry|understand)\b/u.test(normalized);
+  }
+  if (concept === "preference") {
+    if (/\b(?:choice|prefer\w*|request\w*|want|whether)\b/u.test(normalized)) return true;
+    const optionConcepts = resolutionOptionConcepts(intentTokens(normalized));
+    if (!optionConcepts.size) return false;
+    if (/\b(?:ask|confirm)\b/u.test(normalized)) return true;
+    const downstreamDetail = /(?:\$\s*)?\d+\.\d{2}\b/u.test(phrase)
+      || /\b(?:amount|business days?|card|completed|confirmed|destination|hours?|issued|method|payment|processed|timeline|timing|weeks?)\b/u.test(normalized);
+    return !downstreamDetail;
+  }
+  return /\brefund\b/u.test(normalized);
 }
 
 function prohibitedGateConcepts(action: string): string[] {
@@ -104,6 +152,9 @@ export function findChatAdvanceRequirementQualityFindings(
       }
       if (isBrittleChatAdvancePhrase(requirement.phrases[phraseIndex])) {
         findings.push({ code: "brittle_chat_advance_phrase", requirementIndex, phraseIndex });
+      }
+      if (!phraseExpressesRequirementConcept(requirement.id, requirement.phrases[phraseIndex])) {
+        findings.push({ code: "chat_advance_phrase_concept_mismatch", requirementIndex, phraseIndex });
       }
       if (prohibitedConcepts.some((concept) => overlapsByRiseSubstring(normalized, concept))) {
         findings.push({ code: "prohibited_chat_advance_phrase", requirementIndex, phraseIndex });
@@ -204,6 +255,121 @@ function explicitPreferenceTokens(value: string): Set<string> {
   return tokens;
 }
 
+function learnerActionsDiscoverPreference(learnerActions: string[], preferenceTokens: Set<string>): boolean {
+  const learnerAction = learnerActions.join(" ");
+  if (!REQUIRED_PREFERENCE_DISCOVERY.test(learnerAction)
+    && !/\b(?:do|would)\s+you\s+(?:prefer|want|would like)\b/iu.test(learnerAction)) return false;
+  if (GENERIC_PREFERENCE_TOPIC.test(learnerAction)) return true;
+  const actionTokens = intentTokens(learnerAction);
+  return [...preferenceTokens].some((token) => actionTokens.has(token));
+}
+
+const OPERATIONAL_OUTCOME_ACTION_VERB = /\b(?:complet(?:e|es|ed|ing)|issu(?:e|es|ed|ing)|process(?:es|ed|ing)?)\b/iu;
+const DIRECT_OPERATIONAL_IMPERATIVE = /(?:^|\bthen\s+)(?:refund|replace|reship|transfer)\b/iu;
+const POST_ANSWER_LANGUAGE = /\b(?:clos(?:e|es|ed|ing)|recap(?:s|ped|ping)?|summar(?:ize|izes|ized|izing|y)|thank(?:s|ed|ing)?)\b/iu;
+const CONFIRMED_OUTCOME_LANGUAGE = /(?:\bconfirmed\b.{0,60}\b(?:credit|exchange|refund|replacement|transfer)\b|\b(?:credit|exchange|refund|replacement|transfer)\b.{0,60}\bconfirmed\b)/iu;
+
+function phaseHasPostAnswerEvidence(phase: PhaseDraft): boolean {
+  const learnerActions = phase.learnerActions.join(" ");
+  if (OPERATIONAL_OUTCOME_ACTION_VERB.test(learnerActions)
+    || DIRECT_OPERATIONAL_IMPERATIVE.test(learnerActions)
+    || POST_ANSWER_LANGUAGE.test(learnerActions)
+    || CONFIRMED_OUTCOME_LANGUAGE.test(learnerActions)) return true;
+  return (phase.chatAdvanceRequirements ?? []).some((requirement) => {
+    const concept = chatRequirementConcept(requirement.id);
+    return concept === "completion"
+      || concept === "closing"
+      || requirement.phrases.some((phrase) =>
+        POST_ANSWER_LANGUAGE.test(phrase) || CONFIRMED_OUTCOME_LANGUAGE.test(phrase)
+      );
+  });
+}
+
+export function findPreferenceResponseOrderConflicts(openingLine: string, phases: PhaseDraft[]): number[] {
+  const knownPreferenceConcepts = resolutionOptionConcepts(explicitPreferenceTokens(openingLine));
+  const conflicts: number[] = [];
+  phases.forEach((phase, phaseIndex) => {
+    const partnerPreference = explicitPreferenceTokens(phase.partnerResponse);
+    const partnerPreferenceConcepts = resolutionOptionConcepts(partnerPreference);
+    const introducesPreference = [...partnerPreferenceConcepts]
+      .some((concept) => !knownPreferenceConcepts.has(concept));
+    if (introducesPreference
+      && learnerActionsDiscoverPreference(phase.learnerActions, partnerPreference)
+      && phaseHasPostAnswerEvidence(phase)) conflicts.push(phaseIndex);
+    partnerPreferenceConcepts.forEach((concept) => knownPreferenceConcepts.add(concept));
+  });
+  return conflicts;
+}
+
+type OperationalCriterionConcept = "outcome" | "refund" | "replacement" | "transfer";
+
+function operationalCriterionConcept(criterion: string): OperationalCriterionConcept | undefined {
+  const normalized = normalizeComparableText(criterion);
+  if (/^(?:avoid|do not|dont|never)\b/u.test(normalized)) return undefined;
+  const leadingAction = normalized.match(/^(?:show this behavior\s+)?(complet\w*|issu\w*|process\w*|refund\w*|replac\w*|reship\w*|transfer\w*)\b/u);
+  if (!leadingAction) return undefined;
+  if (/\brefund\w*\b/u.test(normalized)) return "refund";
+  if (/\b(?:replac\w*|reship\w*)\b/u.test(normalized)) return "replacement";
+  if (/\btransfer\w*\b/u.test(normalized)) return "transfer";
+  return "outcome";
+}
+
+function phaseOperationalConcepts(learnerActions: string[]): Set<OperationalCriterionConcept> {
+  const concepts = new Set<OperationalCriterionConcept>();
+  learnerActions.forEach((learnerAction) => {
+    const clauses = learnerAction.split(/[,;!?]+|(?<!\d)\.(?!\d)|\b(?:and then|then|before|after|while)\b/iu);
+    clauses.forEach((clause) => {
+      const normalized = normalizeComparableText(clause);
+      const actionBeforeOutcome = /\b(?:appl\w*|complet\w*|execut\w*|issu\w*|process\w*|provid\w*)\b/gu;
+      for (const match of normalized.matchAll(actionBeforeOutcome)) {
+        const remainder = normalized.slice((match.index ?? 0) + match[0].length);
+        if (/^.{0,80}\brefund\w*\b/u.test(remainder)) concepts.add("refund");
+        if (/^.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(remainder)) concepts.add("replacement");
+        if (/^.{0,80}\btransfer\w*\b/u.test(remainder)) concepts.add("transfer");
+      }
+      if (DIRECT_OPERATIONAL_IMPERATIVE.test(normalized)) {
+        if (/^(?:then )?refund\b/u.test(normalized)) concepts.add("refund");
+        if (/^(?:then )?(?:replace|reship)\b/u.test(normalized)) concepts.add("replacement");
+        if (/^(?:then )?transfer\b/u.test(normalized)) concepts.add("transfer");
+      }
+      if (!/\b(?:refund\w*|replac\w*|reship\w*|transfer\w*)\b/u.test(normalized)
+        && OPERATIONAL_OUTCOME_ACTION_VERB.test(normalized)) concepts.add("outcome");
+    });
+  });
+  return concepts;
+}
+
+export function operationalCriterionMatchingPhaseIndexes(
+  criterion: string,
+  phases: PhaseDraft[],
+): number[] | undefined {
+  const concept = operationalCriterionConcept(criterion);
+  if (!concept) return undefined;
+  return phases.flatMap((phase, phaseIndex) => {
+    const phaseConcepts = phaseOperationalConcepts(phase.learnerActions);
+    return phaseConcepts.has(concept) || (concept === "outcome" && phaseConcepts.size > 0) ? [phaseIndex] : [];
+  });
+}
+
+export interface OperationalCriterionCoverageFinding {
+  objectiveIndex: number;
+  criterionIndex: number;
+  matchingPhaseIndexes: number[];
+}
+
+export function findOperationalCriterionCoverageFindings(
+  objectives: ObjectiveDraft[],
+  phases: PhaseDraft[],
+): OperationalCriterionCoverageFinding[] {
+  return objectives.flatMap((objective, objectiveIndex) =>
+    objective.criteria.flatMap((criterion, criterionIndex) => {
+      const matchingPhaseIndexes = operationalCriterionMatchingPhaseIndexes(criterion, phases);
+      if (matchingPhaseIndexes === undefined || matchingPhaseIndexes.length === 1) return [];
+      return [{ objectiveIndex, criterionIndex, matchingPhaseIndexes }];
+    })
+  );
+}
+
 function resolutionOptionConcept(token: string): string | undefined {
   if (/^credits?$/u.test(token)) return "credit";
   if (/^exchang(?:e|es|ed|ing)$/u.test(token)) return "exchange";
@@ -215,6 +381,63 @@ function resolutionOptionConcept(token: string): string | undefined {
 
 function resolutionOptionConcepts(tokens: Set<string>): Set<string> {
   return new Set([...tokens].map(resolutionOptionConcept).filter((value): value is string => Boolean(value)));
+}
+
+interface ResolutionProhibitionCandidate {
+  index: number;
+  concepts: Set<string>;
+  wildcard: boolean;
+}
+
+const NEGATIVE_RESOLUTION_PRESENTATION = /^(?:(?:do not|dont|never)\s+(?:mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|suggest\w*)|avoid\s+(?:mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|suggest\w*))\b/u;
+const DISTINCT_REFUND_CONSTRAINT = /\b(?:incorrect (?:refund )?amount|partial refund|wrong (?:refund )?amount)\b/u;
+const OTHER_THAN_FULL_REFUND = /\b(?:alternatives?|options?)\s+(?:other than|to)\s+(?:a )?full refund\b/u;
+
+function resolutionProhibitionCandidate(action: string, index: number): ResolutionProhibitionCandidate | undefined {
+  const normalized = normalizeComparableText(action);
+  if (!NEGATIVE_RESOLUTION_PRESENTATION.test(normalized) || DISTINCT_REFUND_CONSTRAINT.test(normalized)) return undefined;
+  const alternativeConcepts = new Set<string>();
+  if (/\bstore credit\b/u.test(normalized)) alternativeConcepts.add("credit");
+  if (/\bexchang(?:e|es|ed|ing)\b/u.test(normalized)) alternativeConcepts.add("exchange");
+  if (/\b(?:replac(?:e|es|ed|ing|ement|ements)|reship(?:s|ped|ping|ment|ments)?)\b/u.test(normalized)) {
+    alternativeConcepts.add("replacement");
+  }
+  const wildcard = OTHER_THAN_FULL_REFUND.test(normalized);
+  return alternativeConcepts.size || wildcard ? { index, concepts: alternativeConcepts, wildcard } : undefined;
+}
+
+export function findOverlappingResolutionProhibitionGroups(actions: string[]): number[][] {
+  const candidates = actions
+    .map(resolutionProhibitionCandidate)
+    .filter((candidate): candidate is ResolutionProhibitionCandidate => Boolean(candidate));
+  const neighbors = new Map<number, Set<number>>(candidates.map(({ index }) => [index, new Set()]));
+  candidates.forEach((left, leftIndex) => {
+    candidates.slice(leftIndex + 1).forEach((right) => {
+      const overlaps = left.wildcard
+        || right.wildcard
+        || [...left.concepts].some((concept) => right.concepts.has(concept));
+      if (!overlaps) return;
+      neighbors.get(left.index)?.add(right.index);
+      neighbors.get(right.index)?.add(left.index);
+    });
+  });
+
+  const visited = new Set<number>();
+  const groups: number[][] = [];
+  candidates.forEach(({ index }) => {
+    if (visited.has(index) || !neighbors.get(index)?.size) return;
+    const group: number[] = [];
+    const pending = [index];
+    while (pending.length) {
+      const current = pending.pop()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      group.push(current);
+      neighbors.get(current)?.forEach((neighbor) => pending.push(neighbor));
+    }
+    groups.push(group.sort((left, right) => left - right));
+  });
+  return groups;
 }
 
 export function openingPreanswersRequiredPreference(openingLine: string, learnerActions: string[]): boolean {

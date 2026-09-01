@@ -836,6 +836,10 @@ test("normalizes generic objective IDs and subject-led or gerund criteria", asyn
     apiKey: "test-key",
     fetchImpl: async () => providerResponse({
       ...generated,
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Issue and process the approved full refund to the original payment card."],
+      }],
       objectives: [{
         ...generated.objectives[0],
         id: "obj1",
@@ -1044,11 +1048,113 @@ test("retries generated full-turn Chat gates and accepts compact numeric anchors
   ]);
 });
 
+test("retries one hosted draft with every repairable ordering, gate-concept, and prohibition conflict", async () => {
+  let providerCalls = 0;
+  const developerInstructions: string[] = [];
+  const invalidPhase = {
+    ...generated.phases[0],
+    id: "confirm_refund_preference",
+    title: "Confirm preference and refund",
+    learnerActions: [
+      "Acknowledge the torn bag and confirm a full refund of $32.49 to the original payment card.",
+    ],
+    chatAdvanceRequirements: [
+      {
+        id: "confirm_preference",
+        phrases: ["confirm full refund", "refund amount $32.49", "original payment card"],
+      },
+      {
+        id: "recap_refund",
+        phrases: ["refund $32.49 confirmed", "thank customer"],
+      },
+      {
+        id: "customer_closing",
+        phrases: ["thank", "thank"],
+      },
+    ],
+    partnerResponse: "I just want a full refund.",
+  };
+  const repairedPhases = [
+    {
+      ...invalidPhase,
+      id: "confirm_refund_preference",
+      title: "Confirm refund preference",
+      learnerActions: ["Acknowledge the torn bag and ask whether Taylor wants a full refund."],
+      chatAdvanceRequirements: [{
+        id: "confirm_preference",
+        phrases: ["confirm full refund", "ask about refund preference"],
+      }],
+    },
+    {
+      ...generated.phases[0],
+      id: "complete_refund",
+      title: "Complete the refund",
+      learnerActions: ["Issue and confirm a $32.49 refund to the original payment card."],
+      chatAdvanceRequirements: [
+        { id: "refund_amount", phrases: ["$32.49", "refund amount $32.49"] },
+        { id: "refund_destination", phrases: ["original payment card", "original card"] },
+      ],
+      partnerResponse: "Thank you for confirming the refund.",
+    },
+  ];
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async (_input, init) => {
+      providerCalls += 1;
+      const providerRequest = JSON.parse(String(init?.body)) as {
+        input: Array<{ role: string; content: Array<{ text: string }> }>;
+      };
+      developerInstructions.push(providerRequest.input[0].content[0].text);
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          openingLine: "The 40-pound dog food bag arrived torn and unusable.",
+        },
+        phases: providerCalls === 1 ? [invalidPhase] : repairedPhases,
+        objectives: [{
+          ...generated.objectives[0],
+          id: "refund_resolution",
+          label: "Complete the approved refund",
+          criteria: [
+            "Issue a full refund of $32.49 to the original payment card.",
+            "Avoid offering store credit, a replacement, or an exchange.",
+          ],
+        }],
+        prohibitedActions: providerCalls === 1
+          ? [
+              "Do not offer store credit or a replacement.",
+              "Do not offer a replacement or exchange.",
+            ]
+          : ["Do not offer store credit, a replacement, or an exchange."],
+      });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.equal(payload.draft.phases.length, 2);
+  assert.deepEqual(payload.draft.prohibitedActions, [
+    "Do not offer store credit, a replacement, or an exchange.",
+  ]);
+  assert.match(developerInstructions[1], /separate question phase/i);
+  assert.match(developerInstructions[1], /earned Conversation Partner answer/i);
+  assert.match(developerInstructions[1], /requirement ID/i);
+  assert.match(developerInstructions[1], /one composite/i);
+});
+
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {
   const generate = createGenerateHandler({
     apiKey: "test-key",
     fetchImpl: async () => providerResponse({
       ...generated,
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Issue and process the approved full refund to the original payment card."],
+      }],
       objectives: [{
         id: "obj1",
         label: "Refund Process Accuracy",

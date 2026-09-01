@@ -4,6 +4,7 @@ import test from "node:test";
 import { createValidateHandler } from "../lib/scenario-validation";
 import { createDefaultVoiceExperience, type StudioDraft } from "../lib/scenario-contract";
 import { objectiveFingerprint } from "../lib/objective-approval";
+import { findOverlappingResolutionProhibitionGroups } from "../lib/scenario-quality-guards";
 import { recommendStandardText } from "../lib/standard-text-recommendations";
 
 function draft(): StudioDraft {
@@ -407,6 +408,184 @@ test("blocks an object-fronted preference disclosure in the opening", async () =
   );
 });
 
+test("blocks a phase that performs a dependent refund outcome before its partner response earns the preference", async () => {
+  const invalid = draft();
+  invalid.customer.openingLine = "The 40-pound dog food bag arrived torn and unusable.";
+  invalid.phases[0] = {
+    ...invalid.phases[0],
+    learnerActions: [
+      "Acknowledge the torn bag, ask Jordan to confirm a full refund, then issue and confirm $32.49 to the original payment card.",
+    ],
+    chatAdvanceRequirements: [{
+      id: "confirm_preference",
+      phrases: ["confirm full refund", "ask about refund preference"],
+    }],
+    partnerResponse: "I just want a full refund.",
+  };
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string; path: string }) =>
+      issue.code === "phase_preempts_partner_preference"
+      && issue.path === "draft.phases[0].learnerActions"
+    ),
+    true,
+  );
+});
+
+test("does not treat a generic request for help as an earned resolution preference", async () => {
+  const invalid = draft();
+  invalid.customer.openingLine = "I need help with a torn dog food bag.";
+  invalid.phases[0] = {
+    ...invalid.phases[0],
+    learnerActions: [
+      "Ask whether Jordan wants a full refund, then issue it to the original payment card.",
+    ],
+    chatAdvanceRequirements: [{
+      id: "confirm_preference",
+      phrases: ["full refund", "want a refund"],
+    }],
+    partnerResponse: "I want a full refund.",
+  };
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "phase_preempts_partner_preference"),
+    true,
+  );
+});
+
+test("blocks an operational criterion linked to a phase that only confirms outcome details", async () => {
+  const invalid = draft();
+  invalid.customer.openingLine = "The 40-pound dog food bag arrived torn and unusable.";
+  invalid.phases[0] = {
+    ...invalid.phases[0],
+    learnerActions: [
+      "Acknowledge the torn bag and confirm a full refund of $32.49 to the original payment card.",
+    ],
+    chatAdvanceRequirements: [{
+      id: "confirm_preference",
+      phrases: ["confirm full refund", "ask about refund preference"],
+    }],
+    partnerResponse: "I just want a full refund.",
+  };
+  invalid.objectives[0].criteria = [
+    "Issue a full refund of $32.49 to the original payment card.",
+    "Avoid guaranteeing delivery.",
+  ];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string; path: string }) =>
+      issue.code === "linked_criterion_action_missing"
+      && issue.path === "draft.objectives[0].criteria[0]"
+    ),
+    true,
+  );
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "phase_preempts_partner_preference"),
+    false,
+  );
+});
+
+test("does not let completing validation satisfy a refund-execution criterion", async () => {
+  const invalid = draft();
+  invalid.phases[0].learnerActions = [
+    "Complete account validation, then confirm whether the customer wants a refund.",
+  ];
+  invalid.objectives[0].criteria[0] = "Issue a full refund.";
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "linked_criterion_action_missing"),
+    true,
+  );
+});
+
+test("requires one operational phase and one phase link for each operational criterion", async () => {
+  const invalid = draft();
+  invalid.objectives[0].criteria[0] = "Issue a full refund.";
+  invalid.phases = [
+    {
+      ...invalid.phases[0],
+      id: "issue_refund",
+      learnerActions: ["Issue a full refund."],
+      chatAdvanceRequirements: [{ id: "refund", phrases: ["full refund", "refund issued"] }],
+      evaluationLinks: [{
+        objectiveId: "set_clear_expectations",
+        criterionIds: ["set_clear_expectations_criterion_1", "set_clear_expectations_criterion_2"],
+      }],
+    },
+    {
+      ...invalid.phases[0],
+      id: "repeat_refund",
+      learnerActions: ["Process the full refund again."],
+      chatAdvanceRequirements: [{ id: "refund", phrases: ["process refund", "refund again"] }],
+      partnerResponse: "Why was it processed twice?",
+      evaluationLinks: [{
+        objectiveId: "set_clear_expectations",
+        criterionIds: ["set_clear_expectations_criterion_1"],
+      }],
+    },
+  ];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "linked_criterion_action_missing"),
+    true,
+  );
+});
+
+test("allows the refund outcome after a prior phase earns the partner preference", async () => {
+  const valid = draft();
+  valid.customer.openingLine = "The 40-pound dog food bag arrived torn and unusable.";
+  valid.phases = [
+    {
+      ...valid.phases[0],
+      id: "confirm_refund_preference",
+      title: "Confirm refund preference",
+      learnerActions: ["Ask whether Jordan wants a full refund."],
+      chatAdvanceRequirements: [{
+        id: "confirm_preference",
+        phrases: ["confirm full refund", "ask about refund preference"],
+      }],
+      partnerResponse: "I just want a full refund.",
+    },
+    {
+      ...valid.phases[0],
+      id: "complete_refund",
+      title: "Complete the refund",
+      learnerActions: ["Issue and confirm a $32.49 refund to the original payment card."],
+      chatAdvanceRequirements: [
+        { id: "refund_amount", phrases: ["$32.49", "refund amount $32.49"] },
+        { id: "refund_destination", phrases: ["original payment card", "original card"] },
+      ],
+      partnerResponse: "Thank you for confirming the refund.",
+      evaluationLinks: [],
+    },
+  ];
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+});
+
 test("blocks a follow-up that requests an option the customer explicitly rejected", async () => {
   const invalid = draft();
   invalid.customer.openingLine = "The damaged bag is unusable, and I want a refund.";
@@ -595,6 +774,105 @@ test("rejects a six-word learner action while accepting noun-led compact anchors
   const compactPayload = await compactResponse.json();
 
   assert.equal(compactResponse.status, 200, JSON.stringify(compactPayload.issues));
+});
+
+test("rejects Chat alternatives that drift from their requirement ID while accepting compact semantic aliases", async () => {
+  const invalid = draft();
+  invalid.phases[0].chatAdvanceRequirements = [
+    {
+      id: "confirm_preference",
+      phrases: ["confirm full refund", "refund amount $32.49", "original payment card"],
+    },
+    {
+      id: "recap_refund",
+      phrases: ["confirm full refund", "thank customer"],
+    },
+  ];
+
+  const invalidResponse = await createValidateHandler()(request({ draft: invalid }));
+  const invalidPayload = await invalidResponse.json();
+  const mismatchPaths = invalidPayload.issues
+    .filter((issue: { code: string }) => issue.code === "chat_advance_phrase_concept_mismatch")
+    .map((issue: { path: string }) => issue.path);
+
+  assert.equal(invalidResponse.status, 422);
+  assert.deepEqual(mismatchPaths, [
+    "draft.phases[0].chatAdvanceRequirements[0].phrases[1]",
+    "draft.phases[0].chatAdvanceRequirements[0].phrases[2]",
+    "draft.phases[0].chatAdvanceRequirements[1].phrases[0]",
+    "draft.phases[0].chatAdvanceRequirements[1].phrases[1]",
+  ]);
+
+  const valid = draft();
+  valid.phases[0].chatAdvanceRequirements = [
+    {
+      id: "acknowledge_inconvenience",
+      phrases: ["acknowledge torn bag", "recognize inconvenience"],
+    },
+    {
+      id: "refund_timeline",
+      phrases: ["3-5 business days", "refund timeframe"],
+    },
+    {
+      id: "refund_destination",
+      phrases: ["original payment card", "original card"],
+    },
+    {
+      id: "confirm_preference",
+      phrases: ["full refund", "want a refund"],
+    },
+    {
+      id: "custom_creator_signal",
+      phrases: ["details checked", "verified information"],
+    },
+  ];
+
+  const validResponse = await createValidateHandler()(request({ draft: valid }));
+  const validPayload = await validResponse.json();
+
+  assert.equal(validResponse.status, 200, JSON.stringify(validPayload.issues));
+});
+
+test("requires one composite boundary for overlapping resolution alternatives without merging distinct refund constraints", async () => {
+  const overlapping = draft();
+  overlapping.prohibitedActions = [
+    "Do not offer store credit or a replacement.",
+    "Do not present a replacement or exchange.",
+    "Do not suggest options other than a full refund.",
+  ];
+
+  const overlappingResponse = await createValidateHandler()(request({ draft: overlapping }));
+  const overlappingPayload = await overlappingResponse.json();
+
+  assert.equal(overlappingResponse.status, 422);
+  assert.equal(
+    overlappingPayload.issues.some((issue: { code: string }) => issue.code === "overlapping_resolution_prohibitions"),
+    true,
+  );
+
+  const distinct = draft();
+  distinct.prohibitedActions = [
+    "Do not offer a partial refund.",
+    "Do not issue an incorrect refund amount.",
+  ];
+  distinct.objectives[0].criteria = [...distinct.prohibitedActions];
+  distinct.phases[0].coachGuidance = [...distinct.prohibitedActions];
+
+  const distinctResponse = await createValidateHandler()(request({ draft: distinct }));
+  const distinctPayload = await distinctResponse.json();
+
+  assert.equal(distinctResponse.status, 200, JSON.stringify(distinctPayload.issues));
+});
+
+test("groups provide-and-offer alternatives without treating credit cards as store credit", () => {
+  assert.deepEqual(findOverlappingResolutionProhibitionGroups([
+    "Do not provide store credit or a replacement.",
+    "Do not offer a replacement or exchange.",
+  ]), [[0, 1]]);
+  assert.deepEqual(findOverlappingResolutionProhibitionGroups([
+    "Do not mention the original credit card.",
+    "Do not offer store credit.",
+  ]), []);
 });
 
 test("matches Rise substring semantics for morphological Chat gate collisions", async () => {

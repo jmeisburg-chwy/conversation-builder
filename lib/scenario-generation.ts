@@ -14,6 +14,9 @@ import {
   customerBehaviorRuleToNegativeGuardrail,
   customerFollowUpContradictsRejectedOption,
   findChatAdvanceRequirementQualityFindings,
+  findOperationalCriterionCoverageFindings,
+  findOverlappingResolutionProhibitionGroups,
+  findPreferenceResponseOrderConflicts,
   hasDeterministicResolutionText,
   isNondeterministicResolutionText,
   removePreansweredPreferenceFromOpening,
@@ -340,7 +343,10 @@ function assertGeneratedContent(value: GeneratedContent): void {
   if (value.agentType !== "Core" && value.agentType !== "Rx") throw new Error("invalid_generated_content");
   if (!value.customer || !nonempty(value.customer.name) || !nonempty(value.customer.openingLine)) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.correctProcess) || value.correctProcess.length === 0) throw new Error("invalid_generated_content");
+  if (!Array.isArray(value.prohibitedActions)) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.phases) || value.phases.length === 0) throw new Error("invalid_generated_content");
+  if (!Array.isArray(value.objectives) || value.objectives.length === 0
+    || value.objectives.some((objective) => !Array.isArray(objective.criteria))) throw new Error("invalid_generated_content");
   if (value.phases.some((phase) => {
     if (!Array.isArray(phase.chatAdvanceRequirements) || phase.chatAdvanceRequirements.length === 0) return true;
     return phase.chatAdvanceRequirements.some((requirement) =>
@@ -354,9 +360,20 @@ function assertGeneratedContent(value: GeneratedContent): void {
     (openingLine, phase) => removePreansweredPreferenceFromOpening(openingLine, phase.learnerActions),
     value.customer.openingLine,
   );
+  const repairCorrections: string[] = [];
   if (!nonempty(repairedOpeningLine)) {
-    throw new RepairableGeneratedContentError(
+    repairCorrections.push(
       "Regenerate customer.openingLine as a factual problem statement that does not disclose the preference, choice, or resolution a Learner phase must ask or confirm. Reveal that answer in the corresponding phase.partnerResponse.",
+    );
+  }
+  if (findPreferenceResponseOrderConflicts(repairedOpeningLine, value.phases).length > 0) {
+    repairCorrections.push(
+      "Use a separate question phase for the unresolved customer preference, let its Conversation Partner response provide the earned Conversation Partner answer, and put outcome execution, completion, or recap evidence in a later phase.",
+    );
+  }
+  if (findOperationalCriterionCoverageFindings(value.objectives, value.phases).length > 0) {
+    repairCorrections.push(
+      "Give every positive operational outcome criterion exactly one phase whose learnerActions/strong response performs the same action. Put a missing Issue, Process, Complete, Refund, Replace, Reship, or Transfer action in a later outcome phase after the earned Conversation Partner answer; confirming an amount or destination does not perform the outcome.",
     );
   }
   const chatGateFindings = value.phases.flatMap((phase) =>
@@ -365,15 +382,19 @@ function assertGeneratedContent(value: GeneratedContent): void {
       value.prohibitedActions,
     )
   );
-  if (chatGateFindings.some((finding) => finding.code !== "brittle_chat_advance_phrase")) {
-    throw new Error("invalid_generated_content");
-  }
   if (chatGateFindings.length > 0) {
-    throw new RepairableGeneratedContentError(
-      "Regenerate every chatAdvanceRequirements phrase as a compact semantic anchor of no more than six words. Preserve separate independently required concepts and use short numeric anchors where appropriate. Do not write complete learner turns or instructions that begin with learner action verbs such as Issue or Process.",
+    repairCorrections.push(
+      "Regenerate every chatAdvanceRequirements phrase as a compact semantic anchor of no more than six words that expresses the semantic concept named by its requirement ID. Preserve separate independently required concepts and use short numeric anchors where appropriate. Do not write complete learner turns or instructions that begin with learner action verbs such as Issue or Process.",
     );
   }
-  if (!Array.isArray(value.objectives) || value.objectives.length === 0) throw new Error("invalid_generated_content");
+  if (findOverlappingResolutionProhibitionGroups(value.prohibitedActions).length > 0) {
+    repairCorrections.push(
+      "Replace transitively overlapping store-credit, replacement, exchange, or other-than-full-refund prohibitions with one composite prohibitedActions boundary that lists each alternative once. Keep partial-refund and incorrect-amount constraints separate.",
+    );
+  }
+  if (repairCorrections.length > 0) {
+    throw new RepairableGeneratedContentError(repairCorrections.join(" "));
+  }
   if (!value.compatibilityFacts || !["address", "medication", "urgency", "medicationOrProduct", "clinic", "keyQuestion", "rootCauseBelief", "conditionalFollowUp"].every((key) => typeof value.compatibilityFacts[key as keyof StudioDraft["compatibilityFacts"]] === "string")) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.assumptions)) throw new Error("invalid_generated_content");
 }
@@ -756,15 +777,18 @@ If the supplied correct-process details do not state one exact authorized action
 Make each objective observable and each phase response-ordered. Keep customer responses natural and concise.
 Each phase.partnerResponse is the new Conversation Partner turn after the Learner completes that phase. It must never repeat customer.openingLine.
 If a Learner phase asks, confirms, or discovers a customer fact or preference, do not reveal that answer in customer.openingLine. Reveal it once in that phase.partnerResponse.
+Keep an unresolved preference question in its own phase. Let the Conversation Partner answer before a later phase issues, processes, completes, recaps, or closes the outcome.
 Write customer.conditionalFollowUps only as Conversation Partner reactions, objections, or questions. Never assign the Learner's discovery question or Chewy-agent action to the Conversation Partner. Use an empty conditional follow-up when no natural follow-up is consistent with the customer's stated goal, choices, and rejected options; never invent a request for an option the customer rejected.
 Write customer.behaviorRules only as Conversation Partner reactions, emotional shifts, disclosure boundaries, or role constraints. Never tell the Conversation Partner to issue, process, offer, explain, inform, or perform any Chewy-agent action.
 Write one deterministic approved resolution. Never substitute phrases such as available next steps, approved process, locating the package or replacement, or initiate resolution for the exact authorized action and expected outcome.
 Never write placeholders such as as per correct process, per approved policy, or according to the approved process. Use the supplied exact amount, destination, timing, and authorized action wherever those details are relevant.
 Begin every objective criterion with a neutral imperative action such as Acknowledge, Ask, Explain, Confirm, Avoid, or Recap.
-For every phase, create chatAdvanceRequirements with one independently required positive concept per entry. Give each entry two or more compact semantic anchors, normally 2-6 words, that express only that concept. Numeric anchors such as $32.49 or 3-5 business days may be shorter. Do not write complete learner turns, scaffolding such as I will, Can I, Would you, or Please allow, or instructions beginning with learner action verbs such as Issue or Process. A Chat phase advances only when every entry matches. Never use a prohibited option, incidental courtesy, or generic word such as issue, customer, process, thank, or help as positive evidence.
+For every phase, create chatAdvanceRequirements with one independently required positive concept per entry. Every phrase alternative must express the semantic concept named by that requirement ID; do not mix amount, destination, timeline, preference, completion, closing, or empathy evidence in one group. Give each entry two or more compact semantic anchors, normally 2-6 words, that express only that concept. Numeric anchors such as $32.49 or 3-5 business days may be shorter. Do not write complete learner turns, scaffolding such as I will, Can I, Would you, or Please allow, or instructions beginning with learner action verbs such as Issue or Process. A Chat phase advances only when every entry matches. Never use a prohibited option, incidental courtesy, or generic word such as issue, customer, process, thank, or help as positive evidence.
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.
 Write every prohibited action with explicit negative polarity such as Do not, Avoid, or Never. Repeat that same negative wording in both an objective criterion and the relevant Coach Chewy guidance.
+Combine overlapping store-credit, replacement, exchange, or other-than-full-refund prohibitions into one composite boundary. Keep partial-refund and incorrect-amount constraints separate.
+Give every positive operational objective criterion exactly one phase whose learnerActions performs the same Issue, Process, Complete, Refund, Replace, Reship, or Transfer behavior.
 Never omit a prohibited action or guardrail carried by an uploaded source draft.
 For improve mode, preserve the source draft's intent and identity. For similar mode, create a distinct scenario inspired by the source.`;
 

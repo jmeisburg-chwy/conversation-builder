@@ -14,7 +14,10 @@ import {
   customerFollowUpConflictsWithLearner,
   findChatAdvanceRequirementQualityFindings,
   findNondeterministicResolutionStep,
+  findOverlappingResolutionProhibitionGroups,
+  findPreferenceResponseOrderConflicts,
   openingPreanswersRequiredPreference,
+  operationalCriterionMatchingPhaseIndexes,
   repeatsOpening,
 } from "./scenario-quality-guards";
 import { approvedStandardTextPrivacySource } from "./standard-text-recommendations";
@@ -229,6 +232,9 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
   }
 
   if (draft.phases.length === 0) requireLines("draft.phases", draft.phases, "Conversation phase");
+  const preferenceResponseOrderConflicts = new Set(
+    findPreferenceResponseOrderConflicts(draft.customer.openingLine, draft.phases),
+  );
   draft.phases.forEach((phase, index) => {
     if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(phase.id)) {
       issues.push({ code: "invalid_phase_id", path: `draft.phases[${index}].id`, message: "Phase IDs must use lower_snake_case.", fix: "Use lowercase letters, numbers, and underscores only." });
@@ -258,6 +264,14 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
         path: "draft.customer.openingLine",
         message: "The opening reveals a customer preference that this phase requires the Learner to ask or confirm.",
         fix: "Remove that preference from the opening and reveal it in the Conversation Partner response after the Learner asks.",
+      });
+    }
+    if (preferenceResponseOrderConflicts.has(index)) {
+      issues.push({
+        code: "phase_preempts_partner_preference",
+        path: `draft.phases[${index}].learnerActions`,
+        message: "This phase asks for an unearned customer preference and also requires an outcome action or recap before the Conversation Partner can answer.",
+        fix: "Keep the preference question in this phase, let the Conversation Partner answer, and move outcome execution or recap into the next phase.",
       });
     }
     requireLines(`draft.phases[${index}].learnerActions`, phase?.learnerActions, "Learner action");
@@ -307,6 +321,10 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
           brittle_chat_advance_phrase: {
             message: "This Chat advance phrase is a near-exact learner turn and is too brittle for Rise substring matching.",
             fix: "Replace it with a compact 2-6 word concept anchor; numeric anchors may be shorter.",
+          },
+          chat_advance_phrase_concept_mismatch: {
+            message: "This Chat phrase does not express the semantic concept named by its required-concept ID.",
+            fix: "Replace it with a compact phrase that expresses this requirement's amount, destination, timeline, preference, completion, closing, or empathy concept.",
           },
           generic_chat_advance_phrase: {
             message: "This Chat advance phrase is too generic or incidental to prove the required behavior.",
@@ -369,6 +387,26 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
       });
     });
   });
+  draft.objectives.forEach((objective, objectiveIndex) => {
+    objective.criteria.forEach((criterion, criterionIndex) => {
+      const matchingPhaseIndexes = operationalCriterionMatchingPhaseIndexes(criterion, draft.phases);
+      if (matchingPhaseIndexes === undefined) return;
+      const criterionId = `${objective.id}_criterion_${criterionIndex + 1}`;
+      const linkedPhaseIndexes = draft.phases.flatMap((phase, phaseIndex) =>
+        (phase.evaluationLinks ?? []).some((link) => link.criterionIds.includes(criterionId)) ? [phaseIndex] : []
+      );
+      if (!linkedPhaseIndexes.length) return;
+      if (matchingPhaseIndexes.length === 1
+        && linkedPhaseIndexes.length === 1
+        && matchingPhaseIndexes[0] === linkedPhaseIndexes[0]) return;
+      issues.push({
+        code: "linked_criterion_action_missing",
+        path: `draft.objectives[${objectiveIndex}].criteria[${criterionIndex}]`,
+        message: "This operational criterion must map to exactly one phase whose Learner action performs that outcome.",
+        fix: "Keep the outcome action in one phase and link the criterion only to that phase.",
+      });
+    });
+  });
   const objectiveBoundarySegments = draft.objectives.flatMap((objective, objectiveIndex) =>
     objective.criteria.map((value, criterionIndex) => ({
       value,
@@ -388,6 +426,14 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
   ]);
   const objectiveCoverage = objectiveBoundarySegments.map(({ value }) => value);
   const guideCoverage = guideBoundarySegments.map(({ value }) => value);
+  findOverlappingResolutionProhibitionGroups(draft.prohibitedActions).forEach((group) => {
+    issues.push({
+      code: "overlapping_resolution_prohibitions",
+      path: `draft.prohibitedActions[${group[1]}]`,
+      message: "These prohibited resolution alternatives overlap and can create duplicate or conflicting boundaries.",
+      fix: "Combine store credit, replacement, exchange, and other options outside the full refund into one composite boundary. Keep partial-refund and incorrect-amount constraints separate.",
+    });
+  });
   draft.prohibitedActions.forEach((action, index) => {
     if (!PROHIBITED_ACTION_NEGATIVE_POLARITY_PATTERN.test(action)) {
       issues.push({
