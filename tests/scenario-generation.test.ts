@@ -1225,6 +1225,7 @@ test("logs only structural compiler diagnostics for an unrepairable Chat phase",
       compilerFailureCode: "unsupported_action_clause",
     }],
     operationalCriteria: [],
+    resolutionBlueprintFailureCode: "approved_process_unsupported",
   });
   assert.doesNotMatch(JSON.stringify(diagnostics), /Jordan|delayed order/);
 });
@@ -1363,7 +1364,7 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
   const response = await handler(request({
     ...validBody,
     situation: "A fictional customer named Jamie received a torn bag of dog food.",
-    correctProcess: "Issue a full refund of exactly $32.49 to the original payment card. Explain that the refund will post within 3–5 business days. Acknowledge the torn bag and ask Jamie whether a full refund is preferred. Do not offer store credit, replacement, or exchange.",
+    correctProcess: "Issue a full refund of exactly $32.49 to the original payment card. Explain that the refund will post within 3–5 business days. Acknowledge the torn bag and inconvenience, then ask Jamie whether a full refund is preferred. Do not mention store credit, replacement, or exchange. Jamie rejects store credit and replacement. The Conversation Partner may describe the problem, answer questions, and react, but must never perform Chewy-agent actions or explain Chewy policy.",
   }));
   const payload = await response.json();
 

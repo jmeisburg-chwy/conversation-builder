@@ -86,6 +86,7 @@ interface GenerationDiagnostic {
       criterionIndex: number;
       matchingPhaseCount: number;
     }>;
+    resolutionBlueprintFailureCode?: string;
   };
 }
 
@@ -251,13 +252,22 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
               assertGeneratedContent(repaired);
               content = repaired;
             } catch (repairFailure) {
-              const rebuilt = repairFailure instanceof RepairableGeneratedContentError
+              const rebuildResult = repairFailure instanceof RepairableGeneratedContentError
                 && repairFailure.repairCodes.every((code) =>
                   code === "chat_advance_requirements" || code === "operational_criterion_coverage"
                 )
                 ? rebuildGeneratedResolutionPhases(candidate, input.correctProcess)
                 : undefined;
-              if (!rebuilt) throw repairFailure;
+              if (!rebuildResult?.content) {
+                if (rebuildResult?.failureCode) {
+                  repairDetails = {
+                    ...repairDetails,
+                    resolutionBlueprintFailureCode: rebuildResult.failureCode,
+                  };
+                }
+                throw repairFailure;
+              }
+              const rebuilt = rebuildResult.content;
               repairDetails = safeGeneratedRepairDetails(rebuilt);
               assertGeneratedContent(rebuilt);
               content = rebuilt;
@@ -510,9 +520,12 @@ function compileBlueprintPhase(
 function rebuildGeneratedResolutionPhases(
   content: GeneratedContent,
   correctProcess: string | undefined,
-): GeneratedContent | undefined {
+): {
+  content?: GeneratedContent;
+  failureCode?: "approved_process_unsupported" | "preference_gate_uncompilable" | "outcome_gate_uncompilable";
+} {
   const blueprint = approvedResolutionBlueprint(correctProcess);
-  if (!blueprint) return undefined;
+  if (!blueprint) return { failureCode: "approved_process_unsupported" };
   const phases: PhaseDraft[] = [];
   const partnerName = content.customer.name.trim() || "the Conversation Partner";
   const optionLabel = blueprint.option === "refund"
@@ -537,7 +550,7 @@ function rebuildGeneratedResolutionPhases(
       ],
       customerRemainsSilent: false,
     }, content.prohibitedActions);
-    if (!preferencePhase) return undefined;
+    if (!preferencePhase) return { failureCode: "preference_gate_uncompilable" };
     phases.push(preferencePhase);
   }
 
@@ -561,10 +574,10 @@ function rebuildGeneratedResolutionPhases(
     ],
     customerRemainsSilent: false,
   }, content.prohibitedActions);
-  if (!outcomePhase) return undefined;
+  if (!outcomePhase) return { failureCode: "outcome_gate_uncompilable" };
   phases.push(outcomePhase);
 
-  return phases.length ? { ...content, phases } : undefined;
+  return { content: { ...content, phases } };
 }
 
 function safeGeneratedRepairDetails(content: GeneratedContent): NonNullable<GenerationDiagnostic["repairDetails"]> {
