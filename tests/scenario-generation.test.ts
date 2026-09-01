@@ -1146,6 +1146,54 @@ test("retries one hosted draft with every repairable ordering, gate-concept, and
   assert.match(developerInstructions[1], /one composite/i);
 });
 
+test("logs only safe guard codes when the corrective draft is still rejected", async () => {
+  const diagnostics: Array<Record<string, unknown>> = [];
+  const invalidPhase = {
+    ...generated.phases[0],
+    learnerActions: [
+      "Ask whether Jordan wants a full refund, then issue it to the original payment card.",
+    ],
+    chatAdvanceRequirements: [{
+      id: "confirm_preference",
+      phrases: ["refund amount $32.49", "original payment card"],
+    }],
+    partnerResponse: "I want a full refund.",
+  };
+  const invalidOutput = {
+    ...generated,
+    customer: {
+      ...generated.customer,
+      openingLine: "The dog food bag arrived torn and unusable.",
+    },
+    phases: [invalidPhase],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "refund_resolution",
+      criteria: ["Issue a full refund of $32.49 to the original payment card."],
+    }],
+    prohibitedActions: [
+      "Do not offer store credit or a replacement.",
+      "Do not offer a replacement or exchange.",
+    ],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(invalidOutput),
+    logError: (diagnostic) => diagnostics.push(diagnostic as unknown as Record<string, unknown>),
+  });
+
+  const response = await handler(request(validBody));
+
+  assert.equal(response.status, 502);
+  assert.deepEqual(diagnostics.at(-1)?.repairCodes, [
+    "preference_response_order",
+    "operational_criterion_coverage",
+    "chat_advance_requirements",
+    "overlapping_resolution_prohibitions",
+  ]);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /Jordan|32\.49|original payment card/);
+});
+
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {
   const generate = createGenerateHandler({
     apiKey: "test-key",

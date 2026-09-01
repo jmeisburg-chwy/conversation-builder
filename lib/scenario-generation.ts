@@ -72,15 +72,18 @@ interface GenerationDiagnostic {
   providerRequestId?: string;
   errorName?: string;
   errorMessage?: string;
+  repairCodes?: string[];
 }
 
 class RepairableGeneratedContentError extends Error {
   readonly correction: string;
+  readonly repairCodes: string[];
 
-  constructor(correction: string) {
+  constructor(correction: string, repairCodes: string[]) {
     super("repairable_generated_content");
     this.name = "RepairableGeneratedContentError";
     this.correction = correction;
+    this.repairCodes = repairCodes;
   }
 }
 
@@ -251,6 +254,9 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
         stage: failureStage,
         errorName: caught instanceof Error ? caught.name : "UnknownError",
         errorMessage: safeErrorMessage(caught),
+        ...(caught instanceof RepairableGeneratedContentError
+          ? { repairCodes: caught.repairCodes }
+          : {}),
       });
       if (caught instanceof Error && caught.name === "TimeoutError") {
         return errorResponse(504, "generation_timeout", "Coach Chewy took too long to create the draft. Try again.");
@@ -361,17 +367,21 @@ function assertGeneratedContent(value: GeneratedContent): void {
     value.customer.openingLine,
   );
   const repairCorrections: string[] = [];
+  const repairCodes: string[] = [];
   if (!nonempty(repairedOpeningLine)) {
+    repairCodes.push("opening_preanswers_preference");
     repairCorrections.push(
       "Regenerate customer.openingLine as a factual problem statement that does not disclose the preference, choice, or resolution a Learner phase must ask or confirm. Reveal that answer in the corresponding phase.partnerResponse.",
     );
   }
   if (findPreferenceResponseOrderConflicts(repairedOpeningLine, value.phases).length > 0) {
+    repairCodes.push("preference_response_order");
     repairCorrections.push(
       "Use a separate question phase for the unresolved customer preference, let its Conversation Partner response provide the earned Conversation Partner answer, and put outcome execution, completion, or recap evidence in a later phase.",
     );
   }
   if (findOperationalCriterionCoverageFindings(value.objectives, value.phases).length > 0) {
+    repairCodes.push("operational_criterion_coverage");
     repairCorrections.push(
       "Give every positive operational outcome criterion exactly one phase whose learnerActions/strong response performs the same action. Put a missing Issue, Process, Complete, Refund, Replace, Reship, or Transfer action in a later outcome phase after the earned Conversation Partner answer; confirming an amount or destination does not perform the outcome.",
     );
@@ -383,17 +393,19 @@ function assertGeneratedContent(value: GeneratedContent): void {
     )
   );
   if (chatGateFindings.length > 0) {
+    repairCodes.push("chat_advance_requirements");
     repairCorrections.push(
       "Regenerate every chatAdvanceRequirements phrase as a compact semantic anchor of no more than six words that expresses the semantic concept named by its requirement ID. Preserve separate independently required concepts and use short numeric anchors where appropriate. Do not write complete learner turns or instructions that begin with learner action verbs such as Issue or Process.",
     );
   }
   if (findOverlappingResolutionProhibitionGroups(value.prohibitedActions).length > 0) {
+    repairCodes.push("overlapping_resolution_prohibitions");
     repairCorrections.push(
       "Replace transitively overlapping store-credit, replacement, exchange, or other-than-full-refund prohibitions with one composite prohibitedActions boundary that lists each alternative once. Keep partial-refund and incorrect-amount constraints separate.",
     );
   }
   if (repairCorrections.length > 0) {
-    throw new RepairableGeneratedContentError(repairCorrections.join(" "));
+    throw new RepairableGeneratedContentError(repairCorrections.join(" "), repairCodes);
   }
   if (!value.compatibilityFacts || !["address", "medication", "urgency", "medicationOrProduct", "clinic", "keyQuestion", "rootCauseBelief", "conditionalFollowUp"].every((key) => typeof value.compatibilityFacts[key as keyof StudioDraft["compatibilityFacts"]] === "string")) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.assumptions)) throw new Error("invalid_generated_content");
