@@ -111,9 +111,97 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
   return /\brefund\b/u.test(normalized);
 }
 
+type ProhibitionAllowlistKind = "amount" | "timeline" | "resolution";
+
+interface ProhibitionAllowlistConstraint {
+  kind: ProhibitionAllowlistKind;
+  allowed: Set<string>;
+}
+
+const PROHIBITION_ALLOWLIST_DELIMITER = /\b(?:(?:anything\s+)?other\s+than|different\s+from|except)\b/iu;
+
+function canonicalAmount(value: string): string | undefined {
+  const amount = Number.parseFloat(value.replace(/,/gu, ""));
+  return Number.isFinite(amount) ? amount.toFixed(2) : undefined;
+}
+
+function amountValues(value: string): Set<string> {
+  const amounts = new Set<string>();
+  for (const match of value.matchAll(/\$\s*(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gu)) {
+    const amount = canonicalAmount(match[1]);
+    if (amount) amounts.add(amount);
+  }
+  for (const match of value.matchAll(/\b(\d+(?:,\d{3})*\.\d{2})\b/gu)) {
+    const amount = canonicalAmount(match[1]);
+    if (amount) amounts.add(amount);
+  }
+  return amounts;
+}
+
+function canonicalTimelineUnit(value: string): string {
+  const normalized = normalizeComparableText(value);
+  if (normalized.startsWith("business day")) return "business days";
+  if (normalized.startsWith("day")) return "days";
+  if (normalized.startsWith("hour")) return "hours";
+  return "weeks";
+}
+
+function timelineValues(value: string): Set<string> {
+  const timelines = new Set<string>();
+  const rangePattern = /\b(\d+)\s*(?:-|–|—|to)\s*(\d+)\s+(business\s+days?|days?|hours?|weeks?)\b/giu;
+  for (const match of value.matchAll(rangePattern)) {
+    timelines.add(`${match[1]}-${match[2]} ${canonicalTimelineUnit(match[3])}`);
+  }
+
+  const withoutRanges = value.replace(rangePattern, " ");
+  for (const match of withoutRanges.matchAll(/\b(\d+)\s+(business\s+days?|days?|hours?|weeks?)\b/giu)) {
+    timelines.add(`${match[1]} ${canonicalTimelineUnit(match[2])}`);
+  }
+
+  const normalized = normalizeComparableText(value);
+  if (/\bend of day\b/u.test(normalized)) timelines.add("end of day");
+  if (/\bsame day\b/u.test(normalized)) timelines.add("same day");
+  if (/\btoday\b/u.test(normalized)) timelines.add("today");
+  if (/\btomorrow\b/u.test(normalized)) timelines.add("tomorrow");
+  if (/\b(?:immediate|immediately|instant|instantly)\b/u.test(normalized)) timelines.add("immediate");
+  return timelines;
+}
+
+function resolutionValues(value: string): Set<string> {
+  return resolutionOptionConcepts(intentTokens(value));
+}
+
+function prohibitionAllowlistConstraints(action: string): ProhibitionAllowlistConstraint[] {
+  const delimiter = action.match(PROHIBITION_ALLOWLIST_DELIMITER);
+  if (!delimiter || delimiter.index === undefined) return [];
+  const allowedText = action.slice(delimiter.index + delimiter[0].length);
+  const constraints: ProhibitionAllowlistConstraint[] = [];
+  const amounts = amountValues(allowedText);
+  const timelines = timelineValues(allowedText);
+  const resolutions = resolutionValues(allowedText);
+  if (amounts.size) constraints.push({ kind: "amount", allowed: amounts });
+  if (timelines.size) constraints.push({ kind: "timeline", allowed: timelines });
+  if (resolutions.size) constraints.push({ kind: "resolution", allowed: resolutions });
+  return constraints;
+}
+
+function violatesProhibitionAllowlist(
+  phrase: string,
+  constraint: ProhibitionAllowlistConstraint,
+): boolean {
+  const actual = constraint.kind === "amount"
+    ? amountValues(phrase)
+    : constraint.kind === "timeline"
+      ? timelineValues(phrase)
+      : resolutionValues(phrase);
+  return actual.size > 0 && [...actual].some((value) => !constraint.allowed.has(value));
+}
+
 function prohibitedGateConcepts(action: string): string[] {
   const normalized = normalizeComparableText(action)
     .replace(/^(?:do not|dont|never|avoid)\s+/, "")
+    .replace(/\b(?:anything )?other than\b.*$/u, "")
+    .replace(/\b(?:different from|except)\b.*$/u, "")
     .trim();
   if (!normalized) return [];
 
@@ -135,6 +223,7 @@ export function findChatAdvanceRequirementQualityFindings(
   const findings: ChatAdvanceRequirementQualityFinding[] = [];
   const priorPhrases: Array<{ requirementIndex: number; normalized: string }> = [];
   const prohibitedConcepts = prohibitedActions.flatMap(prohibitedGateConcepts);
+  const prohibitionAllowlists = prohibitedActions.flatMap(prohibitionAllowlistConstraints);
 
   requirements.forEach((requirement, requirementIndex) => {
     const normalizedPhrases = requirement.phrases.map((phrase) => normalizeComparableText(phrase));
@@ -159,7 +248,10 @@ export function findChatAdvanceRequirementQualityFindings(
       if (!phraseExpressesRequirementConcept(requirement.id, requirement.phrases[phraseIndex])) {
         findings.push({ code: "chat_advance_phrase_concept_mismatch", requirementIndex, phraseIndex });
       }
-      if (prohibitedConcepts.some((concept) => overlapsByRiseSubstring(normalized, concept))) {
+      if (prohibitedConcepts.some((concept) => overlapsByRiseSubstring(normalized, concept))
+        || prohibitionAllowlists.some((constraint) =>
+          violatesProhibitionAllowlist(requirement.phrases[phraseIndex], constraint)
+        )) {
         findings.push({ code: "prohibited_chat_advance_phrase", requirementIndex, phraseIndex });
       }
       if (priorPhrases.some((prior) =>

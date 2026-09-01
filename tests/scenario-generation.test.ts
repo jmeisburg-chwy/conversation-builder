@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createGenerateHandler } from "../lib/scenario-generation";
-import { compileSafeChatAdvanceRequirements } from "../lib/scenario-quality-guards";
+import {
+  compileSafeChatAdvanceRequirements,
+  findChatAdvanceRequirementQualityFindings,
+} from "../lib/scenario-quality-guards";
 import { createValidateHandler } from "../lib/scenario-validation";
 import { objectiveFingerprint } from "../lib/objective-approval";
 import type { StudioDraft } from "../lib/scenario-contract";
@@ -1285,7 +1288,11 @@ test("deterministically compiles the final corrective draft's Chat gates", async
           id: "refund_resolution",
           criteria: ["Issue a full refund of $32.49 to the original payment card."],
         }],
-        prohibitedActions: ["Do not offer store credit, a replacement, or an exchange."],
+        prohibitedActions: [
+          "Do not offer store credit, a replacement, or an exchange.",
+          "Do not issue a refund for an amount other than $32.49.",
+          "Do not state a timeline other than 3-5 business days.",
+        ],
       });
     },
   });
@@ -1356,7 +1363,11 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
           id: "refund_resolution",
           criteria: ["Issue a full refund of $32.49 to the original payment card."],
         }],
-        prohibitedActions: ["Do not offer store credit, a replacement, or an exchange."],
+        prohibitedActions: [
+          "Do not offer store credit, a replacement, or an exchange.",
+          "Do not issue a refund for an amount other than $32.49.",
+          "Do not state a timeline other than 3-5 business days.",
+        ],
       });
     },
   });
@@ -1589,6 +1600,52 @@ test("compiled refund completion blocks a prohibited replacement outcome", () =>
   assert.equal(matchesRiseGate(
     "I processed the replacement for $32.49 to the original card; the refund timeline is 3-5 business days.",
   ), false);
+});
+
+test("allows an approved amount and timeline named as exceptions to a prohibition", () => {
+  const requirements = [
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+  ];
+  const findings = findChatAdvanceRequirementQualityFindings(requirements, [
+    "Do not issue a refund for an amount other than $32.49.",
+    "Do not state a timeline other than 3-5 business days.",
+  ]);
+  assert.equal(findings.some((finding) => finding.code === "prohibited_chat_advance_phrase"), false);
+
+  const explicitlyProhibited = findChatAdvanceRequirementQualityFindings(requirements, [
+    "Do not state 3-5 business days.",
+  ]);
+  assert.equal(explicitlyProhibited.some((finding) => finding.code === "prohibited_chat_advance_phrase"), true);
+});
+
+test("rejects values and resolution options outside prohibition allowlists", () => {
+  const prohibitedActions = [
+    "Do not issue a refund for an amount other than $32.49.",
+    "Do not state a timeline other than 3-5 business days.",
+    "Do not offer anything other than a full refund.",
+  ];
+  const findingsFor = (phrases: string[]) => findChatAdvanceRequirementQualityFindings(
+    [{ id: "approved_outcome", phrases }],
+    prohibitedActions,
+  );
+
+  assert.equal(findingsFor(["issued the $32.49 refund", "processed the $32.49 refund"])
+    .some((finding) => finding.code === "prohibited_chat_advance_phrase"), false);
+  assert.equal(findingsFor(["3-5 business days", "3–5 business days", "3 to 5 business days"])
+    .some((finding) => finding.code === "prohibited_chat_advance_phrase"), false);
+
+  for (const prohibitedPhrase of [
+    "issued the $31.99 refund",
+    "5-7 business days",
+    "72 hours",
+    "offered store credit",
+    "sent a replacement",
+    "offered an exchange",
+  ]) {
+    assert.equal(findingsFor([prohibitedPhrase, `confirmed ${prohibitedPhrase}`])
+      .some((finding) => finding.code === "prohibited_chat_advance_phrase"), true, prohibitedPhrase);
+  }
 });
 
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {
