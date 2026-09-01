@@ -304,7 +304,7 @@ test("repairs behavior-focused phases when the approved resolution remains open 
       learnerActions: [
         "Confirm the agreed resolution, recap what will happen next, and ask whether the pet parent needs anything else.",
       ],
-      chatAdvanceRequirements: [{ id: "closing", phrases: ["confirm resolution and recap", "anything else I can help with"] }],
+      chatAdvanceRequirements: [{ id: "additional_help_question", phrases: ["confirm resolution and recap", "anything else I can help with"] }],
     },
   ];
   const handler = createGenerateHandler({
@@ -357,7 +357,7 @@ test("repairs behavior-focused phases when the approved resolution remains open 
     ["discovery_question"],
     ["outcome_question_intent", "outcome_preference"],
     ["next_steps", "expectation_setting"],
-    ["agreed_resolution", "recap", "closing"],
+    ["agreed_resolution", "recap", "additional_help_question", "closing"],
   ]);
   assert.doesNotMatch(JSON.stringify(payload.draft), /refund|replacement/iu);
 });

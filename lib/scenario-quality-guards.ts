@@ -123,7 +123,7 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
     return /\b(?:acknowledge|apologize|apology|concern|empathy|frustrat\w*|inconvenience|recognize|see|sorry|sounds|understand)\b/u.test(normalized);
   }
   if (concept === "question_intent") {
-    return /\b(?:ask|can i|do you need|do you want|may i|what do you need|what outcome|what would you like|would you like|would you prefer)\b/u.test(normalized);
+    return /\b(?:ask|can i|do you need|do you want|may i|need more help|what do you need|what outcome|what would you like|would you like|would you prefer)\b/u.test(normalized);
   }
   if (concept === "next_steps") return /\b(?:next steps?|what happens next|what will happen next)\b/u.test(normalized);
   if (concept === "preference") {
@@ -930,6 +930,7 @@ const NEXT_STEPS_PHRASES = ["next steps", "what happens next"];
 const EXPECTATION_PHRASES = ["set expectations", "what to expect"];
 const AGREED_RESOLUTION_PHRASES = ["agreed resolution", "resolution we agreed"];
 const RECAP_PHRASES = ["to recap", "quick recap"];
+const ADDITIONAL_HELP_QUESTION_PHRASES = ["can i help with", "need more help"];
 const CLOSING_PHRASES = ["anything else", "anything more"];
 const COMPLETED_REFUND_ACTION_PHRASES = [
   "refund was issued",
@@ -1280,6 +1281,7 @@ export function compileSafeChatAdvanceRequirements(
     compiled.push({ id: "recap", phrases: RECAP_PHRASES });
   }
   if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) {
+    compiled.push({ id: "additional_help_question", phrases: ADDITIONAL_HELP_QUESTION_PHRASES });
     compiled.push({ id: "closing", phrases: CLOSING_PHRASES });
   }
 
