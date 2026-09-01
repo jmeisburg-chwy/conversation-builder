@@ -1,3 +1,8 @@
+import {
+  mergeSafeChatAdvanceRequirementAliases,
+  prohibitedResolutionAlternativeGatePhrases,
+} from "./scenario-quality-guards";
+
 export type Channel = "chat" | "voice";
 export type ImportMode = "improve" | "similar";
 export const SUPPORTED_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"] as const;
@@ -283,17 +288,21 @@ function buildChatMatchPhrases(learnerActions: string[]): string[] {
 function buildChatMatch(
   chatAdvanceRequirements: ChatAdvanceRequirementDraft[] | undefined,
   learnerActions: string[],
+  prohibitedActions: string[],
 ): Record<string, unknown> {
+  const prohibitedPhrases = prohibitedResolutionAlternativeGatePhrases(prohibitedActions);
+  const none = prohibitedPhrases.length ? [{ op: "contains_any", phrases: prohibitedPhrases }] : [];
   const requiredConditions = (chatAdvanceRequirements ?? []).flatMap((requirement) => {
     const phrases = uniqueStrings(requirement.phrases).map((phrase) => phrase.toLowerCase());
     return phrases.length ? [{ op: "contains_any", phrases }] : [];
   });
   if (requiredConditions.length) {
-    return { all: requiredConditions, any: [] };
+    return { all: requiredConditions, any: [], none };
   }
   return {
     all: [],
     any: [{ op: "contains_any", phrases: buildChatMatchPhrases(learnerActions) }],
+    none,
   };
 }
 
@@ -302,8 +311,10 @@ function isRiseChatMatch(value: unknown): boolean {
   const match = value as Record<string, unknown>;
   const all = Array.isArray(match.all) ? match.all : [];
   const any = Array.isArray(match.any) ? match.any : [];
+  const none = Array.isArray(match.none) ? match.none : [];
+  if (match.none !== undefined && !Array.isArray(match.none)) return false;
   if (!all.length && !any.length) return false;
-  return [...all, ...any].every((condition) => {
+  return [...all, ...any, ...none].every((condition) => {
     if (!condition || typeof condition !== "object" || Array.isArray(condition)) return false;
     const entry = condition as Record<string, unknown>;
     return entry.op === "contains_any"
@@ -435,7 +446,7 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
   const chatProgression = channel === "chat" ? draft.phases.flatMap((phase, index) => phase.customerRemainsSilent ? [] : [{
     id: index,
     label: phase.title,
-    match: buildChatMatch(phase.chatAdvanceRequirements, phase.learnerActions),
+    match: buildChatMatch(phase.chatAdvanceRequirements, phase.learnerActions, draft.prohibitedActions),
     customerResponse: phase.partnerResponse,
     scenarioPathHint: `chatConfig.stepProgression[${index}]`,
   }]) : [];
@@ -1211,7 +1222,9 @@ function normalizeDraftLists(draft: StudioDraft): StudioDraft {
       ...phase,
       learnerActions: arrayOfStrings(phase.learnerActions),
       coachGuidance: arrayOfStrings(phase.coachGuidance),
-      chatAdvanceRequirements: normalizeChatAdvanceRequirements(phase.chatAdvanceRequirements, phase.id),
+      chatAdvanceRequirements: mergeSafeChatAdvanceRequirementAliases(
+        normalizeChatAdvanceRequirements(phase.chatAdvanceRequirements, phase.id),
+      ),
       ...(phase.coachGuidanceHierarchy !== undefined
         ? { coachGuidanceHierarchy: normalizeGuidanceHierarchy(phase.coachGuidanceHierarchy, phase.id) }
         : {}),

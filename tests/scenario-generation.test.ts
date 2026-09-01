@@ -1343,13 +1343,13 @@ test("deterministically repairs the final corrective draft's Chat gates and spli
   );
   assert.deepEqual(payload.draft.phases.map((phase: { chatAdvanceRequirements: unknown }) => phase.chatAdvanceRequirements), [
     [
-      { id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] },
-      { id: "refund_preference", phrases: ["like a refund", "want a refund"] },
+      { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
+      { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
     ],
     [
       { id: "refund_destination", phrases: ["original card", "original payment card"] },
-      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
-      { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+      { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
     ],
     [
       { id: "case_reference", phrases: ["case reference", "reference number"] },
@@ -1426,8 +1426,8 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
     "Ask whether Jamie wants a full refund.",
   ]);
   assert.deepEqual(payload.draft.phases[0].chatAdvanceRequirements, [
-    { id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] },
-    { id: "refund_preference", phrases: ["like a refund", "want a refund"] },
+    { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
+    { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
   ]);
   assert.deepEqual(payload.draft.phases[1].learnerActions, [
     "Issue a full refund of $32.49 to the original payment card.",
@@ -1435,8 +1435,8 @@ test("rebuilds unrepairable model phases from the approved refund process", asyn
   ]);
   assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements, [
     { id: "refund_destination", phrases: ["original card", "original payment card"] },
-    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
-    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
   ]);
 });
 
@@ -1542,8 +1542,8 @@ test("adds a missing approved operational criterion to the final phase before co
   ]);
   assert.deepEqual(payload.draft.phases[1].chatAdvanceRequirements, [
     { id: "refund_destination", phrases: ["original card", "original payment card"] },
-    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
-    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
   ]);
 });
 
@@ -1596,6 +1596,28 @@ test("compiles an exact non-range timeline instead of a generic deadline", () =>
   }]);
 });
 
+test("compiles adjudicated natural refund anchors", () => {
+  const requirements = compileSafeChatAdvanceRequirements({
+    ...generated.phases[0],
+    learnerActions: [
+      "Acknowledge the torn bag with empathy.",
+      "Confirm that Jamie prefers a full refund.",
+      "Issue the $32.49 refund and explain it will post within 3-5 business days.",
+    ],
+    chatAdvanceRequirements: [{
+      id: "refund_completion",
+      phrases: ["issued the $32.49 refund", "processed the $32.49 refund"],
+    }],
+  }, []);
+
+  assert.deepEqual(requirements, [
+    { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
+    { id: "refund_preference", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+    { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refunded $32.49"] },
+  ]);
+});
+
 test("compiles a replacement completion gate without weakening the outcome", () => {
   const requirements = compileSafeChatAdvanceRequirements({
     ...generated.phases[0],
@@ -1609,7 +1631,7 @@ test("compiles a replacement completion gate without weakening the outcome", () 
   }, []);
 
   assert.deepEqual(requirements, [
-    { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+    { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
     {
       id: "replacement_completion",
       phrases: ["placed the replacement order", "submitted the replacement order"],

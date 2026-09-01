@@ -93,7 +93,7 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
     return /\b(?:business days?|days?|duration|end of day|hours?|timeframe|timeline|timing|today|tomorrow|weeks?)\b/u.test(normalized);
   }
   if (concept === "completion") {
-    return /\b(?:complete|completed|confirmed|issued|placed|processed|recap|review|sent|submitted|summarize|summary|transferred)\b/u.test(normalized);
+    return /\b(?:complete|completed|confirmed|issued|placed|processed|recap|refunded|review|sent|submitted|summarize|summary|transferred)\b/u.test(normalized);
   }
   if (concept === "closing") return /\b(?:anything else|appreciate|close|closing|thank|thanks)\b/u.test(normalized);
   if (concept === "empathy") {
@@ -444,10 +444,10 @@ function detectedResolutionOption(value: string): "credit" | "exchange" | "refun
 }
 
 function preferencePhrases(option: ReturnType<typeof detectedResolutionOption>): string[] {
-  if (option === "replacement") return ["like a replacement", "want a replacement"];
-  if (option === "credit") return ["like store credit", "want store credit"];
-  if (option === "exchange") return ["like an exchange", "want an exchange"];
-  return ["like a refund", "want a refund"];
+  if (option === "replacement") return ["like a replacement", "want a replacement", "prefer a replacement"];
+  if (option === "credit") return ["like store credit", "want store credit", "prefer store credit"];
+  if (option === "exchange") return ["like an exchange", "want an exchange", "prefer an exchange"];
+  return ["like a refund", "want a refund", "prefer a full refund"];
 }
 
 function compileTimelineRequirement(
@@ -461,10 +461,7 @@ function compileTimelineRequirement(
     const asciiRange = `${businessDayRange[1]}-${businessDayRange[3]} ${unit}`;
     const enDashRange = `${businessDayRange[1]}–${businessDayRange[3]} ${unit}`;
     const toRange = `${businessDayRange[1]} to ${businessDayRange[3]} ${unit}`;
-    return {
-      id: timelineId,
-      phrases: businessDayRange[2] === "to" ? [toRange, asciiRange] : [asciiRange, enDashRange],
-    };
+    return { id: timelineId, phrases: [asciiRange, enDashRange, toRange] };
   }
 
   const quantified = learnerText.match(/\b(\d+)\s+(business days?|days?|hours?|weeks?)\b/iu);
@@ -488,6 +485,85 @@ function compileTimelineRequirement(
   return namedDay
     ? { id: timelineId, phrases: [namedDay, `by ${namedDay}`] }
     : undefined;
+}
+
+function appendUniquePhrases(existing: string[], aliases: string[]): string[] {
+  const merged = [...existing];
+  const seen = new Set(existing.map((phrase) => phrase.trim().toLowerCase()).filter(Boolean));
+  aliases.forEach((phrase) => {
+    const normalized = phrase.trim().toLowerCase();
+    if (!normalized || seen.has(normalized) || [...seen].some((candidate) => normalized.includes(candidate))) return;
+    seen.add(normalized);
+    merged.push(phrase);
+  });
+  return merged;
+}
+
+function inferredChatRequirementConceptFromPhrases(
+  phrases: string[],
+): ChatRequirementConcept | undefined {
+  const candidates = phrases.map((phrase) => phrase.trim().toLowerCase()).filter(Boolean);
+  if (!candidates.length) return undefined;
+
+  if (candidates.every((phrase) => /^(?:sorry (?:the|about)|understand the)\b/u.test(phrase))) {
+    return "empathy";
+  }
+  if (candidates.every((phrase) =>
+    /^(?:like|prefer|want)\b.*\b(?:exchange|refund|replacement|store credit)\b/u.test(phrase)
+  )) {
+    return "preference";
+  }
+  if (candidates.every((phrase) => /^original (?:card|payment card|payment method)$/u.test(phrase))) {
+    return "destination";
+  }
+  if (candidates.every((phrase) =>
+    /^\d+\s*(?:-|–|to)\s*\d+\s+(?:business days?|days?|hours?|weeks?)$/u.test(phrase)
+  )) {
+    return "timeline";
+  }
+  if (candidates.every((phrase) =>
+    /^(?:(?:issued|processed) the \$?\d+\.\d{2} refund|refunded \$?\d+\.\d{2})$/u.test(phrase)
+  )) {
+    return "completion";
+  }
+  return undefined;
+}
+
+/**
+ * Enrich recognized persisted Chat requirements with the same compact aliases
+ * used for newly generated gates. Saved creator phrases and unknown groups are
+ * authoritative and remain untouched; aliases are only appended.
+ */
+export function mergeSafeChatAdvanceRequirementAliases(
+  requirements: ChatAdvanceRequirementDraft[],
+): ChatAdvanceRequirementDraft[] {
+  return requirements.map((requirement) => {
+    const concept = chatRequirementConcept(requirement.id)
+      ?? inferredChatRequirementConceptFromPhrases(requirement.phrases);
+    if (!concept) return requirement;
+
+    const requirementText = `${requirement.id} ${requirement.phrases.join(" ")}`;
+    let aliases: string[] = [];
+    if (concept === "empathy") {
+      aliases = ["sorry the", "sorry about", "understand the"];
+    } else if (concept === "preference") {
+      const option = detectedResolutionOption(requirementText);
+      aliases = option ? preferencePhrases(option) : [];
+    } else if (concept === "destination") {
+      const phraseText = normalizeComparableText(requirement.phrases.join(" "));
+      aliases = /\boriginal (?:payment(?: card| method)?|card)\b/u.test(phraseText)
+        ? ["original card", "original payment card"]
+        : [];
+    } else if (concept === "timeline") {
+      aliases = compileTimelineRequirement(requirement.phrases.join(" "))?.phrases ?? [];
+    } else if (concept === "completion" && detectedResolutionOption(requirementText) === "refund") {
+      const amount = requirementText.match(/\$\s*\d+\.\d{2}\b/u)?.[0]?.replace(/\s+/gu, "");
+      aliases = amount ? [`refunded ${amount}`] : [];
+    }
+
+    const phrases = appendUniquePhrases(requirement.phrases, aliases);
+    return phrases.length === requirement.phrases.length ? requirement : { ...requirement, phrases };
+  });
 }
 
 function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
@@ -514,7 +590,7 @@ function compileOperationalCompletionRequirement(
     return {
       id: "refund_completion",
       phrases: amount
-        ? [`issued the ${amount} refund`, `processed the ${amount} refund`]
+        ? [`issued the ${amount} refund`, `processed the ${amount} refund`, `refunded ${amount}`]
         : ["issued the refund", "processed the refund"],
     };
   }
@@ -550,7 +626,7 @@ export function compileSafeChatAdvanceRequirements(
   const option = detectedResolutionOption(learnerText);
 
   if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) {
-    compiled.push({ id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] });
+    compiled.push({ id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] });
   }
   if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) {
     compiled.push({ id: `${option}_preference`, phrases: preferencePhrases(option) });
@@ -698,6 +774,22 @@ function resolutionProhibitionCandidate(action: string, index: number): Resoluti
     || (/\b(?:replac(?:e|es|ed|ing|ement|ements)|reship(?:s|ped|ping|ment|ments)?)\b/u.test(normalized)
       && !REPLACEMENT_DETAIL_ONLY.test(normalized));
   return namesAlternative || OTHER_THAN_FULL_REFUND.test(normalized) ? { index } : undefined;
+}
+
+export function prohibitedResolutionAlternativeGatePhrases(actions: string[]): string[] {
+  const phrases = new Set<string>();
+  actions.forEach((action, index) => {
+    if (!resolutionProhibitionCandidate(action, index)) return;
+    const normalized = normalizeComparableText(action);
+    if (/\bstore credit\b/u.test(normalized)) phrases.add("store credit");
+    if (/\breplac(?:e|es|ed|ing|ement|ements)\b/u.test(normalized)) phrases.add("replace");
+    if (/\breship(?:s|ped|ping|ment|ments)?\b/u.test(normalized)) phrases.add("reship");
+    if (/\bexchang(?:e|es|ed|ing)\b/u.test(normalized)) phrases.add("exchange");
+    if (OTHER_THAN_FULL_REFUND.test(normalized)) {
+      ["store credit", "partial refund", "replace", "reship", "exchange"].forEach((phrase) => phrases.add(phrase));
+    }
+  });
+  return [...phrases];
 }
 
 export function findOverlappingResolutionProhibitionGroups(actions: string[]): number[][] {

@@ -106,9 +106,13 @@ function applyLegacyCompatibilityFields({ baseline, generated, canonical, channe
 
   if (channel === "chat" && sameChatProgression(baseline, generated)) {
     const canonicalChatProgression = sanitizeChatProgression(canonical);
-    if (canonicalChatProgression) {
-      output.chatConfig.stepProgression = canonicalChatProgression;
-      output.simulation.stateModel.chatStepProgression = clone(canonicalChatProgression);
+    const protectedChatProgression = preserveGeneratedNegativeChatConditions(
+      canonicalChatProgression,
+      generated
+    );
+    if (protectedChatProgression) {
+      output.chatConfig.stepProgression = protectedChatProgression;
+      output.simulation.stateModel.chatStepProgression = clone(protectedChatProgression);
     }
   }
 
@@ -185,8 +189,35 @@ function sanitizeChatMatch(match) {
   if (!plainObject(match)) return null;
   const all = sanitizeChatConditions(match.all);
   const any = sanitizeChatConditions(match.any);
-  if (!all || !any || (!all.length && !any.length)) return null;
-  return { all, any };
+  const hasNone = Object.prototype.hasOwnProperty.call(match, "none");
+  const none = hasNone ? sanitizeChatConditions(match.none) : [];
+  if (!all || !any || !none || (!all.length && !any.length)) return null;
+  return { all, any, ...(hasNone ? { none } : {}) };
+}
+
+function preserveGeneratedNegativeChatConditions(canonicalProgression, generated) {
+  if (!canonicalProgression) return null;
+  const generatedSteps = generated?.chatConfig?.stepProgression;
+  if (!Array.isArray(generatedSteps)) return canonicalProgression;
+
+  const generatedNoneById = new Map();
+  for (const step of generatedSteps) {
+    if (!plainObject(step?.match) || !Object.prototype.hasOwnProperty.call(step.match, "none")) continue;
+    const none = sanitizeChatConditions(step.match.none);
+    const id = chatStepIdentity(step.id);
+    if (!none || !id || generatedNoneById.has(id)) return null;
+    generatedNoneById.set(id, none);
+  }
+  if (!generatedNoneById.size) return canonicalProgression;
+
+  const canonicalIds = new Set(canonicalProgression.map((step) => chatStepIdentity(step.id)));
+  if ([...generatedNoneById.keys()].some((id) => !canonicalIds.has(id))) return null;
+  return canonicalProgression.map((step) => {
+    const none = generatedNoneById.get(chatStepIdentity(step.id));
+    return none
+      ? { ...step, match: { ...step.match, none: clone(none) } }
+      : step;
+  });
 }
 
 function sanitizeChatConditions(conditions) {

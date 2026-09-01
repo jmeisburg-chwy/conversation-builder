@@ -146,7 +146,7 @@ test("composes Rise-compatible Chat step match conditions", () => {
 });
 
 type RiseMatchCondition = { op: string; phrases: string[] };
-type RiseStep = { match?: { all?: RiseMatchCondition[]; any?: RiseMatchCondition[] } };
+type RiseStep = { match?: { all?: RiseMatchCondition[]; any?: RiseMatchCondition[]; none?: RiseMatchCondition[] } };
 
 function riseStepMatches(message: string, step: RiseStep): boolean {
   const normalized = message.toLowerCase();
@@ -155,7 +155,10 @@ function riseStepMatches(message: string, step: RiseStep): boolean {
       && condition.phrases.some((phrase: string) => normalized.includes(phrase.toLowerCase()));
   const all = Array.isArray(step.match?.all) ? step.match.all : [];
   const any = Array.isArray(step.match?.any) ? step.match.any : [];
-  return (!all.length || all.every(conditionMatches)) && (!any.length || any.some(conditionMatches));
+  const none = Array.isArray(step.match?.none) ? step.match.none : [];
+  return (!all.length || all.every(conditionMatches))
+    && (!any.length || any.some(conditionMatches))
+    && !none.some(conditionMatches);
 }
 
 test("requires every positive concept before advancing a Chat phase", () => {
@@ -212,6 +215,204 @@ test("requires every positive concept before advancing a Chat phase", () => {
   assert.equal(riseStepMatches("I can offer store credit.", steps[1]), false);
   assert.equal(riseStepMatches("I've completed the refund of $24.99 to your original payment card. It will post in 3–5 business days.", steps[2]), true);
   assert.equal(riseStepMatches("Thank you.", steps[2]), false);
+});
+
+test("blocks prohibited refund alternatives without rejecting complete natural responses", () => {
+  const refundDraft = focusedDraft();
+  refundDraft.channels = ["chat"];
+  refundDraft.prohibitedActions = [
+    "Do not offer store credit, a replacement, or an exchange.",
+    "Do not issue a refund for an amount other than $24.99.",
+    "Do not state a timeline other than 3-5 business days.",
+  ];
+  refundDraft.phases = [{
+    id: "complete_refund",
+    title: "Complete the refund",
+    learnerActions: [
+      "Acknowledge the torn bag, issue the $24.99 refund to the original payment card, and explain the 3-5 business-day timeline.",
+    ],
+    chatAdvanceRequirements: [
+      { id: "acknowledge_empathy", phrases: ["sorry the", "sorry about", "understand the"] },
+      { id: "refund_destination", phrases: ["original card", "original payment card"] },
+      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+      { id: "refund_completion", phrases: ["issued the $24.99 refund", "processed the $24.99 refund", "refunded $24.99"] },
+    ],
+    partnerResponse: "Thank you for resolving this.",
+    coachGuidance: ["Complete only the approved full refund."],
+  }];
+
+  const [file] = composeScenarioFiles(refundDraft);
+  const step = file.scenario.chatConfig!.stepProgression[0] as RiseStep;
+
+  assert.deepEqual(step.match?.none, [{
+    op: "contains_any",
+    phrases: ["store credit", "replace", "exchange"],
+  }]);
+  assert.equal(riseStepMatches(
+    "I understand the frustration. I've processed the $24.99 refund to your original card. It should appear in 3 to 5 business days.",
+    step,
+  ), true);
+  assert.equal(riseStepMatches(
+    "I'm sorry about the torn bag. I've refunded $24.99 to your original payment card. It should post in 3–5 business days.",
+    step,
+  ), true);
+  for (const prohibitedAddition of [
+    " I can also offer store credit.",
+    " I can also send a replacement.",
+    " I can arrange an exchange instead.",
+  ]) {
+    assert.equal(riseStepMatches(
+      `I understand the frustration. I've processed the $24.99 refund to your original card. It should appear in 3 to 5 business days.${prohibitedAddition}`,
+      step,
+    ), false);
+  }
+});
+
+test("enriches persisted v31 Chat requirements without replacing creator phrases or unknown groups", () => {
+  const refundDraft = focusedDraft();
+  refundDraft.channels = ["chat"];
+  refundDraft.prohibitedActions = [
+    "Do not offer store credit, a replacement, or an exchange.",
+  ];
+  refundDraft.phases = [
+    {
+      id: "acknowledge_and_confirm_preference",
+      title: "Acknowledge and confirm the refund preference",
+      learnerActions: ["Acknowledge the torn bag and confirm that the customer prefers a full refund."],
+      chatAdvanceRequirements: [
+        { id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] },
+        { id: "refund_preference", phrases: ["like a refund", "want a refund"] },
+      ],
+      partnerResponse: "Yes, I prefer a full refund.",
+      coachGuidance: ["Confirm the customer's preferred resolution."],
+    },
+    {
+      id: "complete_refund",
+      title: "Complete the refund",
+      learnerActions: ["Issue the $32.49 refund to the original payment card and explain the 3-5 business-day timeline."],
+      chatAdvanceRequirements: [
+        { id: "refund_destination", phrases: ["original card", "original payment card"] },
+        { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+        {
+          id: "refund_completion",
+          phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refund is complete"],
+        },
+      ],
+      partnerResponse: "Thank you for resolving this.",
+      coachGuidance: ["Complete only the approved full refund."],
+    },
+    {
+      id: "share_reference",
+      title: "Share the case reference",
+      learnerActions: ["Share the case reference."],
+      chatAdvanceRequirements: [
+        { id: "creator_case_reference", phrases: ["case reference", "reference number", "creator reference"] },
+      ],
+      partnerResponse: "I'll keep that reference.",
+      coachGuidance: ["Provide the reference clearly."],
+    },
+  ];
+
+  const [file] = composeScenarioFiles(refundDraft);
+  const steps = file.scenario.chatConfig!.stepProgression as RiseStep[];
+
+  assert.deepEqual(steps[0].match?.all, [
+    { op: "contains_any", phrases: ["sorry the", "understand the", "sorry about"] },
+    { op: "contains_any", phrases: ["like a refund", "want a refund", "prefer a full refund"] },
+  ]);
+  assert.deepEqual(steps[1].match?.all, [
+    { op: "contains_any", phrases: ["original card", "original payment card"] },
+    { op: "contains_any", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days"] },
+    {
+      op: "contains_any",
+      phrases: ["issued the $32.49 refund", "processed the $32.49 refund", "refund is complete", "refunded $32.49"],
+    },
+  ]);
+  assert.deepEqual(steps[2].match?.all, [{
+    op: "contains_any",
+    phrases: ["case reference", "reference number", "creator reference"],
+  }]);
+
+  const validMessages = [
+    "I'm sorry about the torn bag. I want to confirm that you prefer a full refund.",
+    "I've refunded $32.49 to your original card. It should post in 3 to 5 business days.",
+    "Your creator reference is REF-123.",
+  ];
+  validMessages.forEach((message, index) => {
+    assert.equal(riseStepMatches(message, steps[index]), true);
+    assert.equal(riseStepMatches(`${message} I can also offer store credit.`, steps[index]), false);
+    assert.equal(riseStepMatches(`${message} I can also send a replacement.`, steps[index]), false);
+    assert.equal(riseStepMatches(`${message} I can arrange an exchange instead.`, steps[index]), false);
+  });
+});
+
+test("enriches v31 Chat requirements after a JSON pair is imported and recomposed", () => {
+  const refundDraft = focusedDraft();
+  refundDraft.baseId = "damaged_dog_food_full_refund_practice";
+  refundDraft.channels = ["chat", "voice"];
+  refundDraft.correctProcess = [
+    "Acknowledge the torn bag and confirm that the customer prefers a full refund.",
+    "Issue exactly $32.49 to the original payment card and explain the 3-5 business-day timeline.",
+  ];
+  refundDraft.prohibitedActions = ["Do not offer store credit, a replacement, or an exchange."];
+  refundDraft.phases = [{
+    id: "complete_refund",
+    title: "Complete the refund",
+    learnerActions: [
+      "Acknowledge the torn bag, confirm that the customer prefers a full refund, issue the $32.49 refund to the original payment card, and explain the 3-5 business-day timeline.",
+    ],
+    chatAdvanceRequirements: [
+      { id: "acknowledge_empathy", phrases: ["sorry the", "understand the"] },
+      { id: "refund_preference", phrases: ["like a refund", "want a refund"] },
+      { id: "refund_destination", phrases: ["original card", "original payment card"] },
+      { id: "refund_timeline", phrases: ["3-5 business days", "3–5 business days"] },
+      { id: "refund_completion", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+    ],
+    partnerResponse: "Thank you for resolving this.",
+    coachGuidance: ["Complete only the approved full refund."],
+    evaluationLinks: [{ objectiveId: "refund_accuracy", criterionIds: ["refund_accuracy_criterion_1"] }],
+  }];
+  refundDraft.objectives = [{
+    id: "refund_accuracy",
+    label: "Refund accuracy",
+    description: "Complete the approved refund accurately.",
+    criteria: ["Issue exactly $32.49 to the original payment card and explain the 3-5 business-day timeline."],
+  }];
+
+  const files = composeScenarioFiles(refundDraft);
+  const chat = files.find((file) => file.scenario.channels[0] === "chat")!.scenario;
+  const oldMatch = {
+    all: [
+      { op: "contains_any", phrases: ["sorry the", "understand the"] },
+      { op: "contains_any", phrases: ["like a refund", "want a refund"] },
+      { op: "contains_any", phrases: ["original card", "original payment card"] },
+      { op: "contains_any", phrases: ["3-5 business days", "3–5 business days"] },
+      { op: "contains_any", phrases: ["issued the $32.49 refund", "processed the $32.49 refund"] },
+    ],
+    any: [],
+  };
+  chat.chatConfig!.stepProgression[0].match = structuredClone(oldMatch);
+  chat.simulation.stateModel.chatStepProgression[0].match = structuredClone(oldMatch);
+
+  const imported = importScenarioJson(JSON.stringify(files.map((file) => file.scenario)), "improve");
+  imported.draft.sourceOverlay = true;
+  const recomposed = composeScenarioFiles(imported.draft);
+  const chatOutput = recomposed.find((file) => file.scenario.channels[0] === "chat")!;
+  const step = chatOutput.scenario.chatConfig!.stepProgression[0] as RiseStep;
+
+  assert.equal(validateScenarioFiles(recomposed).length, 0);
+  assert.equal(riseStepMatches(
+    "I'm sorry about the torn bag. You prefer a full refund, so I've refunded $32.49 to your original card. It should post in 3 to 5 business days.",
+    step,
+  ), true);
+  assert.equal(riseStepMatches(
+    "I'm sorry about the torn bag. You prefer a full refund, so I've refunded $32.49 to your original card. It should post in 3 to 5 business days. I can also offer store credit.",
+    step,
+  ), false);
+  assert.equal(riseStepMatches(
+    "I'm sorry about the torn bag. You prefer a full refund, so I've refunded $32.49 to your original card. It should post in 3 to 5 business days. I can also send a replacement.",
+    step,
+  ), false);
 });
 
 test("marks legacy any-only Chat gates as needing explicit review after import", () => {
@@ -341,6 +542,24 @@ test("rejects Chat step matching that the Rise runtime cannot evaluate", () => {
   const chat = files[0].scenario;
   chat.chatConfig!.stepProgression[0].match = ["Acknowledge the concern."];
   chat.simulation.stateModel.chatStepProgression[0].match = ["Acknowledge the concern."];
+
+  assert.deepEqual(
+    validateScenarioFiles(files).find((issue) => issue.code === "invalid_chat_step_match"),
+    {
+      code: "invalid_chat_step_match",
+      path: "files[0].scenario.chatConfig.stepProgression[0].match",
+      message: "Chat turn matching is not compatible with the Rise simulator.",
+      fix: "Use match.all or match.any with a contains_any condition and at least one phrase.",
+    },
+  );
+});
+
+test("rejects malformed negative Chat match conditions", () => {
+  const files = composeScenarioFiles({ ...focusedDraft(), channels: ["chat"] });
+  const match = files[0].scenario.chatConfig!.stepProgression[0].match as {
+    none: Array<{ op: string; phrases: string[] }>;
+  };
+  match.none = [{ op: "contains_any", phrases: [] }];
 
   assert.deepEqual(
     validateScenarioFiles(files).find((issue) => issue.code === "invalid_chat_step_match"),
