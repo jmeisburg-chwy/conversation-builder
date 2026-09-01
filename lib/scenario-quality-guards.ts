@@ -1595,9 +1595,9 @@ function hasDetailedOutcomeAction(value: string): boolean {
   });
 }
 
-function hasDetailedBehaviorAction(value: string): boolean {
+function detailedBehaviorActionCount(value: string): number {
   const clauses = value.split(/(?:[.;!?]+|,\s+|\b(?:and\s+then|then|and|but)\b)/i);
-  return clauses.some((clause) => {
+  return clauses.filter((clause) => {
     const action = findBehaviorAction(clause);
     if (!action) return false;
 
@@ -1610,7 +1610,11 @@ function hasDetailedBehaviorAction(value: string): boolean {
     if (detailWords.length >= 2) return true;
 
     return /^(?:the|this|that|their|its|our|your|customer(?:s|'s))\s+/i.test(outcomePhrase);
-  });
+  }).length;
+}
+
+function hasDetailedBehaviorAction(value: string): boolean {
+  return detailedBehaviorActionCount(value) > 0;
 }
 
 export function hasDeterministicResolutionText(value: string): boolean {
@@ -1623,8 +1627,11 @@ export function hasDeterministicResolutionText(value: string): boolean {
 
 export function hasDeterministicConversationHandlingText(value: string): boolean {
   const candidate = value.trim();
-  if (!candidate || isNondeterministicResolutionText(candidate)) return false;
-  return hasDeterministicResolutionText(candidate) || hasDetailedBehaviorAction(candidate);
+  if (!candidate) return false;
+  const behaviorActionCount = detailedBehaviorActionCount(candidate);
+  if (behaviorActionCount >= 2) return true;
+  if (isNondeterministicResolutionText(candidate)) return false;
+  return hasDeterministicResolutionText(candidate) || behaviorActionCount === 1;
 }
 
 export function isNondeterministicResolutionText(value: string): boolean {

@@ -229,6 +229,37 @@ test("accepts discovery-question guidance before calling the provider", async ()
   assert.equal(called, true);
 });
 
+test("accepts detailed behavior guidance when resolution remains open for review", async () => {
+  let called = false;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      called = true;
+      return providerResponse({ ...generated, assumptions: ["MISSING_POLICY"] });
+    },
+  });
+
+  const correctProcess = [
+    "Acknowledge the pet parent’s frustration and concern about having enough food for Pepper.",
+    "Ask focused questions to understand what happened, what the pet parent has already checked, and how much food they have remaining.",
+    "Confirm the outcome the pet parent needs before recommending a resolution.",
+    "Explain the available next steps clearly and set accurate expectations.",
+    "Confirm the agreed resolution, recap what will happen next, and ask whether the pet parent needs anything else.",
+    "Avoid: Do not blame the delivery carrier or suggest that the pet parent did not look carefully enough.",
+    "Avoid: Do not guarantee a delivery date or outcome that has not been confirmed.",
+    "Avoid: Do not offer compensation or make exceptions that have not been approved.",
+  ].join("\n");
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: correctProcess,
+    correctProcess,
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(called, true);
+  assert.equal((await response.json()).assumptions.includes("MISSING_POLICY"), false);
+});
+
 test("requires a concrete approved outcome before calling the provider", async () => {
   let called = false;
   const handler = createGenerateHandler({
