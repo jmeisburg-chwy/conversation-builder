@@ -353,6 +353,132 @@ test("blocks customer behavior rules that assign Chewy-agent actions to the Conv
   );
 });
 
+test("blocks an opening that pre-answers a required preference confirmation", async () => {
+  const invalid = draft();
+  invalid.customer.openingLine = "The dog food bag arrived torn, and I want a full refund.";
+  invalid.customer.goal = "Receive a full refund for the damaged bag.";
+  invalid.phases[0].learnerActions = ["Confirm the customer's requested resolution."];
+  invalid.phases[0].chatAdvanceRequirements = [
+    { id: "acknowledgement", phrases: ["sorry about the damage", "acknowledge the torn bag"] },
+    { id: "refund_preference", phrases: ["want a refund", "prefer a refund"] },
+  ];
+  invalid.phases[0].partnerResponse = "Yes, I want a refund to my original payment card.";
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string; path: string }) =>
+      issue.code === "opening_preanswers_phase"
+      && issue.path === "draft.customer.openingLine"
+    ),
+    true,
+  );
+});
+
+test("blocks a contracted preference disclosure in the opening", async () => {
+  const invalid = draft();
+  invalid.customer.openingLine = "The bag is torn, so I'd like a refund.";
+  invalid.phases[0].learnerActions = ["Confirm the customer's requested resolution."];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "opening_preanswers_phase"),
+    true,
+  );
+});
+
+test("blocks an object-fronted preference disclosure in the opening", async () => {
+  const invalid = draft();
+  invalid.customer.openingLine = "A full refund is what I need.";
+  invalid.phases[0].learnerActions = ["Confirm the customer's requested resolution."];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "opening_preanswers_phase"),
+    true,
+  );
+});
+
+test("blocks a follow-up that requests an option the customer explicitly rejected", async () => {
+  const invalid = draft();
+  invalid.customer.openingLine = "The damaged bag is unusable, and I want a refund.";
+  invalid.customer.goal = "Receive a refund to the original payment card.";
+  invalid.customer.objections = ["I don't want store credit or a replacement."];
+  invalid.customer.conditionalFollowUps = [
+    "Why isn't a replacement possible?",
+    "Could you send a replacement instead?",
+  ];
+  invalid.compatibilityFacts = {
+    ...invalid.compatibilityFacts,
+    conditionalFollowUp: "Could you send a replacement instead?",
+  };
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+  const paths = payload.issues
+    .filter((issue: { code: string }) => issue.code === "contradictory_customer_follow_up")
+    .map((issue: { path: string }) => issue.path);
+
+  assert.equal(response.status, 422);
+  assert.equal(paths.includes("draft.customer.conditionalFollowUps[0]"), true);
+  assert.equal(paths.includes("draft.customer.conditionalFollowUps[1]"), true);
+  assert.equal(paths.includes("draft.compatibilityFacts.conditionalFollowUp"), true);
+});
+
+test("allows a follow-up consistent with a positive choice introduced by no", async () => {
+  const valid = draft();
+  valid.customer.goal = "Receive a refund to the original payment card.";
+  valid.customer.objections = ["No, I just want a refund."];
+  valid.customer.conditionalFollowUps = ["Can I get that refund to my original card?"];
+  valid.compatibilityFacts = {
+    ...valid.compatibilityFacts,
+    conditionalFollowUp: "Can I get that refund to my original card?",
+  };
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+});
+
+test("does not confuse store pickup with rejected store credit", async () => {
+  const valid = draft();
+  valid.customer.objections = ["I don't want store credit."];
+  valid.customer.conditionalFollowUps = ["Is store pickup available?"];
+  valid.compatibilityFacts = {
+    ...valid.compatibilityFacts,
+    conditionalFollowUp: "Is store pickup available?",
+  };
+
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
+});
+
+test("blocks a morphological restatement of a rejected resolution option", async () => {
+  const invalid = draft();
+  invalid.customer.objections = ["I don't want a replacement."];
+  invalid.customer.conditionalFollowUps = ["Can I get the item replaced?"];
+
+  const response = await createValidateHandler()(request({ draft: invalid }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "contradictory_customer_follow_up"),
+    true,
+  );
+});
+
 test("requires grouped Chat evidence and complete criterion-to-phase coverage", async () => {
   const invalid = draft();
   invalid.phases[0].chatAdvanceRequirements = [];
@@ -390,6 +516,85 @@ test("blocks weak, overlapping, blank, and prohibited Chat gate evidence", async
   assert.equal(codes.has("prohibited_chat_advance_phrase"), true);
   assert.equal(codes.has("blank_chat_advance_phrase"), true);
   assert.equal(codes.has("chat_advance_requirement_alternatives"), true);
+});
+
+test("rejects full-turn Chat gates while accepting compact concept and numeric anchors", async () => {
+  const brittle = draft();
+  brittle.phases[0].chatAdvanceRequirements = [
+    {
+      id: "refund_amount",
+      phrases: [
+        "I will issue a refund of $32.49 to your original payment method.",
+        "The refund amount is $32.49 and will go back to your payment card.",
+      ],
+    },
+  ];
+
+  const brittleResponse = await createValidateHandler()(request({ draft: brittle }));
+  const brittlePayload = await brittleResponse.json();
+
+  assert.equal(brittleResponse.status, 422);
+  assert.equal(
+    brittlePayload.issues.some((issue: { code: string }) => issue.code === "brittle_chat_advance_phrase"),
+    true,
+  );
+
+  const compact = draft();
+  compact.phases[0].chatAdvanceRequirements = [
+    { id: "refund_amount", phrases: ["$32.49", "refund of $32.49"] },
+    { id: "refund_destination", phrases: ["original payment card", "original card"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3 to 5 business days"] },
+  ];
+
+  const compactResponse = await createValidateHandler()(request({ draft: compact }));
+  const compactPayload = await compactResponse.json();
+
+  assert.equal(compactResponse.status, 200, JSON.stringify(compactPayload.issues));
+});
+
+test("rejects a subject-led full-turn Chat gate without terminal punctuation", async () => {
+  const brittle = draft();
+  brittle.phases[0].chatAdvanceRequirements = [{
+    id: "refund_action",
+    phrases: ["I will issue the full refund", "We can process the full refund"],
+  }];
+
+  const response = await createValidateHandler()(request({ draft: brittle }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    payload.issues.some((issue: { code: string }) => issue.code === "brittle_chat_advance_phrase"),
+    true,
+  );
+});
+
+test("rejects a six-word learner action while accepting noun-led compact anchors", async () => {
+  const brittle = draft();
+  brittle.phases[0].chatAdvanceRequirements = [{
+    id: "refund_destination",
+    phrases: ["Issue the refund to original card", "Process refund to original payment card"],
+  }];
+
+  const brittleResponse = await createValidateHandler()(request({ draft: brittle }));
+  const brittlePayload = await brittleResponse.json();
+
+  assert.equal(brittleResponse.status, 422);
+  assert.equal(
+    brittlePayload.issues.some((issue: { code: string }) => issue.code === "brittle_chat_advance_phrase"),
+    true,
+  );
+
+  const compact = draft();
+  compact.phases[0].chatAdvanceRequirements = [{
+    id: "refund_destination",
+    phrases: ["refund to original card", "refund to original payment card"],
+  }];
+
+  const compactResponse = await createValidateHandler()(request({ draft: compact }));
+  const compactPayload = await compactResponse.json();
+
+  assert.equal(compactResponse.status, 200, JSON.stringify(compactPayload.issues));
 });
 
 test("matches Rise substring semantics for morphological Chat gate collisions", async () => {

@@ -10,9 +10,11 @@ import {
 } from "./scenario-contract";
 import {
   customerBehaviorRuleConflictsWithLearner,
+  customerFollowUpContradictsRejectedOption,
   customerFollowUpConflictsWithLearner,
   findChatAdvanceRequirementQualityFindings,
   findNondeterministicResolutionStep,
+  openingPreanswersRequiredPreference,
   repeatsOpening,
 } from "./scenario-quality-guards";
 import { approvedStandardTextPrivacySource } from "./standard-text-recommendations";
@@ -250,6 +252,14 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
         fix: "Write what the Conversation Partner says after the Learner completes Phase 1.",
       });
     }
+    if (openingPreanswersRequiredPreference(draft.customer.openingLine, phase.learnerActions)) {
+      issues.push({
+        code: "opening_preanswers_phase",
+        path: "draft.customer.openingLine",
+        message: "The opening reveals a customer preference that this phase requires the Learner to ask or confirm.",
+        fix: "Remove that preference from the opening and reveal it in the Conversation Partner response after the Learner asks.",
+      });
+    }
     requireLines(`draft.phases[${index}].learnerActions`, phase?.learnerActions, "Learner action");
     phase.learnerActions.forEach((action, actionIndex) => {
       if (!VAGUE_PROCESS_REFERENCE_PATTERN.test(action)) return;
@@ -293,6 +303,10 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
           blank_chat_advance_phrase: {
             message: "A Chat advance phrase cannot be blank.",
             fix: "Replace the blank entry with a natural positive learner phrase.",
+          },
+          brittle_chat_advance_phrase: {
+            message: "This Chat advance phrase is a near-exact learner turn and is too brittle for Rise substring matching.",
+            fix: "Replace it with a compact 2-6 word concept anchor; numeric anchors may be shorter.",
           },
           generic_chat_advance_phrase: {
             message: "This Chat advance phrase is too generic or incidental to prove the required behavior.",
@@ -402,15 +416,41 @@ function validateDraftCompleteness(draft: StudioDraft): ValidationIssue[] {
     ...draft.phases.flatMap((phase) => phase.learnerActions),
     ...draft.objectives.flatMap((objective) => objective.criteria),
   ];
+  const customerIntentSources = [
+    draft.customer.openingLine,
+    draft.customer.goal,
+    ...draft.customer.objections,
+  ];
   draft.customer.conditionalFollowUps.forEach((followUp, index) => {
-    if (!customerFollowUpConflictsWithLearner(followUp, learnerDiscoveryActions)) return;
-    issues.push({
-      code: "customer_role_conflict",
-      path: `draft.customer.conditionalFollowUps[${index}]`,
-      message: "This follow-up assigns the Learner's discovery question to the Conversation Partner.",
-      fix: "Rewrite it as the Conversation Partner's reaction or answer after the Learner asks the question.",
-    });
+    if (customerFollowUpConflictsWithLearner(followUp, learnerDiscoveryActions)) {
+      issues.push({
+        code: "customer_role_conflict",
+        path: `draft.customer.conditionalFollowUps[${index}]`,
+        message: "This follow-up assigns the Learner's discovery question to the Conversation Partner.",
+        fix: "Rewrite it as the Conversation Partner's reaction or answer after the Learner asks the question.",
+      });
+    }
+    if (customerFollowUpContradictsRejectedOption(followUp, customerIntentSources)) {
+      issues.push({
+        code: "contradictory_customer_follow_up",
+        path: `draft.customer.conditionalFollowUps[${index}]`,
+        message: "This follow-up requests an option the Conversation Partner already rejected.",
+        fix: "Remove the follow-up or replace it with a question consistent with the Conversation Partner's stated choice.",
+      });
+    }
   });
+  if (draft.compatibilityFacts.conditionalFollowUp
+    && customerFollowUpContradictsRejectedOption(
+      draft.compatibilityFacts.conditionalFollowUp,
+      customerIntentSources,
+    )) {
+    issues.push({
+      code: "contradictory_customer_follow_up",
+      path: "draft.compatibilityFacts.conditionalFollowUp",
+      message: "This follow-up requests an option the Conversation Partner already rejected.",
+      fix: "Clear the follow-up or replace it with a question consistent with the Conversation Partner's stated choice.",
+    });
+  }
   draft.customer.behaviorRules.forEach((rule, index) => {
     if (!customerBehaviorRuleConflictsWithLearner(rule)) return;
     issues.push({

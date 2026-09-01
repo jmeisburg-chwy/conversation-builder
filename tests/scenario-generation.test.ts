@@ -890,6 +890,160 @@ test("rejects generated Chat gates that use weak or prohibited evidence", async 
   }
 });
 
+test("repairs generated response ordering that makes a required preference redundant", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        openingLine: "The dog food bag arrived torn, so I'd like a full refund.",
+      },
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge the damage and confirm whether the customer wants a refund."],
+        chatAdvanceRequirements: [
+          { id: "acknowledgement", phrases: ["sorry about the damage", "acknowledge the torn bag"] },
+          { id: "refund_preference", phrases: ["want a refund", "prefer a refund"] },
+        ],
+        partnerResponse: "Yes, I want a refund to my original payment card.",
+      }],
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(payload.draft.customer.openingLine, "The dog food bag arrived torn.");
+  assert.match(payload.draft.phases[0].partnerResponse, /want a refund/i);
+});
+
+test("retries generated response ordering when removing the disclosed preference would empty the opening", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          openingLine: providerCalls === 1
+            ? "A full refund is what I need."
+            : "The dog food bag arrived torn and the contents spilled.",
+        },
+        phases: [{
+          ...generated.phases[0],
+          learnerActions: ["Confirm the customer's requested resolution."],
+          chatAdvanceRequirements: [
+            { id: "resolution_preference", phrases: ["want a refund", "prefer a refund"] },
+          ],
+          partnerResponse: "Yes, I want a full refund to my original payment card.",
+        }],
+      });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.equal(payload.draft.customer.openingLine, "The dog food bag arrived torn and the contents spilled.");
+});
+
+test("drops generated follow-ups that request an explicitly rejected option", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      customer: {
+        ...generated.customer,
+        openingLine: "The damaged bag is unusable, and I want a refund.",
+        goal: "Receive a refund to the original payment card.",
+        objections: ["I don't want store credit or a replacement."],
+        conditionalFollowUps: [
+          "Why isn't a replacement possible?",
+          "Could you send a replacement instead?",
+        ],
+      },
+      compatibilityFacts: {
+        ...generated.compatibilityFacts,
+        conditionalFollowUp: "Could you send a replacement instead?",
+      },
+    }),
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload.draft.customer.conditionalFollowUps, []);
+  assert.equal(payload.draft.compatibilityFacts.conditionalFollowUp, "");
+});
+
+test("retries generated full-turn Chat gates and accepts compact numeric anchors", async () => {
+  let providerCalls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return providerResponse({
+        ...generated,
+        customer: {
+          ...generated.customer,
+          openingLine: "Hi, I just got my 40-pound bag of dry dog food and the bag is torn. The food spilled everywhere and it's unusable. I want a full refund.",
+          goal: "Receive a full refund for the torn dog food bag.",
+          objections: ["No, I don't want store credit or a replacement."],
+          conditionalFollowUps: ["Why can't I get a replacement?"],
+        },
+        compatibilityFacts: {
+          ...generated.compatibilityFacts,
+          conditionalFollowUp: "Why can't I get a replacement?",
+        },
+        phases: [{
+          ...generated.phases[0],
+          learnerActions: [
+            "Acknowledge the torn bag and the inconvenience caused.",
+            "Ask if Taylor wants a refund for the damaged item.",
+          ],
+          chatAdvanceRequirements: providerCalls === 1
+            ? [{
+                id: "refund_amount",
+                phrases: [
+                  "Issue the refund to original card",
+                  "Process refund to original payment card",
+                ],
+              }]
+            : [
+                { id: "refund_amount", phrases: ["$32.49", "refund of $32.49"] },
+                { id: "refund_destination", phrases: ["original payment card", "original card"] },
+                { id: "refund_timeline", phrases: ["3-5 business days", "3 to 5 business days"] },
+              ],
+        }],
+      });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(providerCalls, 2);
+  assert.equal(
+    payload.draft.customer.openingLine,
+    "Hi, I just got my 40-pound bag of dry dog food and the bag is torn. The food spilled everywhere and it's unusable.",
+  );
+  assert.deepEqual(payload.draft.customer.conditionalFollowUps, []);
+  assert.equal(payload.draft.compatibilityFacts.conditionalFollowUp, "");
+  assert.deepEqual(payload.draft.phases[0].chatAdvanceRequirements, [
+    { id: "refund_amount", phrases: ["$32.49", "refund of $32.49"] },
+    { id: "refund_destination", phrases: ["original payment card", "original card"] },
+    { id: "refund_timeline", phrases: ["3-5 business days", "3 to 5 business days"] },
+  ]);
+});
+
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {
   const generate = createGenerateHandler({
     apiKey: "test-key",

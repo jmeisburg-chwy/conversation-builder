@@ -12,9 +12,11 @@ import {
   customerBehaviorRuleConflictsWithLearner,
   customerBehaviorRuleHasNegativeLearnerPolarity,
   customerBehaviorRuleToNegativeGuardrail,
+  customerFollowUpContradictsRejectedOption,
   findChatAdvanceRequirementQualityFindings,
   hasDeterministicResolutionText,
   isNondeterministicResolutionText,
+  removePreansweredPreferenceFromOpening,
 } from "./scenario-quality-guards";
 import { parseStudioDraft } from "./scenario-validation";
 import { recommendImportedStandardText, recommendStandardText } from "./standard-text-recommendations";
@@ -67,6 +69,16 @@ interface GenerationDiagnostic {
   providerRequestId?: string;
   errorName?: string;
   errorMessage?: string;
+}
+
+class RepairableGeneratedContentError extends Error {
+  readonly correction: string;
+
+  constructor(correction: string) {
+    super("repairable_generated_content");
+    this.name = "RepairableGeneratedContentError";
+    this.correction = correction;
+  }
 }
 
 const MAX_REQUEST_BYTES = 1_500_000;
@@ -134,51 +146,69 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
       const providerInput = input.sourceDraft
         ? redactPrivacyValues({ ...input, sourceDraft: stripSourceEnvelope(input.sourceDraft) })
         : input;
-      const provider = await fetchImpl("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          store: false,
-          input: [
-            {
-              role: "developer",
-              content: [{ type: "input_text", text: AUTHORING_INSTRUCTIONS }],
-            },
-            {
-              role: "user",
-              content: [{ type: "input_text", text: JSON.stringify(providerInput) }],
-            },
-          ],
-          text: {
-            format: {
-              type: "json_schema",
-              name: "conversation_builder_draft",
-              strict: true,
-              schema: GENERATED_CONTENT_SCHEMA,
-            },
+      let content: GeneratedContent | undefined;
+      let correction = "";
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        failureStage = "provider_request";
+        const developerInstructions = correction
+          ? `${AUTHORING_INSTRUCTIONS}\n\nThe previous draft was rejected. ${correction}`
+          : AUTHORING_INSTRUCTIONS;
+        const provider = await fetchImpl("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
           },
-        }),
-        signal: AbortSignal.timeout(120_000),
-      });
-
-      failureStage = "provider_response_body";
-      const providerRaw = await readBodyBounded(provider, MAX_PROVIDER_BYTES);
-      if (!provider.ok) {
-        const providerRequestId = provider.headers.get("x-request-id") || undefined;
-        logError({
-          stage: "provider_response",
-          providerStatus: provider.status,
-          providerErrorCode: providerErrorCode(providerRaw),
-          ...(providerRequestId ? { providerRequestId } : {}),
+          body: JSON.stringify({
+            model,
+            store: false,
+            input: [
+              {
+                role: "developer",
+                content: [{ type: "input_text", text: developerInstructions }],
+              },
+              {
+                role: "user",
+                content: [{ type: "input_text", text: JSON.stringify(providerInput) }],
+              },
+            ],
+            text: {
+              format: {
+                type: "json_schema",
+                name: "conversation_builder_draft",
+                strict: true,
+                schema: GENERATED_CONTENT_SCHEMA,
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(120_000),
         });
-        return errorResponse(502, "generation_unavailable", "Coach Chewy could not create a draft. Check the details and try again.");
+
+        failureStage = "provider_response_body";
+        const providerRaw = await readBodyBounded(provider, MAX_PROVIDER_BYTES);
+        if (!provider.ok) {
+          const providerRequestId = provider.headers.get("x-request-id") || undefined;
+          logError({
+            stage: "provider_response",
+            providerStatus: provider.status,
+            providerErrorCode: providerErrorCode(providerRaw),
+            ...(providerRequestId ? { providerRequestId } : {}),
+          });
+          return errorResponse(502, "generation_unavailable", "Coach Chewy could not create a draft. Check the details and try again.");
+        }
+        failureStage = "provider_output";
+        try {
+          content = sanitizeProviderOutput(parseProviderOutput(providerRaw));
+          break;
+        } catch (caught) {
+          if (caught instanceof RepairableGeneratedContentError && attempt === 0) {
+            correction = caught.correction;
+            continue;
+          }
+          throw caught;
+        }
       }
-      failureStage = "provider_output";
-      const content = sanitizeProviderOutput(parseProviderOutput(providerRaw));
+      if (!content) throw new Error("invalid_generated_content");
       const missingPolicyPattern = new RegExp(`^${MISSING_POLICY_MARKER}(?:\\s*:|\\s*$)`, "i");
       const providerMarkedPolicyMissing = content.assumptions.some((assumption) =>
         missingPolicyPattern.test(assumption.trim())
@@ -313,17 +343,36 @@ function assertGeneratedContent(value: GeneratedContent): void {
   if (!Array.isArray(value.phases) || value.phases.length === 0) throw new Error("invalid_generated_content");
   if (value.phases.some((phase) => {
     if (!Array.isArray(phase.chatAdvanceRequirements) || phase.chatAdvanceRequirements.length === 0) return true;
-    if (phase.chatAdvanceRequirements.some((requirement) =>
+    return phase.chatAdvanceRequirements.some((requirement) =>
       !requirement
       || typeof requirement.id !== "string"
       || !Array.isArray(requirement.phrases)
       || requirement.phrases.some((phrase) => typeof phrase !== "string")
-    )) return true;
-    return findChatAdvanceRequirementQualityFindings(
+    );
+  })) throw new Error("invalid_generated_content");
+  const repairedOpeningLine = value.phases.reduce(
+    (openingLine, phase) => removePreansweredPreferenceFromOpening(openingLine, phase.learnerActions),
+    value.customer.openingLine,
+  );
+  if (!nonempty(repairedOpeningLine)) {
+    throw new RepairableGeneratedContentError(
+      "Regenerate customer.openingLine as a factual problem statement that does not disclose the preference, choice, or resolution a Learner phase must ask or confirm. Reveal that answer in the corresponding phase.partnerResponse.",
+    );
+  }
+  const chatGateFindings = value.phases.flatMap((phase) =>
+    findChatAdvanceRequirementQualityFindings(
       phase.chatAdvanceRequirements,
       value.prohibitedActions,
-    ).length > 0;
-  })) throw new Error("invalid_generated_content");
+    )
+  );
+  if (chatGateFindings.some((finding) => finding.code !== "brittle_chat_advance_phrase")) {
+    throw new Error("invalid_generated_content");
+  }
+  if (chatGateFindings.length > 0) {
+    throw new RepairableGeneratedContentError(
+      "Regenerate every chatAdvanceRequirements phrase as a compact semantic anchor of no more than six words. Preserve separate independently required concepts and use short numeric anchors where appropriate. Do not write complete learner turns or instructions that begin with learner action verbs such as Issue or Process.",
+    );
+  }
   if (!Array.isArray(value.objectives) || value.objectives.length === 0) throw new Error("invalid_generated_content");
   if (!value.compatibilityFacts || !["address", "medication", "urgency", "medicationOrProduct", "clinic", "keyQuestion", "rootCauseBelief", "conditionalFollowUp"].every((key) => typeof value.compatibilityFacts[key as keyof StudioDraft["compatibilityFacts"]] === "string")) throw new Error("invalid_generated_content");
   if (!Array.isArray(value.assumptions)) throw new Error("invalid_generated_content");
@@ -365,9 +414,32 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
   const generatedProhibitedActions = [...generatedProhibitedActionMap.values()];
   const normalizeProhibitedEcho = (value: string) =>
     generatedProhibitedActionMap.get(generatedProhibitedActionBodyKey(value)) || value;
+  const repairedOpeningLine = content.phases.reduce(
+    (openingLine, phase) => removePreansweredPreferenceFromOpening(openingLine, phase.learnerActions),
+    content.customer.openingLine,
+  );
+  if (!nonempty(repairedOpeningLine)) throw new Error("invalid_generated_content");
+  const customerIntentSources = [
+    repairedOpeningLine,
+    content.customer.goal,
+    ...content.customer.objections,
+  ];
   const customer = {
     ...content.customer,
+    openingLine: repairedOpeningLine,
     behaviorRules: content.customer.behaviorRules.filter((rule) => !customerBehaviorRuleConflictsWithLearner(rule)),
+    conditionalFollowUps: content.customer.conditionalFollowUps.filter((followUp) =>
+      !customerFollowUpContradictsRejectedOption(followUp, customerIntentSources)
+    ),
+  };
+  const generatedCompatibilityFacts = {
+    ...content.compatibilityFacts,
+    conditionalFollowUp: customerFollowUpContradictsRejectedOption(
+      content.compatibilityFacts.conditionalFollowUp || "",
+      customerIntentSources,
+    )
+      ? ""
+      : content.compatibilityFacts.conditionalFollowUp,
   };
   return {
     baseId,
@@ -423,7 +495,7 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
       : { passingScore: 100 },
     compatibilityFacts: preserveImportedSettings
       ? input.sourceDraft!.compatibilityFacts ?? content.compatibilityFacts
-      : content.compatibilityFacts,
+      : generatedCompatibilityFacts,
     chat: preserveImportedSettings
       ? input.sourceDraft!.chat
       : { hotkeyProfile: authoringAgentType === "Rx" ? "rx" : "core", standardText: [], standardTextDecision: "unreviewed", standardTextRecommendations },
@@ -683,12 +755,13 @@ Treat supplied correct-process details as the authority. Surface uncertainty in 
 If the supplied correct-process details do not state one exact authorized action and expected outcome, do not guess. Add exactly MISSING_POLICY as a standalone item in assumptions.
 Make each objective observable and each phase response-ordered. Keep customer responses natural and concise.
 Each phase.partnerResponse is the new Conversation Partner turn after the Learner completes that phase. It must never repeat customer.openingLine.
-Write customer.conditionalFollowUps only as Conversation Partner reactions, objections, or questions. Never assign the Learner's discovery question or Chewy-agent action to the Conversation Partner.
+If a Learner phase asks, confirms, or discovers a customer fact or preference, do not reveal that answer in customer.openingLine. Reveal it once in that phase.partnerResponse.
+Write customer.conditionalFollowUps only as Conversation Partner reactions, objections, or questions. Never assign the Learner's discovery question or Chewy-agent action to the Conversation Partner. Use an empty conditional follow-up when no natural follow-up is consistent with the customer's stated goal, choices, and rejected options; never invent a request for an option the customer rejected.
 Write customer.behaviorRules only as Conversation Partner reactions, emotional shifts, disclosure boundaries, or role constraints. Never tell the Conversation Partner to issue, process, offer, explain, inform, or perform any Chewy-agent action.
 Write one deterministic approved resolution. Never substitute phrases such as available next steps, approved process, locating the package or replacement, or initiate resolution for the exact authorized action and expected outcome.
 Never write placeholders such as as per correct process, per approved policy, or according to the approved process. Use the supplied exact amount, destination, timing, and authorized action wherever those details are relevant.
 Begin every objective criterion with a neutral imperative action such as Acknowledge, Ask, Explain, Confirm, Avoid, or Recap.
-For every phase, create chatAdvanceRequirements with one independently required positive concept per entry. Give each entry two or more short natural learner phrases that express only that concept. A Chat phase advances only when every entry matches. Never use a prohibited option, incidental courtesy, or generic word such as issue, customer, process, thank, or help as positive evidence.
+For every phase, create chatAdvanceRequirements with one independently required positive concept per entry. Give each entry two or more compact semantic anchors, normally 2-6 words, that express only that concept. Numeric anchors such as $32.49 or 3-5 business days may be shorter. Do not write complete learner turns, scaffolding such as I will, Can I, Would you, or Please allow, or instructions beginning with learner action verbs such as Issue or Process. A Chat phase advances only when every entry matches. Never use a prohibited option, incidental courtesy, or generic word such as issue, customer, process, thank, or help as positive evidence.
 Set customerRemainsSilent to true only for a final learner-only action after which the customer must not reply; otherwise set it to false.
 Create distinct keyQuestion, rootCauseBelief, urgency, medication/product, clinic, address, and conditionalFollowUp facts. Use empty strings only when a fact truly does not apply.
 Write every prohibited action with explicit negative polarity such as Do not, Avoid, or Never. Repeat that same negative wording in both an objective criterion and the relevant Coach Chewy guidance.

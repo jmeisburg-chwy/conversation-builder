@@ -904,17 +904,10 @@ function normalizeGuidanceHierarchy(value: unknown, phaseId: string): GuidanceBu
 function flattenGuidanceHierarchy(value: GuidanceBulletDraft[]): string[] {
   return value.flatMap((bullet) => [bullet.text, ...(bullet.children ?? []).map((child) => child.text)]);
 }
-function runtimeGuidanceBullets(phase: PhaseDraft): Array<string | Record<string, unknown>> {
+function runtimeGuidanceBullets(phase: PhaseDraft): string[] {
   const hierarchy = normalizeGuidanceHierarchy(phase.coachGuidanceHierarchy, phase.id);
   if (!hierarchy.length) return phase.coachGuidance;
-  return hierarchy.map((bullet) => {
-    if (!bullet.children?.length && !bullet.systemReference) return bullet.text;
-    return {
-      text: bullet.text,
-      ...(bullet.children?.length ? { children: bullet.children.map((child) => child.text) } : {}),
-      ...(bullet.systemReference ? { systemReference: structuredClone(bullet.systemReference) } : {}),
-    };
-  });
+  return flattenGuidanceHierarchy(hierarchy);
 }
 function appendUniqueGuidance(
   bullets: Array<string | Record<string, unknown>>,

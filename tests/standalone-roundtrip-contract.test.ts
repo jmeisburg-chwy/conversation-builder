@@ -357,29 +357,6 @@ test("assigns every generated objective criterion to a phase", () => {
     "refund_process_accuracy_criterion_5",
     "refund_process_accuracy_criterion_6",
   ]);
-
-  const oneCriterionObjectives = structuredClone(standalone);
-  oneCriterionObjectives.phases = standalone.phases.slice(0, 2);
-  oneCriterionObjectives.objectives = Array.from({ length: 5 }, (_value, index) => ({
-    id: `refund_step_${index + 1}`,
-    label: `Refund step ${index + 1}`,
-    description: `Complete refund step ${index + 1}.`,
-    criteria: [`Complete refund step ${index + 1}.`],
-  }));
-  oneCriterionObjectives.prohibitedActions = [];
-
-  const distributed = standaloneToAuthoringDraft(oneCriterionObjectives);
-
-  assert.equal(distributed.flow.phases.every((phase) => phase.evaluationLinks.length > 0), true);
-  assert.deepEqual(
-    distributed.flow.phases.map((phase) => phase.evaluationLinks.flatMap((link) => link.criterionIds)),
-    [["refund_step_1_criterion_1"], [
-      "refund_step_2_criterion_1",
-      "refund_step_3_criterion_1",
-      "refund_step_4_criterion_1",
-      "refund_step_5_criterion_1",
-    ]],
-  );
 });
 
 test("nests generated prohibitions once and makes them scored guidance boundaries", () => {
@@ -479,10 +456,188 @@ test("does not duplicate equivalent option and alternative boundary wording", ()
     phase.coachGuidance.bullets.flatMap((bullet) => bullet.children ?? [])
   ).filter((child: { kind: string }) => child.kind === "caution");
 
-  assert.deepEqual(criteria, ["Avoid offering or mentioning replacement or store credit options."]);
+  assert.deepEqual(criteria, ["Avoid offering store credit or replacements as alternatives."]);
   assert.equal(cautions.length, 1);
   assert.match(cautions[0].text, /store credit/i);
   assert.match(cautions[0].text, /replacement/i);
+});
+
+test("keeps an equivalent prohibited boundary once in scoring and once in each relevant phase", () => {
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "refund_boundary_deduplication",
+    prohibitedActions: ["Avoid offering store credit or replacements as alternatives."],
+    phases: [
+      {
+        id: "confirm_refund",
+        title: "Confirm the refund preference",
+        learnerActions: ["Confirm that the customer wants a refund."],
+        partnerResponse: "Yes, I want a refund.",
+        coachGuidance: [
+          "Confirm the requested refund.",
+          "Avoid offering store credit or replacement alternatives.",
+          "Do not suggest a replacement product or store credit option.",
+        ],
+      },
+      {
+        id: "complete_refund",
+        title: "Complete the refund",
+        learnerActions: ["Complete the approved refund."],
+        partnerResponse: "Thank you.",
+        coachGuidance: [
+          "Complete only the approved resolution.",
+          "Do not offer replacement items or store credit.",
+          "Avoid suggesting store credit or a replacement option.",
+        ],
+      },
+    ],
+    objectives: [
+      {
+        id: "refund_resolution",
+        label: "Refund resolution",
+        description: "Complete the requested refund.",
+        criteria: [
+          "Confirm that the customer wants a refund.",
+          "Avoid offering store credit or replacement products.",
+        ],
+      },
+      {
+        id: "approved_boundary",
+        label: "Approved boundary",
+        description: "Stay within the approved resolution.",
+        criteria: ["Do not suggest replacement items or store credit options."],
+      },
+    ],
+  });
+
+  const prohibitedCriteria = authoring.evaluation.objectives
+    .flatMap((objective: { criteria: Array<{ text: string }> }) => objective.criteria)
+    .filter((criterion: { text: string }) => /^(?:avoid|do not)\b/i.test(criterion.text));
+  const phaseCautions = authoring.flow.phases.map((phase: {
+    coachGuidance: { bullets: Array<{ children?: Array<{ text: string; kind: string }> }> };
+  }) => phase.coachGuidance.bullets
+    .flatMap((bullet) => bullet.children ?? [])
+    .filter((child) => child.kind === "caution"));
+
+  assert.equal(prohibitedCriteria.length, 1);
+  assert.match(prohibitedCriteria[0].text, /store credit/i);
+  assert.match(prohibitedCriteria[0].text, /replacement/i);
+  assert.deepEqual(phaseCautions.map((cautions: Array<{ text: string }>) => cautions.length), [1, 1]);
+  phaseCautions.flat().forEach((caution: { text: string }) => {
+    assert.match(caution.text, /store credit/i);
+    assert.match(caution.text, /replacement/i);
+  });
+});
+
+test("replaces split boundary criteria and cautions with one authoritative compound action", () => {
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "refund_split_boundary",
+    prohibitedActions: ["Do not offer store credit or a replacement."],
+    phases: [{
+      id: "confirm_refund",
+      title: "Confirm the refund",
+      learnerActions: ["Confirm that the customer wants a refund."],
+      partnerResponse: "Yes, I want a refund.",
+      coachGuidance: [
+        "Confirm the customer's requested outcome.",
+        "Do not offer store credit.",
+        "Do not offer a replacement.",
+      ],
+    }],
+    objectives: [{
+      id: "refund_resolution",
+      label: "Refund resolution",
+      description: "Complete only the approved refund.",
+      criteria: [
+        "Confirm that the customer wants a refund.",
+        "Do not offer store credit.",
+        "Do not offer a replacement.",
+      ],
+    }],
+  });
+
+  const negativeCriteria = authoring.evaluation.objectives
+    .flatMap((objective: { criteria: Array<{ text: string }> }) => objective.criteria)
+    .filter((criterion: { text: string }) => /^(?:avoid|do not)\b/i.test(criterion.text));
+  const cautions = authoring.flow.phases[0].coachGuidance.bullets
+    .flatMap((bullet: { children?: Array<{ text: string; kind: string }> }) => bullet.children ?? [])
+    .filter((child: { kind: string }) => child.kind === "caution");
+
+  assert.deepEqual(negativeCriteria.map((criterion: { text: string }) => criterion.text), [
+    "Do not offer store credit or a replacement.",
+  ]);
+  assert.deepEqual(cautions.map((caution: { text: string }) => caution.text), [
+    "Do not offer store credit or a replacement.",
+  ]);
+});
+
+test("maps every generated criterion exactly once to the phase with matching learner behavior", () => {
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "refund_semantic_phase_links",
+    phases: [
+      {
+        id: "acknowledge_and_confirm",
+        title: "Acknowledge and confirm the refund",
+        learnerActions: [
+          "Acknowledge the torn bag, express empathy, and confirm that the customer wants a refund.",
+        ],
+        partnerResponse: "Yes, I want a refund.",
+        coachGuidance: ["Recognize the damaged bag, show understanding, and confirm the requested resolution."],
+      },
+      {
+        id: "complete_refund",
+        title: "Complete and explain the refund",
+        learnerActions: [
+          "Issue the $32.49 refund to the original payment card and state the 3–5 business-day timeline.",
+        ],
+        partnerResponse: "Thank you.",
+        coachGuidance: ["State the exact refund amount, payment destination, and posting timeline."],
+      },
+    ],
+    objectives: [
+      {
+        id: "acknowledge_damage",
+        label: "Acknowledge damage",
+        description: "Recognize the customer's experience.",
+        criteria: ["Acknowledge the torn bag.", "Express understanding of the customer's frustration."],
+      },
+      {
+        id: "confirm_resolution",
+        label: "Confirm resolution",
+        description: "Confirm the requested outcome.",
+        criteria: ["Ask whether the customer wants a refund."],
+      },
+      {
+        id: "refund_accuracy",
+        label: "Refund accuracy",
+        description: "Complete and explain the approved refund.",
+        criteria: [
+          "Issue the $32.49 refund.",
+          "State that the refund returns to the original payment card.",
+          "State the 3–5 business-day timeline.",
+        ],
+      },
+    ],
+    prohibitedActions: [],
+  });
+
+  const linkedByPhase = authoring.flow.phases.map((phase: {
+    evaluationLinks: Array<{ criterionIds: string[] }>;
+  }) => phase.evaluationLinks.flatMap((link) => link.criterionIds));
+  const allLinked = linkedByPhase.flat();
+
+  assert.deepEqual(linkedByPhase, [
+    [
+      "acknowledge_damage_criterion_1",
+      "acknowledge_damage_criterion_2",
+      "confirm_resolution_criterion_1",
+    ],
+    [
+      "refund_accuracy_criterion_1",
+      "refund_accuracy_criterion_2",
+      "refund_accuracy_criterion_3",
+    ],
+  ]);
+  assert.equal(new Set(allLinked).size, allLinked.length);
 });
 
 test("keeps positive guidance with contrast wording as positive guidance", () => {

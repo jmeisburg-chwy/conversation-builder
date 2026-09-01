@@ -101,7 +101,20 @@ const EXPLICIT_NEGATIVE_GUIDANCE_PATTERN = new RegExp(
   "iu",
 );
 const BOUNDARY_GUIDANCE_PATTERN = /\b(?:avoid|do not|don't|must not|never|refrain(?:\s+from)?|without|rather than|instead of)\b/iu;
-const BOUNDARY_STOP_WORDS = new Set(["a", "an", "alternative", "and", "avoid", "do", "for", "must", "never", "no", "not", "of", "option", "or", "the", "to", "without"]);
+const BOUNDARY_STOP_WORDS = new Set([
+  "a", "agent", "an", "alternative", "and", "avoid", "cannot", "chewy", "couldn", "do", "doesn", "for",
+  "learner", "must", "mustn", "never", "no", "not", "of", "option", "or", "representative", "shall", "shouldn",
+  "the", "to", "without", "won", "wont", "wouldn",
+]);
+const GENERIC_REPLACEMENT_NOUNS = new Set(["bag", "delivery", "item", "order", "product", "shipment"]);
+const BOUNDARY_ACTION_ALIASES = new Map([
+  ["mention", "present"], ["mentioned", "present"], ["mentioning", "present"], ["mentions", "present"],
+  ["offer", "present"], ["offered", "present"], ["offering", "present"], ["offers", "present"],
+  ["present", "present"], ["presented", "present"], ["presenting", "present"], ["presents", "present"],
+  ["propose", "present"], ["proposed", "present"], ["proposes", "present"], ["proposing", "present"],
+  ["provide", "present"], ["provided", "present"], ["provides", "present"], ["providing", "present"],
+  ["suggest", "present"], ["suggested", "present"], ["suggesting", "present"], ["suggests", "present"],
+]);
 
 function normalizedTextKey(value) {
   return text(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -111,9 +124,15 @@ function boundaryTokens(value, { prohibitedAction = false } = {}) {
   const candidate = prohibitedAction
     ? text(value).replace(/\s+(?:instead\s+of|rather\s+than)\b.*$/iu, "")
     : text(value);
-  return candidate.toLowerCase().match(/[a-z0-9]+/g)
-    ?.map((token) => token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token)
-    .filter((token) => token.length > 2 && !BOUNDARY_STOP_WORDS.has(token)) ?? [];
+  const tokens = [];
+  for (const rawToken of candidate.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+    const singular = rawToken.length > 4 && rawToken.endsWith("s") ? rawToken.slice(0, -1) : rawToken;
+    const token = BOUNDARY_ACTION_ALIASES.get(singular) ?? singular;
+    if (token.length <= 2 || BOUNDARY_STOP_WORDS.has(token)) continue;
+    if (tokens.at(-1) === "replacement" && GENERIC_REPLACEMENT_NOUNS.has(token)) continue;
+    if (!tokens.includes(token)) tokens.push(token);
+  }
+  return tokens;
 }
 
 function relatedBoundaryToken(left, right) {
@@ -138,6 +157,48 @@ function equivalentBoundary(left, right) {
   return coversBoundary(left, right) || coversBoundary(right, left);
 }
 
+function preferredBoundaryText(left, right) {
+  return boundaryTokens(right, { prohibitedAction: true }).length
+    > boundaryTokens(left, { prohibitedAction: true }).length
+    ? text(right)
+    : text(left);
+}
+
+function canonicalBoundaryTexts(values) {
+  const boundaries = [];
+  list(values).forEach((value) => {
+    const candidate = text(value);
+    const existingIndex = boundaries.findIndex((existing) =>
+      normalizedTextKey(existing) === normalizedTextKey(candidate) || equivalentBoundary(existing, candidate)
+    );
+    if (existingIndex < 0) boundaries.push(candidate);
+    else boundaries[existingIndex] = preferredBoundaryText(boundaries[existingIndex], candidate);
+  });
+  return boundaries;
+}
+
+function dedupeGeneratedBoundaryCriteria(objectives, authoritativeBoundaries = []) {
+  const retainedBoundaries = [];
+  return objectives.filter((objective) => {
+    const originalCriteria = objective.criteria;
+    let removedDuplicate = false;
+    objective.criteria = originalCriteria.filter((criterion) => {
+      if (!EXPLICIT_NEGATIVE_GUIDANCE_PATTERN.test(text(criterion?.text))) return true;
+      const authoritativeBoundary = authoritativeBoundaries.find((boundary) => coversBoundary(criterion.text, boundary));
+      if (authoritativeBoundary) criterion.text = authoritativeBoundary;
+      const retained = retainedBoundaries.find((candidate) => equivalentBoundary(candidate.criterion.text, criterion.text));
+      if (!retained) {
+        retainedBoundaries.push({ criterion });
+        return true;
+      }
+      retained.criterion.text = preferredBoundaryText(retained.criterion.text, criterion.text);
+      removedDuplicate = true;
+      return false;
+    });
+    return objective.criteria.length > 0 || originalCriteria.length === 0 || !removedDuplicate;
+  });
+}
+
 function mergedPhaseGuidance(phase, phaseId) {
   const hierarchy = guidanceHierarchy(phase?.coachGuidanceHierarchy, phaseId);
   const represented = new Set(flattenedGuidance(hierarchy).map(normalizedTextKey));
@@ -158,26 +219,35 @@ function mergedPhaseGuidance(phase, phaseId) {
   return hierarchy;
 }
 
-function canonicalPhaseGuidance(items, phaseId, fallbackParentText) {
+function canonicalPhaseGuidance(items, phaseId, fallbackParentText, authoritativeBoundaries = []) {
   const bullets = [];
   const pendingCautions = [];
-  const seenCautions = new Set();
+  const seenCautions = [];
   const addChild = (parent, child) => {
-    const childText = text(child?.text);
-    if (!childText) return;
-    const caution = child?.kind === "caution" || (child?.kindOverride !== true && EXPLICIT_NEGATIVE_GUIDANCE_PATTERN.test(childText));
+    const originalChildText = text(child?.text);
+    if (!originalChildText) return;
+    const caution = child?.kind === "caution" || (child?.kindOverride !== true && EXPLICIT_NEGATIVE_GUIDANCE_PATTERN.test(originalChildText));
+    const childText = caution
+      ? authoritativeBoundaries.find((boundary) => coversBoundary(originalChildText, boundary)) ?? originalChildText
+      : originalChildText;
     if (caution) {
-      const key = normalizedTextKey(childText);
-      if (seenCautions.has(key)) return;
-      seenCautions.add(key);
+      const retained = seenCautions.find((candidate) =>
+        normalizedTextKey(candidate.text) === normalizedTextKey(childText) || equivalentBoundary(candidate.text, childText)
+      );
+      if (retained) {
+        retained.text = preferredBoundaryText(retained.text, childText);
+        return;
+      }
     }
     parent.children ||= [];
-    parent.children.push({
+    const normalizedChild = {
       id: text(child?.id, `${phaseId}_guidance_${bullets.length + 1}_${parent.children.length + 1}`),
       text: childText,
       kind: caution ? "caution" : "support",
       ...(child?.kindOverride === true ? { kindOverride: true } : {}),
-    });
+    };
+    parent.children.push(normalizedChild);
+    if (caution) seenCautions.push(normalizedChild);
   };
   const addCaution = (parent, item) => {
     addChild(parent, { id: item.id, text: item.text, kind: "caution" });
@@ -340,19 +410,68 @@ function ensureProhibitedCoverage(objectives, phases, prohibitedActions) {
   });
 }
 
-function defaultPhaseEvaluationLinks(objectives, phaseCount) {
-  if (phaseCount <= 0) return [];
+const SEMANTIC_STOP_WORDS = new Set(["a", "an", "and", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "that", "the", "to", "with"]);
+const SEMANTIC_TOKEN_ALIASES = new Map([
+  ["acknowledged", "acknowledge"], ["acknowledges", "acknowledge"], ["acknowledging", "acknowledge"],
+  ["recognized", "acknowledge"], ["recognizes", "acknowledge"], ["recognizing", "acknowledge"], ["recognize", "acknowledge"],
+  ["asked", "confirm"], ["asking", "confirm"], ["asks", "confirm"], ["ask", "confirm"],
+  ["checked", "confirm"], ["checking", "confirm"], ["checks", "confirm"], ["check", "confirm"],
+  ["confirmed", "confirm"], ["confirming", "confirm"], ["confirms", "confirm"],
+  ["completed", "complete"], ["completes", "complete"], ["completing", "complete"],
+  ["issued", "complete"], ["issues", "complete"], ["issuing", "complete"], ["issue", "complete"],
+  ["processed", "complete"], ["processes", "complete"], ["processing", "complete"], ["process", "complete"],
+  ["damaged", "damage"], ["damages", "damage"], ["torn", "damage"],
+  ["explained", "explain"], ["explaining", "explain"], ["explains", "explain"],
+  ["informed", "explain"], ["informing", "explain"], ["informs", "explain"], ["inform", "explain"],
+  ["stated", "explain"], ["states", "explain"], ["stating", "explain"], ["state", "explain"],
+  ["wanted", "want"], ["wants", "want"],
+]);
+
+function semanticTokens(value) {
+  const tokens = new Set();
+  for (const rawToken of text(value).toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+    const singular = rawToken.length > 4 && rawToken.endsWith("s") ? rawToken.slice(0, -1) : rawToken;
+    const token = SEMANTIC_TOKEN_ALIASES.get(singular) ?? singular;
+    if (token.length <= 1 || SEMANTIC_STOP_WORDS.has(token)) continue;
+    tokens.add(token);
+  }
+  return tokens;
+}
+
+function semanticPhaseScore(criterion, phase) {
+  const criterionTokens = semanticTokens(criterion);
+  const phaseTokens = semanticTokens([
+    phase.title,
+    phase.purpose,
+    phase.strongLearnerResponse,
+    ...flattenedGuidance(phase.coachGuidance?.bullets ?? []),
+  ].join(" "));
+  return [...criterionTokens].filter((token) => phaseTokens.has(token)).length;
+}
+
+function defaultPhaseEvaluationLinks(objectives, phases) {
+  if (!phases.length) return [];
   const references = objectives.flatMap((objective) =>
-    objective.criteria.map((criterion) => ({ objectiveId: objective.id, criterionId: criterion.id }))
+    objective.criteria.map((criterion) => ({ objectiveId: objective.id, criterionId: criterion.id, criterion: criterion.text }))
   );
-  const lastPhaseIndex = phaseCount - 1;
-  const assigned = Array.from({ length: phaseCount }, () => []);
+  const lastPhaseIndex = phases.length - 1;
+  const assigned = Array.from({ length: phases.length }, () => []);
   references.forEach((reference, referenceIndex) => {
-    assigned[Math.min(referenceIndex, lastPhaseIndex)].push(reference);
-  });
-  assigned.forEach((phaseReferences, phaseIndex) => {
-    if (phaseReferences.length || !references.length) return;
-    phaseReferences.push(references[Math.min(phaseIndex, references.length - 1)]);
+    const fallbackIndex = Math.min(
+      Math.floor(referenceIndex * phases.length / Math.max(references.length, 1)),
+      lastPhaseIndex,
+    );
+    let bestIndex = fallbackIndex;
+    let bestScore = -1;
+    phases.forEach((phase, phaseIndex) => {
+      const score = semanticPhaseScore(reference.criterion, phase);
+      if (score > bestScore || (score === bestScore
+        && Math.abs(phaseIndex - fallbackIndex) < Math.abs(bestIndex - fallbackIndex))) {
+        bestIndex = phaseIndex;
+        bestScore = score;
+      }
+    });
+    assigned[bestIndex].push(reference);
   });
   return assigned.map((phaseReferences) => {
     const grouped = new Map();
@@ -365,7 +484,11 @@ function defaultPhaseEvaluationLinks(objectives, phaseCount) {
 }
 
 export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
-  const objectives = listOf(draft?.objectives).map((objective, objectiveIndex) => {
+  const sourcePhases = listOf(draft?.phases);
+  const authoritativeProhibitedActions = canonicalBoundaryTexts(list(draft?.prohibitedActions));
+  const preserveAuthoredEvaluationLinks = sourcePhases.length > 0
+    && sourcePhases.every((phase) => phaseEvaluationLinks(phase?.evaluationLinks).length > 0);
+  const mappedObjectives = listOf(draft?.objectives).map((objective, objectiveIndex) => {
     const id = slug(objective?.id, `objective_${objectiveIndex + 1}`);
     return {
       id,
@@ -374,14 +497,16 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
       criteria: listOf(objective?.criteria).map((criterion, index) => objectiveCriterion(id, criterion, index)),
     };
   });
-  const sourcePhases = listOf(draft?.phases);
-  const generatedEvaluationLinks = defaultPhaseEvaluationLinks(objectives, sourcePhases.length);
+  const objectives = preserveAuthoredEvaluationLinks
+    ? mappedObjectives
+    : dedupeGeneratedBoundaryCriteria(mappedObjectives, authoritativeProhibitedActions);
   const phases = sourcePhases.map((phase, index) => {
     const phaseId = slug(phase?.id, `phase_${index + 1}`);
     const hierarchy = canonicalPhaseGuidance(
       mergedPhaseGuidance(phase, phaseId),
       phaseId,
       list(phase?.learnerActions).join(" "),
+      authoritativeProhibitedActions,
     );
     return {
       id: phaseId,
@@ -397,23 +522,22 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
         bullets: hierarchy,
       },
       advanceWhen: list(phase?.learnerActions).join(" "),
-      evaluationLinks: phaseEvaluationLinks(phase?.evaluationLinks).length
-        ? phaseEvaluationLinks(phase?.evaluationLinks)
-        : generatedEvaluationLinks[index],
+      evaluationLinks: preserveAuthoredEvaluationLinks ? phaseEvaluationLinks(phase?.evaluationLinks) : [],
     };
   });
+  if (!preserveAuthoredEvaluationLinks) {
+    const generatedEvaluationLinks = defaultPhaseEvaluationLinks(objectives, phases);
+    phases.forEach((phase, index) => {
+      phase.evaluationLinks = generatedEvaluationLinks[index];
+    });
+  }
   const guidanceCautions = phases.flatMap((phase) => listOf(phase.coachGuidance?.bullets).flatMap((bullet) =>
     listOf(bullet?.children).filter((child) => child?.kind === "caution").map((child) => text(child?.text))
   ));
-  const explicitProhibitedActions = [...new Map(list(draft?.prohibitedActions)
-    .map((action) => [normalizedTextKey(action), action])).values()];
-  const prohibitedActions = [...explicitProhibitedActions];
-  guidanceCautions.forEach((action) => {
-    if (prohibitedActions.some((candidate) =>
-      normalizedTextKey(candidate) === normalizedTextKey(action) || equivalentBoundary(candidate, action)
-    )) return;
-    prohibitedActions.push(action);
-  });
+  const prohibitedActions = canonicalBoundaryTexts([
+    ...authoritativeProhibitedActions,
+    ...guidanceCautions,
+  ]);
   ensureProhibitedCoverage(objectives, phases, prohibitedActions);
   const material = [
     `What the conversation is about:\n${text(creatorInput.conversationAbout, draft?.description)}`,
@@ -518,9 +642,9 @@ export function authoringToStandaloneDraft(draft) {
     description: text(objective?.description, draft?.scenario?.learnerGoal),
     criteria: listOf(objective?.criteria).map((criterion) => text(typeof criterion === "object" && criterion ? criterion.text : criterion)).filter(Boolean),
   }));
-  const cautions = [...new Map(phases.flatMap((phase) => listOf(phase?.coachGuidance?.bullets).flatMap((bullet) =>
+  const cautions = canonicalBoundaryTexts(phases.flatMap((phase) => listOf(phase?.coachGuidance?.bullets).flatMap((bullet) =>
     listOf(bullet?.children).filter((child) => child?.kind === "caution").map((child) => text(child?.text))
-  )).filter(Boolean).map((caution) => [normalizedTextKey(caution), caution])).values()];
+  )).filter(Boolean));
   const standardText = listOf(draft?.chat?.standardText).map((item) => ({
     id: slug(item?.id, `response_${slug(item?.hotkey, "standard_text")}`),
     hotkey: text(item?.hotkey),

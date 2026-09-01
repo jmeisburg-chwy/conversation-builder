@@ -37,6 +37,7 @@ const PROHIBITED_OPTION_ACTION = /^(?:approv(?:e|ed|ing)|choos(?:e|ing)|creat(?:
 export type ChatAdvanceRequirementQualityCode =
   | "chat_advance_requirement_alternatives"
   | "blank_chat_advance_phrase"
+  | "brittle_chat_advance_phrase"
   | "generic_chat_advance_phrase"
   | "overlapping_chat_advance_phrase"
   | "prohibited_chat_advance_phrase";
@@ -49,6 +50,17 @@ export interface ChatAdvanceRequirementQualityFinding {
 
 function overlapsByRiseSubstring(left: string, right: string): boolean {
   return Boolean(left && right && (left.includes(right) || right.includes(left)));
+}
+
+const FULL_TURN_CHAT_GATE_START = /^(?:a|an|can|could|did|do|does|i|is|it|please|that|the|this|we|will|would|you|your)\b/i;
+const LEARNER_ACTION_CHAT_GATE_START = /^(?:acknowledge|ask|clarify|confirm|describe|explain|inform|issue|offer|process|provide|recap|state|submit|tell|verify)\b/i;
+
+function isBrittleChatAdvancePhrase(value: string): boolean {
+  const candidate = value.trim();
+  const tokens = normalizeComparableText(candidate).split(" ").filter(Boolean);
+  if (tokens.length > 6) return true;
+  return tokens.length > 4
+    && (FULL_TURN_CHAT_GATE_START.test(candidate) || LEARNER_ACTION_CHAT_GATE_START.test(candidate));
 }
 
 function prohibitedGateConcepts(action: string): string[] {
@@ -90,6 +102,9 @@ export function findChatAdvanceRequirementQualityFindings(
       if (GENERIC_CHAT_GATE_PHRASES.has(normalized)) {
         findings.push({ code: "generic_chat_advance_phrase", requirementIndex, phraseIndex });
       }
+      if (isBrittleChatAdvancePhrase(requirement.phrases[phraseIndex])) {
+        findings.push({ code: "brittle_chat_advance_phrase", requirementIndex, phraseIndex });
+      }
       if (prohibitedConcepts.some((concept) => overlapsByRiseSubstring(normalized, concept))) {
         findings.push({ code: "prohibited_chat_advance_phrase", requirementIndex, phraseIndex });
       }
@@ -110,6 +125,145 @@ export function repeatsOpening(openingLine: string, partnerResponse: string): bo
   const opening = normalizeComparableText(openingLine);
   const response = normalizeComparableText(partnerResponse);
   return Boolean(opening && response && opening === response);
+}
+
+const REQUIRED_PREFERENCE_DISCOVERY = /\b(?:ask|clarif(?:y|ies|ied|ying)|confirm(?:s|ed|ing)?|determin(?:e|es|ed|ing)|find out|verif(?:y|ies|ied|ying))\b/i;
+const GENERIC_PREFERENCE_TOPIC = /\b(?:choice|option|outcome|preference|requested resolution|desired resolution|preferred resolution)\b/i;
+const SUBJECT_PREFERENCE_DISCLOSURE = /\b(?:i|we)(?:(?:['’]d)\s+(?:just\s+)?like|\s+(?:just\s+)?(?:choose|need|prefer|request|want|would\s+like))\s+(.+?)([.!?]?)$/iu;
+const OBJECT_PREFERENCE_DISCLOSURE = /^\s*(.+?)\s+is\s+what\s+(?:i|we)(?:(?:['’]d)\s+like|\s+(?:need|want|prefer|would\s+like))\s*([.!?]?)$/iu;
+const EXPLICIT_NO_RESOLUTION_OPTION = /\bno(?:\s+to)?\s+(?:(?:a|an|the)\s+)?((?:store\s+credit|credit|exchange|refund|replacement|reshipment)(?:\s+(?:and|or)\s+(?:(?:a|an|the)\s+)?(?:store\s+credit|credit|exchange|refund|replacement|reshipment))*)$/i;
+const DECLINED_PREFERENCE_PATTERNS = [
+  /\b(?:i|we)\s+(?:do not|dont|did not|didnt|never)\s+(?:accept|choose|need|prefer|request|want)\s+(.+)$/i,
+  /\b(?:i|we)\s+(?:decline|reject)\s+(.+)$/i,
+  EXPLICIT_NO_RESOLUTION_OPTION,
+];
+const FOLLOW_UP_OPTION_REQUEST_PATTERNS = [
+  /\bwhy\s+(?:cant|cannot)\s+(?:i|we)\s+(?:get|have|receive)\b/i,
+  /\bwhy\s+(?:isnt|is not)\s+.+\b(?:available|possible)\b/i,
+  /\bwhy\s+is\s+.+\bnot\s+(?:available|possible)\b/i,
+  /\b(?:can|could|may|would)\s+(?:i|we)\s+(?:get|have|receive)\b/i,
+  /\b(?:can|could|may|will|would)\s+you\s+(?:issue|offer|process|provide|replace|reship|send)\b/i,
+  /\b(?:i|we)\s+(?:need|prefer|request|want|would like)\b/i,
+  /\bwhat about\b/i,
+  /\bis\b.+\b(?:available|possible)\b/i,
+];
+const INTENT_STOP_WORDS = new Set([
+  "a", "about", "an", "and", "back", "be", "can", "cant", "card", "choose", "could", "customer", "damaged",
+  "do", "does", "dont", "for", "full", "get", "have", "i", "if", "in", "is", "it", "just", "like", "may",
+  "me", "my", "need", "of", "on", "or", "original", "please", "prefer", "receive", "request", "the", "this", "to",
+  "want", "we", "what", "why", "with", "would", "you", "your",
+]);
+
+function intentTokens(value: string): Set<string> {
+  return new Set(normalizeComparableText(value)
+    .split(" ")
+    .filter((token) => token.length > 2 && !INTENT_STOP_WORDS.has(token)));
+}
+
+function capturedIntentTokens(value: string, patterns: RegExp[]): Set<string> {
+  const tokens = new Set<string>();
+  value.split(/[.!?]+/u).forEach((sentence) => {
+    const normalized = normalizeComparableText(sentence);
+    for (const pattern of patterns) {
+      const match = normalized.match(pattern);
+      if (!match) continue;
+      intentTokens(match[1]).forEach((token) => tokens.add(token));
+    }
+  });
+  return tokens;
+}
+
+interface ExplicitPreferenceDisclosure {
+  intent: string;
+  prefix: string;
+  punctuation: string;
+}
+
+function explicitPreferenceDisclosure(sentence: string): ExplicitPreferenceDisclosure | undefined {
+  const subject = sentence.match(SUBJECT_PREFERENCE_DISCLOSURE);
+  if (subject?.index !== undefined) {
+    return {
+      intent: subject[1],
+      prefix: sentence.slice(0, subject.index),
+      punctuation: subject[2] || ".",
+    };
+  }
+  const object = sentence.match(OBJECT_PREFERENCE_DISCLOSURE);
+  if (!object) return undefined;
+  return { intent: object[1], prefix: "", punctuation: object[2] || "." };
+}
+
+function explicitPreferenceTokens(value: string): Set<string> {
+  const tokens = new Set<string>();
+  const sentences = value.match(/[^.!?]+[.!?]*/gu) ?? [value];
+  sentences.forEach((sentence) => {
+    const disclosure = explicitPreferenceDisclosure(sentence);
+    if (!disclosure) return;
+    intentTokens(disclosure.intent).forEach((token) => tokens.add(token));
+  });
+  return tokens;
+}
+
+function resolutionOptionConcept(token: string): string | undefined {
+  if (/^credits?$/u.test(token)) return "credit";
+  if (/^exchang(?:e|es|ed|ing)$/u.test(token)) return "exchange";
+  if (/^refund(?:s|ed|ing)?$/u.test(token)) return "refund";
+  if (/^replac(?:e|es|ed|ing|ement|ements)$/u.test(token)
+    || /^reship(?:s|ped|ping|ment|ments)?$/u.test(token)) return "replacement";
+  return undefined;
+}
+
+function resolutionOptionConcepts(tokens: Set<string>): Set<string> {
+  return new Set([...tokens].map(resolutionOptionConcept).filter((value): value is string => Boolean(value)));
+}
+
+export function openingPreanswersRequiredPreference(openingLine: string, learnerActions: string[]): boolean {
+  const learnerAction = learnerActions.join(" ");
+  if (!REQUIRED_PREFERENCE_DISCOVERY.test(learnerAction)) return false;
+  const openingPreference = explicitPreferenceTokens(openingLine);
+  if (!openingPreference.size) return false;
+  const actionTokens = intentTokens(learnerAction);
+  return GENERIC_PREFERENCE_TOPIC.test(learnerAction)
+    || [...openingPreference].some((token) => actionTokens.has(token));
+}
+
+export function removePreansweredPreferenceFromOpening(
+  openingLine: string,
+  learnerActions: string[],
+): string {
+  if (!openingPreanswersRequiredPreference(openingLine, learnerActions)) return openingLine;
+  const learnerAction = learnerActions.join(" ");
+  const actionTokens = intentTokens(learnerAction);
+  const discoversGenericPreference = GENERIC_PREFERENCE_TOPIC.test(learnerAction);
+  const sentences = openingLine.match(/[^.!?]+[.!?]*/gu) ?? [openingLine];
+  const repaired = sentences.flatMap((sentence) => {
+    const preference = explicitPreferenceDisclosure(sentence);
+    if (!preference) return [sentence.trim()];
+    const preferenceTokens = intentTokens(preference.intent);
+    if (!discoversGenericPreference
+      && ![...preferenceTokens].some((token) => actionTokens.has(token))) return [sentence.trim()];
+
+    const prefix = preference.prefix
+      .replace(/(?:[,;:]\s*)?(?:and|but|so)\s*$/iu, "")
+      .trim();
+    if (!prefix) return [];
+    return [`${prefix.replace(/[,;:\s]+$/u, "")}${preference.punctuation}`];
+  }).filter(Boolean);
+  return repaired.join(" ").replace(/\s+/gu, " ").trim();
+}
+
+export function customerFollowUpContradictsRejectedOption(
+  followUp: string,
+  intentSources: string[],
+): boolean {
+  const normalizedFollowUp = normalizeComparableText(followUp);
+  if (!FOLLOW_UP_OPTION_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizedFollowUp))) return false;
+  const declined = resolutionOptionConcepts(
+    capturedIntentTokens(intentSources.join(". "), DECLINED_PREFERENCE_PATTERNS),
+  );
+  if (!declined.size) return false;
+  const requested = resolutionOptionConcepts(intentTokens(followUp));
+  return [...declined].some((token) => requested.has(token));
 }
 
 export function customerFollowUpConflictsWithLearner(

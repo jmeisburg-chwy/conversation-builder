@@ -431,11 +431,11 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
       chatAdvanceRequirements: [
         {
           id: "acknowledgement",
-          phrases: ["i am sorry the order is late", "i understand the delay is frustrating"],
+          phrases: ["sorry the order is late", "understand the frustrating delay"],
         },
         {
           id: "delivery_window",
-          phrases: ["the order is expected tomorrow", "delivery is expected tomorrow by end of day"],
+          phrases: ["expected tomorrow", "tomorrow by end of day"],
         },
       ],
       partnerResponse: "That answers my question. Thank you.",
@@ -540,7 +540,7 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
   revisedPhase = editChatAdvanceRequirementPhrases(
     revisedPhase,
     "acknowledgement",
-    "i am sorry the order is late\ni understand the delay is frustrating",
+    "sorry the order is late\nunderstand the frustrating delay",
   );
   revisedPhase = addChatAdvanceRequirement(revisedPhase, {
     createId: () => "delivery_window",
@@ -548,7 +548,7 @@ test("persists an original Review/Edit draft and validates simulator-ready downl
   revisedPhase = editChatAdvanceRequirementPhrases(
     revisedPhase,
     "delivery_window",
-    "the order is expected tomorrow\ndelivery is expected tomorrow by end of day",
+    "expected tomorrow\ntomorrow by end of day",
   );
   stale!.draft.flow.phases[0] = revisedPhase;
   saveStandaloneDraft(storage, stale!.draft);

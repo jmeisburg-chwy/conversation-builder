@@ -256,11 +256,52 @@ test("does not duplicate 'how to' in the learner-facing practice description", (
   );
 });
 
-test("keeps nested Coach Chewy cautions visible when the parent repeats the guide body", () => {
+test("exports complete Coach Chewy hierarchy as flat Chat and Voice bullets", () => {
   const draft = focusedDraft();
-  draft.channels = ["chat"];
-  draft.phases[0].guideBody = "Recognize the delayed order.";
+  draft.channels = ["chat", "voice"];
+  draft.phases[0].guideBody = "Use the approved recovery process.";
   draft.phases[0].coachGuidance = ["Recognize the delayed order."];
+  draft.phases[0].coachGuidanceHierarchy = [{
+    id: "acknowledge_parent",
+    text: "Recognize the delayed order.",
+    children: [
+      {
+        id: "acknowledge_support",
+        text: "Use Jordan's and Milo's names naturally.",
+        kind: "support",
+      },
+      {
+        id: "acknowledge_caution",
+        text: "Do not guarantee the delivery date.",
+        kind: "caution",
+      },
+    ],
+  }];
+
+  const files = composeScenarioFiles(draft);
+  const sections = files.map(({ scenario }) => {
+    const guideSections = scenario.frontend.chat?.guideSections ?? scenario.frontend.voice?.guideSections;
+    return guideSections?.[0] as {
+      body: string;
+      bullets: string[];
+    };
+  });
+
+  for (const section of sections) {
+    assert.equal(section.body, "Use the approved recovery process.");
+    assert.deepEqual(section.bullets, [
+      "Recognize the delayed order.",
+      "Use Jordan's and Milo's names naturally.",
+      "Do not guarantee the delivery date.",
+    ]);
+    assert.equal(section.bullets.every((bullet) => typeof bullet === "string"), true);
+  }
+});
+
+test("does not repeat a guidance parent that already appears as the guide body", () => {
+  const draft = focusedDraft();
+  draft.channels = ["chat", "voice"];
+  draft.phases[0].guideBody = "Recognize the delayed order.";
   draft.phases[0].coachGuidanceHierarchy = [{
     id: "acknowledge_parent",
     text: "Recognize the delayed order.",
@@ -271,17 +312,16 @@ test("keeps nested Coach Chewy cautions visible when the parent repeats the guid
     }],
   }];
 
-  const [file] = composeScenarioFiles(draft);
-  const [section] = file.scenario.frontend.chat?.guideSections as Array<{
-    body: string;
-    bullets: Array<string | { text: string; children: string[] }>;
-  }>;
+  for (const { scenario } of composeScenarioFiles(draft)) {
+    const guideSections = scenario.frontend.chat?.guideSections ?? scenario.frontend.voice?.guideSections;
+    const [section] = guideSections as Array<{
+      body: string;
+      bullets: string[];
+    }>;
 
-  assert.equal(section.body, "Recognize the delayed order.");
-  assert.deepEqual(section.bullets, [{
-    text: "Recognize the delayed order.",
-    children: ["Do not guarantee the delivery date."],
-  }]);
+    assert.equal(section.body, "Recognize the delayed order.");
+    assert.deepEqual(section.bullets, ["Do not guarantee the delivery date."]);
+  }
 });
 
 test("defaults missing authored and imported passing scores to 100", () => {
