@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createValidateHandler } from "../lib/scenario-validation";
-import { createDefaultVoiceExperience, type StudioDraft } from "../lib/scenario-contract";
+import { composeScenarioFiles, createDefaultVoiceExperience, type StudioDraft } from "../lib/scenario-contract";
 import { objectiveFingerprint } from "../lib/objective-approval";
 import { findOverlappingResolutionProhibitionGroups } from "../lib/scenario-quality-guards";
 import { recommendStandardText } from "../lib/standard-text-recommendations";
@@ -88,6 +88,86 @@ test("validates and returns separate downloadable files", async () => {
     "late_order_recovery_chat.json",
     "late_order_recovery_voice.json",
   ]);
+});
+
+test("composes Rise none gates from prohibited operations without blocking detail-only references", () => {
+  const runtimeNonePhrases = (prohibitedActions: string[]): string[] => {
+    const candidate = draft();
+    candidate.channels = ["chat"];
+    candidate.customer.name = "Jamie";
+    candidate.prohibitedActions = prohibitedActions;
+    const chat = composeScenarioFiles(candidate, { now: "2026-09-01T00:00:00.000Z" })[0].scenario;
+    const progression = chat.simulation.stateModel.chatStepProgression as Array<{
+      match: { none: Array<{ phrases: string[] }> };
+    }>;
+    return progression[0].match.none.flatMap((condition) => condition.phrases);
+  };
+
+  for (const directOperation of [
+    "Do not replace the item.",
+    "Do not set up a replacement.",
+    "Do not arrange a replacement.",
+    "Do not arrange for a replacement.",
+    "Do not replace the item and provide store credit.",
+    "Do not provide store credit and arrange the approved replacement order.",
+    "Do not arrange a replacement for Jamie via OMS.",
+    "Do not submit a replacement for Jamie through OMS.",
+    "Do not submit a replacement for Jamie using OMS.",
+    "Do not submit a replacement for Jamie via the OMS.",
+  ]) {
+    const none = runtimeNonePhrases([directOperation]);
+    assert.equal(none.includes("replace"), true, directOperation);
+  }
+  assert.deepEqual(runtimeNonePhrases(["Do not reship the item."]), ["reship"]);
+
+  assert.deepEqual(
+    runtimeNonePhrases(["Do not replace the item and provide store credit."]),
+    ["replace", "store credit"],
+  );
+  const promiseNone = runtimeNonePhrases(["Do not promise a refund."]);
+  for (const phrase of [
+    "promise refund",
+    "promise a refund",
+    "promise the refund",
+    "promise a full refund",
+    "promise you a refund",
+    "promise you the refund",
+  ]) assert.equal(promiseNone.includes(phrase), true, phrase);
+  const guaranteeNone = runtimeNonePhrases(["Do not guarantee the refund."]);
+  for (const phrase of [
+    "guarantee refund",
+    "guarantee a refund",
+    "guarantee the refund",
+    "guarantee a full refund",
+    "guarantee you a refund",
+  ]) assert.equal(guaranteeNone.includes(phrase), true, phrase);
+  const trackingNone = runtimeNonePhrases(["Do not provide replacement tracking."]);
+  assert.equal(trackingNone.includes("provide replacement tracking"), true);
+  assert.equal(trackingNone.includes("provide the replacement tracking"), true);
+  assert.equal(
+    trackingNone.some((phrase) =>
+      "I submitted the replacement order and will provide the replacement tracking."
+        .toLowerCase()
+        .includes(phrase)
+    ),
+    true,
+  );
+  assert.deepEqual(
+    runtimeNonePhrases(["Do not mention the replacement status."]),
+    ["mention the replacement status", "mention replacement status"],
+  );
+  assert.deepEqual(
+    runtimeNonePhrases(["Do not process the approved refund to Jamie's original payment card."]),
+    ["refund"],
+  );
+  assert.deepEqual(
+    runtimeNonePhrases(["Do not submit the replacement order via OMS."]),
+    ["replace"],
+  );
+  assert.deepEqual(
+    runtimeNonePhrases(["Do not issue the refund before the customer confirms they want it."]),
+    [],
+  );
 });
 
 test("accepts equivalent option and alternative wording when a prohibition is visibly covered", async () => {

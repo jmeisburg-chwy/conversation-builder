@@ -289,8 +289,12 @@ function buildChatMatch(
   chatAdvanceRequirements: ChatAdvanceRequirementDraft[] | undefined,
   learnerActions: string[],
   prohibitedActions: string[],
+  customerName: string,
 ): Record<string, unknown> {
-  const prohibitedPhrases = prohibitedResolutionAlternativeGatePhrases(prohibitedActions);
+  const prohibitedPhrases = prohibitedResolutionAlternativeGatePhrases(
+    prohibitedActions,
+    customerName,
+  );
   const none = prohibitedPhrases.length ? [{ op: "contains_any", phrases: prohibitedPhrases }] : [];
   const requiredConditions = (chatAdvanceRequirements ?? []).flatMap((requirement) => {
     const phrases = uniqueStrings(requirement.phrases).map((phrase) => phrase.toLowerCase());
@@ -446,7 +450,12 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
   const chatProgression = channel === "chat" ? draft.phases.flatMap((phase, index) => phase.customerRemainsSilent ? [] : [{
     id: index,
     label: phase.title,
-    match: buildChatMatch(phase.chatAdvanceRequirements, phase.learnerActions, draft.prohibitedActions),
+    match: buildChatMatch(
+      phase.chatAdvanceRequirements,
+      phase.learnerActions,
+      draft.prohibitedActions,
+      draft.customer.name,
+    ),
     customerResponse: phase.partnerResponse,
     scenarioPathHint: `chatConfig.stepProgression[${index}]`,
   }]) : [];

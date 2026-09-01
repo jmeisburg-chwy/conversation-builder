@@ -1914,6 +1914,7 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
     "Do not authorize the refund until Customer Service confirms it.",
     "Do not authorize the refund until Support confirms the customer choice.",
     "Do not authorize the refund until QA confirms the customer wants it.",
+    "Do not mention the refund before the customer confirms they want it.",
     "Do not authorize the refund until customer fraud screening confirms it.",
     "Do not authorize the refund until the tool says they approve.",
     "Do not issue the refund until they approve it.",
@@ -2096,6 +2097,13 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
     "Do not provide store credit and reship the item.",
     "Do not provide store credit and set up a replacement.",
     "Do not provide store credit and arrange a replacement.",
+    "Do not provide store credit and schedule a replacement.",
+    "Do not provide store credit and carry out a replacement.",
+    "Do not provide store credit and move forward with a replacement.",
+    "Do not provide store credit and proceed with a replacement.",
+    "Do not provide store credit and arrange the approved replacement order.",
+    "Do not provide store credit and set up the replacement order in OMS.",
+    "Do not provide store credit and submit a replacement item.",
   ]) {
     assert.equal(
       sequenceFindings(
@@ -2104,6 +2112,58 @@ test("allows earned-preference sequencing without weakening unrelated prerequisi
       ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
       true,
       directResolutionCompound,
+    );
+  }
+
+  for (const [detailOnlyRule, completionPhrases] of [
+    ["Do not promise the refund posting date.", ["issued the refund", "processed the refund"]],
+    ["Do not promise a replacement arrival window.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not promise a refund.", ["issued the refund", "processed the refund"]],
+    ["Do not guarantee the refund.", ["issued the refund", "processed the refund"]],
+  ] as const) {
+    assert.equal(
+      sequenceFindings(
+        [{ id: "outcome_completion", phrases: [...completionPhrases] }],
+        [detailOnlyRule],
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      false,
+      detailOnlyRule,
+    );
+  }
+  for (const communicationRule of [
+    "Do not promise a refund.",
+    "Do not guarantee the refund.",
+  ]) {
+    assert.equal(
+      sequenceFindings(
+        [{ id: "refund_commitment", phrases: ["promise refund", "guarantee refund"] }],
+        [communicationRule],
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      true,
+      communicationRule,
+    );
+  }
+  for (const [operationRule, completionPhrases] of [
+    ["Do not process the approved full refund to the original payment card.", ["issued the refund", "processed the refund"]],
+    ["Do not process the approved refund to Jamie's original payment card.", ["issued the refund", "processed the refund"]],
+    ["Do not process the approved refund to their original payment card.", ["issued the refund", "processed the refund"]],
+    ["Do not process the approved refund to her original card.", ["issued the refund", "processed the refund"]],
+    ["Do not process the approved refund to his original card.", ["issued the refund", "processed the refund"]],
+    ["Do not place the approved replacement order.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not submit a replacement item.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not submit the replacement order via OMS.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not arrange a replacement for Jamie via OMS.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not submit a replacement for Jamie through OMS.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not submit a replacement for Jamie using OMS.", ["placed the replacement order", "submitted the replacement order"]],
+    ["Do not submit a replacement for Jamie via the OMS.", ["placed the replacement order", "submitted the replacement order"]],
+  ] as const) {
+    assert.equal(
+      sequenceFindings(
+        [{ id: "outcome_completion", phrases: [...completionPhrases] }],
+        [operationRule],
+      ).some((finding) => finding.code === "prohibited_chat_advance_phrase"),
+      true,
+      operationRule,
     );
   }
 

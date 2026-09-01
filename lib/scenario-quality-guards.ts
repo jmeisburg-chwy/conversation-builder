@@ -212,7 +212,7 @@ function violatesProhibitionAllowlist(
 }
 
 const EXPLICIT_NEGATIVE_CLAUSE_START = /^\s*(?:do not|don't|dont|never|avoid)\b/iu;
-const ACTION_LED_RESOLUTION_CLAUSE_START = /^\s*(?:(?:appl\w*|approv\w*|arrang\w*|authoriz\w*|complet\w*|creat\w*|execut\w*|finaliz\w*|giv\w*|guarantee\w*|initiat\w*|issu\w*|mention\w*|offer\w*|perform\w*|plac\w*|present\w*|process\w*|promis\w*|propos\w*|provid\w*|recommend\w*|releas\w*|select\w*|send\w*|set up|start\w*|submi\w*|suggest\w*|trigger\w*|us\w*)\b.{0,60}\b(?:store credit|refund\w*|replac\w*|reship\w*)\b|(?:refund\w*|replac\w*|reship\w*)\b)/iu;
+const ACTION_LED_RESOLUTION_CLAUSE_START = /^\s*(?:(?:appl\w*|approv\w*|arrang\w*|authoriz\w*|carry out|complet\w*|creat\w*|execut\w*|finaliz\w*|giv\w*|guarantee\w*|initiat\w*|issu\w*|mention\w*|move forward with|offer\w*|perform\w*|plac\w*|present\w*|proceed with|process\w*|promis\w*|propos\w*|provid\w*|recommend\w*|releas\w*|schedul\w*|select\w*|send\w*|set up|start\w*|submi\w*|suggest\w*|trigger\w*|us\w*)\b.{0,60}\b(?:store credit|refund\w*|replac\w*|reship\w*)\b|(?:refund\w*|replac\w*|reship\w*)\b)/iu;
 const TEMPORAL_RESOLUTION_CLAUSE_START = /^\s*(?:[a-z'’-]+\s+){0,6}(?:refund\w*|replac\w*|reship\w*)\b.{0,80}\b(?:before|prior\s+to|until|unless|without)\b/iu;
 const RESOLUTION_SEQUENCE_MARKER = /\b(?:before|prior to|until|unless|without)\b/u;
 const RESOLUTION_SEQUENCE_HEAD = /\b(?:refund\w*|replac\w*|reship\w*)\b/u;
@@ -332,10 +332,13 @@ function safeResolutionSequenceHead(normalizedHead: string, customerName?: strin
   const customerPossessive = [
     "conversation partners",
     "customers",
+    "her",
+    "his",
     "partners",
+    "their",
     ...(customer ? [`${customer}s`] : []),
   ].join("|");
-  const action = "(?:appl\\w*|approv\\w*|authoriz\\w*|carry out|complet\\w*|creat\\w*|execut\\w*|finaliz\\w*|giv\\w*|guarantee\\w*|initiat\\w*|issu\\w*|mention\\w*|move forward with|perform\\w*|plac\\w*|proceed with|process\\w*|promis\\w*|provid\\w*|releas\\w*|send\\w*|set up|start\\w*|submi\\w*|trigger\\w*)";
+  const action = "(?:appl\\w*|approv\\w*|authoriz\\w*|carry out|complet\\w*|creat\\w*|execut\\w*|finaliz\\w*|giv\\w*|guarantee\\w*|initiat\\w*|issu\\w*|move forward with|perform\\w*|plac\\w*|proceed with|process\\w*|promis\\w*|provid\\w*|releas\\w*|send\\w*|set up|start\\w*|submi\\w*|trigger\\w*)";
   const recipient = `(?:(?:the )?(?:${customerReference}) )?`;
   const refund = `(?:(?:the )?(?:${customerPossessive}) )?(?:(?:a|an|the) )?(?:full )?refund(?: (?:order|request|transaction))?`;
   const replacement = `(?:(?:the )?(?:${customerPossessive}) )?(?:(?:a|an|the) )?(?:(?:free|no cost) )?(?:replacement|reshipment)(?: (?:order|request|transaction))?`;
@@ -349,6 +352,90 @@ function safeResolutionSequenceHead(normalizedHead: string, customerName?: strin
     || postposedRecipientHead.test(normalizedHead)
     || directRefund.test(normalizedHead)
     || directReplacement.test(normalizedHead);
+}
+
+function safeResolutionOperationClause(
+  normalizedClause: string,
+  customerName?: string,
+): boolean {
+  const customer = escapeRegExp(normalizeComparableText(customerName ?? ""));
+  const customerReference = [
+    "conversation partner",
+    "customer",
+    "her",
+    "him",
+    "partner",
+    "them",
+    ...(customer ? [customer] : []),
+  ].join("|");
+  const customerPossessive = [
+    "conversation partners",
+    "customers",
+    "her",
+    "his",
+    "partners",
+    "their",
+    ...(customer ? [`${customer}s`] : []),
+  ].join("|");
+  const action = "(?:appl\\w*|approv\\w*|arrang\\w*(?: for)?|authoriz\\w*|carry out|complet\\w*|creat\\w*|execut\\w*|finaliz\\w*|giv\\w*|initiat\\w*|issu\\w*|move forward with|offer\\w*|perform\\w*|plac\\w*|present\\w*|proceed with|process\\w*|propos\\w*|provid\\w*|recommend\\w*|releas\\w*|schedul\\w*|select\\w*|send\\w*|set up|start\\w*|submi\\w*|suggest\\w*|trigger\\w*|us\\w*)";
+  const recipient = `(?:(?:the )?(?:${customerReference}) )?`;
+  const approval = "(?:(?:approved|authorized) )*";
+  const refund = `(?:(?:the )?(?:${customerPossessive}) )?(?:(?:a|an|the) )?${approval}(?:full )?refund(?: (?:order|request|transaction))?(?: (?:back )?to (?:(?:the )?(?:${customerPossessive}) )?(?:the )?original (?:card|payment card|payment method))?`;
+  const replacementCore = `(?:(?:the )?(?:${customerPossessive}) )?(?:(?:a|an|the) )?${approval}(?:(?:free|no cost) )?(?:replacement|reshipment)(?: (?:item|order|product|request|shipment|transaction))?`;
+  const systemChannel = "(?: (?:in|through|using|via) (?:(?:the )?(?:oms|system|tool)))?";
+  const replacement = `${replacementCore}${systemChannel}`;
+  const alternative = "(?:(?:a|an|the) )?(?:exchange|store credit)";
+  const outcome = `(?:${refund}|${replacement}|${alternative})`;
+  const directRefund = new RegExp(`^refund\\w*(?: (?:the )?(?:${customerReference}))?(?: in full)?$`, "u");
+  const directReplacement = new RegExp(`^(?:replac\\w*|reship\\w*)(?: (?:the )?(?:${customerReference}|item|order|product))?$`, "u");
+  return new RegExp(`^${action} ${recipient}${outcome}$`, "u").test(normalizedClause)
+    || new RegExp(`^${action} (?:the )?(?:${customerReference}) with ${outcome}$`, "u").test(normalizedClause)
+    || new RegExp(`^${action} ${outcome} (?:for|to) (?:the )?(?:${customerReference})$`, "u").test(normalizedClause)
+    || new RegExp(`^${action} ${replacementCore} (?:for|to) (?:the )?(?:${customerReference})${systemChannel}$`, "u").test(normalizedClause)
+    || directRefund.test(normalizedClause)
+    || directReplacement.test(normalizedClause);
+}
+
+function resolutionCommunicationGatePhrases(normalizedClause: string): string[] {
+  const match = normalizedClause.match(/^(guarantee\w*|mention\w*|promis\w*)\s+(?:(?:a|an|the) )?(?:full )?(refund\w*|replac\w*|reship\w*|store credit|exchange)$/u);
+  if (!match) return [];
+  const verb = match[1];
+  const rawOption = match[2];
+  const option = /^refund/u.test(rawOption)
+    ? "refund"
+    : /^replac/u.test(rawOption)
+      ? "replacement"
+      : /^reship/u.test(rawOption)
+        ? "reshipment"
+        : rawOption;
+  const determiners = option === "store credit" ? [""] : ["", "a ", "the "];
+  const modifiers = option === "refund" ? ["", "full "] : [""];
+  const recipients = /^mention/u.test(verb) ? [""] : ["", "you "];
+  const phrases = new Set<string>([normalizedClause]);
+  recipients.forEach((recipient) => {
+    determiners.forEach((determiner) => {
+      modifiers.forEach((modifier) => phrases.add(`${verb} ${recipient}${determiner}${modifier}${option}`));
+    });
+  });
+  return [...phrases];
+}
+
+function safeResolutionCommunicationClause(normalizedClause: string): boolean {
+  return resolutionCommunicationGatePhrases(normalizedClause).length > 0;
+}
+
+const RESOLUTION_REFERENCE_CLAUSE_START = /^(?:creat\w*|giv\w*|guarantee\w*|issu\w*|mention\w*|offer\w*|present\w*|promis\w*|propos\w*|provid\w*|recommend\w*|select\w*|send\w*|suggest\w*|us\w*)\b/u;
+
+function resolutionReferenceGatePhrases(normalizedClause: string): string[] {
+  const compact = normalizedClause
+    .replace(/\b(?:a|an|the)\b/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const articleExpanded = compact.replace(
+    /\b(refund\w*|replac\w*|reship\w*)\b/u,
+    "the $1",
+  );
+  return [...new Set([normalizedClause, compact, articleExpanded].filter(Boolean))];
 }
 
 function isSimpleResolutionSequenceHead(
@@ -493,8 +580,16 @@ function prohibitedGateRulesForClause(
   if (/^(?:replac\w*|reship\w*)\b/u.test(normalized)) {
     concepts.push("replace", "replacement", "reship", "reshipment");
   }
-  if (ACTION_LED_RESOLUTION_CLAUSE_START.test(normalized)
-    && !/\breplacement\s+(?:delivery date|order confirmation)\b/u.test(normalized)) {
+  if (safeResolutionCommunicationClause(normalized)) {
+    concepts.push(...resolutionCommunicationGatePhrases(normalized));
+  }
+  const safeOperation = safeResolutionOperationClause(normalized, customerName);
+  if (!safeOperation
+    && RESOLUTION_REFERENCE_CLAUSE_START.test(normalized)
+    && resolutionOptionConcepts(intentTokens(normalized)).size > 0) {
+    concepts.push(...resolutionReferenceGatePhrases(normalized));
+  }
+  if (safeOperation) {
     const actionOptions = resolutionOptionConcepts(intentTokens(normalized));
     if (actionOptions.has("refund")) concepts.push("refund");
     if (actionOptions.has("replacement")) {
@@ -1230,7 +1325,7 @@ interface ResolutionProhibitionCandidate {
 const NEGATIVE_RESOLUTION_PRESENTATION = /^(?:(?:do not|dont|never)\s+(?:creat\w*|giv\w*|issu\w*|mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|select\w*|send\w*|suggest\w*|us(?:e|es|ed|ing))|avoid(?:\s+(?:creat\w*|giv\w*|issu\w*|mention\w*|offer\w*|present\w*|propos\w*|provid\w*|recommend\w*|select\w*|send\w*|suggest\w*|us(?:e|es|ed|ing)))?)\b/u;
 const DISTINCT_REFUND_CONSTRAINT = /\b(?:incorrect (?:refund )?amount|partial refund|wrong (?:refund )?amount)\b/u;
 const OTHER_THAN_FULL_REFUND = /\b(?:alternatives?|options?)\s+(?:other than|to)\s+(?:a )?full refund\b/u;
-const REPLACEMENT_DETAIL_ONLY = /\breplacement\s+(?:delivery\s+date|order\s+confirmation)\b/u;
+const REPLACEMENT_DETAIL_ONLY = /\b(?:replacement|reshipment)\s+(?:(?:arrival|delivery|shipping|tracking)\s+(?:date|details?|estimate|information|status|timeline|timeframe|window)|(?:arrival|date|delivery|details?|estimate|information|order confirmation|shipping|status|timeline|timeframe|tracking|window))\b/u;
 
 function resolutionProhibitionCandidate(action: string, index: number): ResolutionProhibitionCandidate | undefined {
   const normalized = normalizeComparableText(action);
@@ -1242,18 +1337,65 @@ function resolutionProhibitionCandidate(action: string, index: number): Resoluti
   return namesAlternative || OTHER_THAN_FULL_REFUND.test(normalized) ? { index } : undefined;
 }
 
-export function prohibitedResolutionAlternativeGatePhrases(actions: string[]): string[] {
+export function prohibitedResolutionAlternativeGatePhrases(
+  actions: string[],
+  customerName?: string,
+): string[] {
   const phrases = new Set<string>();
-  actions.forEach((action, index) => {
-    if (!resolutionProhibitionCandidate(action, index)) return;
-    const normalized = normalizeComparableText(action);
-    if (/\bstore credit\b/u.test(normalized)) phrases.add("store credit");
-    if (/\breplac(?:e|es|ed|ing|ement|ements)\b/u.test(normalized)) phrases.add("replace");
-    if (/\breship(?:s|ped|ping|ment|ments)?\b/u.test(normalized)) phrases.add("reship");
-    if (/\bexchang(?:e|es|ed|ing)\b/u.test(normalized)) phrases.add("exchange");
-    if (OTHER_THAN_FULL_REFUND.test(normalized)) {
-      ["store credit", "partial refund", "replace", "reship", "exchange"].forEach((phrase) => phrases.add(phrase));
-    }
+  actions.forEach((action) => {
+    const inheritedNegative = DIRECT_NEGATIVE_SEQUENCE_START.test(normalizeComparableText(action));
+    splitProhibitedActionClauses(action).forEach((clause) => {
+      const normalizedWithPolarity = normalizeComparableText(clause);
+      const explicitlyNegative = DIRECT_NEGATIVE_SEQUENCE_START.test(normalizedWithPolarity);
+      if (!inheritedNegative && !explicitlyNegative) return;
+      if (earnedPreferenceSequenceOption(clause, inheritedNegative, customerName)) return;
+
+      const normalized = normalizedWithPolarity
+        .replace(/^(?:do not|dont|never|avoid)\s+/, "")
+        .trim();
+      if (!normalized) return;
+      if (OTHER_THAN_FULL_REFUND.test(normalizedWithPolarity)) {
+        ["store credit", "partial refund", "replace", "reship", "exchange"].forEach((phrase) => phrases.add(phrase));
+        return;
+      }
+      if (prohibitionAllowlistConstraints(clause).length > 0) return;
+      const effectiveNegativeClause = explicitlyNegative ? clause : `Do not ${clause}`;
+      const options = resolutionOptionConcepts(intentTokens(normalized));
+      const canonicalOptionPhrases = () => {
+        if (options.has("credit")) phrases.add("store credit");
+        if (options.has("replacement")) {
+          if (/\breplac\w*\b/u.test(normalized)) phrases.add("replace");
+          if (/\breship\w*\b/u.test(normalized)) phrases.add("reship");
+        }
+        if (options.has("exchange")) phrases.add("exchange");
+        if (options.has("refund")) phrases.add("refund");
+      };
+
+      if (safeResolutionOperationClause(normalized, customerName)) {
+        canonicalOptionPhrases();
+        return;
+      }
+
+      const communicationPhrases = resolutionCommunicationGatePhrases(normalized);
+      if (communicationPhrases.length > 0) {
+        communicationPhrases.forEach((phrase) => phrases.add(phrase));
+        return;
+      }
+
+      if (resolutionProhibitionCandidate(effectiveNegativeClause, 0)) {
+        if (options.has("credit")) phrases.add("store credit");
+        if (options.has("replacement")) {
+          if (/\breplac\w*\b/u.test(normalized)) phrases.add("replace");
+          if (/\breship\w*\b/u.test(normalized)) phrases.add("reship");
+        }
+        if (options.has("exchange")) phrases.add("exchange");
+        return;
+      }
+
+      if (options.size > 0 && RESOLUTION_REFERENCE_CLAUSE_START.test(normalized)) {
+        resolutionReferenceGatePhrases(normalized).forEach((phrase) => phrases.add(phrase));
+      }
+    });
   });
   return [...phrases];
 }
