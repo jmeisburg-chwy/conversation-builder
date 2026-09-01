@@ -14,7 +14,9 @@ import { authoringToStandaloneDraft, standaloneToAuthoringDraft } from "../publi
 import { normalizeStudioDraft } from "../public/builder-studio/src/scenarioStudio.js";
 
 const expectedEmpathyPhrases = [
-  "i'm sorry", "i’m sorry", "i am sorry", "sorry your", "sorry the", "sorry about",
+  "i'm sorry", "i’m sorry", "i am sorry",
+  "i'm really sorry", "i’m really sorry", "i am really sorry",
+  "sorry your", "sorry the", "sorry about",
   "i understand", "we understand", "i see your", "i see the", "i see how", "i see why",
   "i see that", "that sounds frustrating", "sounds frustrating",
 ];
@@ -2279,6 +2281,80 @@ test("does not reinterpret an unknown intent requirement as question intent", ()
   assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([requirement]), [requirement]);
 });
 
+test("preserves specific return and replacement tracking gates while enriching true no-return guidance", () => {
+  const returnGuidance = { id: "return_guidance", phrases: ["return the item", "send it back"] };
+  const replacementTracking = { id: "replacement_tracking", phrases: ["replacement tracking", "replacement status"] };
+  const replacementDelivery = { id: "replacement_delivery", phrases: ["replacement delivery date", "replacement arrival window"] };
+  const replacementOrderNumber = { id: "replacement_order_number", phrases: ["replacement order number", "replacement confirmation number"] };
+  const replacementConfirmationNumber = { id: "replacement_confirmation", phrases: ["replacement confirmation number"] };
+  const replacementOutcomeConfirmation = { id: "replacement_confirmation", phrases: ["your replacement is confirmed"] };
+  const replacementOrderConfirmation = { id: "replacement_order_confirmation", phrases: ["replacement order confirmed", "replacement order confirmation"] };
+  const replacementShippingConfirmation = { id: "replacement_shipping_confirmation", phrases: ["replacement shipping confirmation", "replacement shipped"] };
+  const replacementEmailConfirmation = { id: "replacement_email_confirmation", phrases: ["replacement confirmation email", "confirmation email sent"] };
+  const replacementTrackingConfirmation = { id: "replacement_tracking_confirmation", phrases: ["replacement tracking confirmation"] };
+  const noCostReplacementTracking = { id: "no_cost_replacement_tracking", phrases: ["no-cost replacement tracking", "replacement tracking at no charge"] };
+  const noCostReplacementCompletion = { id: "no_cost_replacement_completion", phrases: ["completed the no-cost replacement", "placed the replacement at no charge"] };
+  const noReturnGuidance = { id: "return_guidance", phrases: ["no return needed", "keep the damaged bag"] };
+  const replacementConfirmation = { id: "replacement_confirmation", phrases: ["want the replacement", "okay to send"] };
+  const replacementOrderPreference = { id: "replacement_order_preference", phrases: ["want the replacement", "okay to send"] };
+  const noCostReplacement = { id: "no_cost_replacement", phrases: ["no-cost replacement", "replacement at no charge"] };
+
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([
+    returnGuidance,
+    replacementTracking,
+    replacementDelivery,
+    replacementOrderNumber,
+    replacementConfirmationNumber,
+    replacementOrderConfirmation,
+    replacementShippingConfirmation,
+    replacementEmailConfirmation,
+    replacementTrackingConfirmation,
+    noCostReplacementTracking,
+    noCostReplacementCompletion,
+  ]), [
+    returnGuidance,
+    replacementTracking,
+    replacementDelivery,
+    replacementOrderNumber,
+    replacementConfirmationNumber,
+    replacementOrderConfirmation,
+    replacementShippingConfirmation,
+    replacementEmailConfirmation,
+    replacementTrackingConfirmation,
+    noCostReplacementTracking,
+    noCostReplacementCompletion,
+  ]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([replacementOutcomeConfirmation]), [
+    replacementOutcomeConfirmation,
+  ]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([noReturnGuidance]), [{
+    id: "return_guidance",
+    phrases: [
+      "no return needed",
+      "keep the damaged bag",
+      "not need to return",
+      "don't need to return",
+      "don’t need to return",
+      "no need to return",
+      "don't send it back",
+      "don’t send it back",
+      "dispose of the damaged bag",
+    ],
+  }]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([replacementConfirmation]), [
+    { id: "replacement_question_intent", phrases: expectedQuestionIntentPhrases },
+    { id: "replacement_resolution", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
+  ]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([replacementOrderPreference]), [
+    { id: "replacement_question_intent", phrases: expectedQuestionIntentPhrases },
+    { id: "replacement_resolution", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
+  ]);
+  assert.deepEqual(mergeSafeChatAdvanceRequirementAliases([noCostReplacement]), [
+    { id: "replacement_offer", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
+    { id: "replacement_no_cost", phrases: ["no cost", "no-cost", "at no charge", "free of charge"] },
+  ]);
+});
+
 test("compiles a replacement completion gate without weakening the outcome", () => {
   const requirements = compileSafeChatAdvanceRequirements({
     ...generated.phases[0],
@@ -2292,6 +2368,7 @@ test("compiles a replacement completion gate without weakening the outcome", () 
   }, [], "Jamie");
 
   assert.deepEqual(requirements, [
+    { id: "replacement_no_cost", phrases: ["no cost", "no-cost", "at no charge", "free of charge"] },
     { id: "replacement_timeline", phrases: ["3-5 business days", "3–5 business days", "3 to 5 business days", "three to five business days"] },
     {
       id: "replacement_completion",
@@ -2300,7 +2377,8 @@ test("compiles a replacement completion gate without weakening the outcome", () 
   ]);
 });
 
-test("compiled refund completion stays safe when paired with the prohibited-alternative gate", () => {
+test("keeps a prohibited replacement out of positive refund gates and in final scoring", () => {
+  const prohibitedAction = "Do not offer a replacement.";
   const requirements = compileSafeChatAdvanceRequirements({
     ...generated.phases[0],
     learnerActions: [
@@ -2310,22 +2388,42 @@ test("compiled refund completion stays safe when paired with the prohibited-alte
       id: "refund_completion",
       phrases: ["issued the", "processed the"],
     }],
-  }, ["Do not offer a replacement."], "Jamie");
+  }, [prohibitedAction], "Jamie");
   assert.ok(requirements);
 
-  const matchesRiseGate = (message: string) => {
+  const matchesCurrentRisePositiveGate = (message: string) => {
     const normalized = message.toLowerCase();
-    const positivesPass = requirements!.every((requirement) =>
+    return requirements!.every((requirement) =>
       requirement.phrases.some((phrase) => normalized.includes(phrase))
     );
-    return positivesPass && !normalized.includes("replacement");
   };
-  assert.equal(matchesRiseGate(
+  assert.equal(matchesCurrentRisePositiveGate(
     "I've issued the refund. The refund amount is $32.49, returning to your original card in 3-5 business days.",
   ), true);
-  assert.equal(matchesRiseGate(
-    "I processed the replacement for $32.49 to the original card; the refund timeline is 3-5 business days.",
-  ), false);
+  assert.equal(matchesCurrentRisePositiveGate(
+    "I've issued the refund and offered a replacement. The refund amount is $32.49, returning to your original card in 3-5 business days.",
+  ), true);
+
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "refund_with_prohibited_replacement",
+    prohibitedActions: [prohibitedAction],
+    phases: [{
+      id: "complete_refund",
+      learnerActions: ["Issue the $32.49 refund to the original payment card."],
+      partnerResponse: "Thank you.",
+      coachGuidance: [prohibitedAction],
+    }],
+    objectives: [{
+      id: "complete_refund",
+      label: "Complete the refund",
+      description: "Complete only the approved refund.",
+      criteria: ["Issue the $32.49 refund to the original payment card.", prohibitedAction],
+    }],
+  });
+  assert.equal(
+    authoring.evaluation.objectives[0].criteria.some((criterion: { text: string }) => criterion.text === prohibitedAction),
+    true,
+  );
 });
 
 test("allows an approved amount and timeline named as exceptions to a prohibition", () => {
@@ -2734,6 +2832,379 @@ test("rejects values and resolution options outside prohibition allowlists", () 
     assert.equal(findingsFor([prohibitedPhrase, `confirmed ${prohibitedPhrase}`])
       .some((finding) => finding.code === "prohibited_chat_advance_phrase"), true, prohibitedPhrase);
   }
+});
+
+test("compiles the damaged-bag replacement conversation into independent natural Chat concepts", () => {
+  const compile = (learnerActions: string[]) => compileSafeChatAdvanceRequirements({
+    ...generated.phases[0],
+    learnerActions,
+    chatAdvanceRequirements: [],
+  }, [
+    "Do not offer a refund or store credit.",
+    "Do not place the no-cost replacement before the customer confirms they want it.",
+  ], "Maya");
+
+  assert.deepEqual(compile([
+    "Acknowledge the damaged bag and apologize.",
+    "Offer a no-cost replacement.",
+  ]), [
+    { id: "acknowledge_empathy", phrases: expectedEmpathyPhrases },
+    { id: "replacement_offer", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
+    { id: "replacement_no_cost", phrases: ["no cost", "no-cost", "at no charge", "free of charge"] },
+  ]);
+  assert.deepEqual(compile([
+    "Confirm the customer wants the replacement before placing it.",
+  ]), [
+    { id: "replacement_question_intent", phrases: expectedQuestionIntentPhrases },
+    { id: "replacement_resolution", phrases: ["replacement", "replacement order", "replacement bag", "new bag", "replace it"] },
+  ]);
+  assert.deepEqual(compile([
+    "State that the replacement should arrive within 2–3 business days.",
+    "Tell the customer they do not need to return the damaged bag.",
+  ]), [
+    {
+      id: "replacement_timeline",
+      phrases: [
+        "2-3 business days",
+        "2–3 business days",
+        "2 to 3 business days",
+        "two to three business days",
+        "couple of business days",
+      ],
+    },
+    {
+      id: "no_return",
+      phrases: [
+        "not need to return",
+        "don't need to return",
+        "don’t need to return",
+        "no need to return",
+        "don't send it back",
+        "don’t send it back",
+        "keep the damaged bag",
+        "dispose of the damaged bag",
+      ],
+    },
+  ]);
+});
+
+test("repairs generic provider phase labels from detailed Coach Chewy guidance", async () => {
+  const exactHandling = "Acknowledge the frustration, apologize, and offer a no-cost replacement. Confirm the customer wants the replacement before placing it, explain that it should arrive within 2–3 business days, and tell them they do not need to return the damaged bag. Do not offer a refund or store credit.";
+  const providerDraft = {
+    ...generated,
+    title: "Damaged Dog Food Bag Replacement",
+    learnerGoal: exactHandling,
+    customer: {
+      ...generated.customer,
+      name: "Maya",
+      openingLine: "Hi, my dog food bag showed up torn and food spilled all over the box. I need a usable bag.",
+      closingLine: "Okay, please send the replacement.",
+    },
+    correctProcess: [exactHandling],
+    prohibitedActions: [
+      "Do not offer a refund or store credit.",
+      "Do not place the no-cost replacement before the customer confirms they want it.",
+    ],
+    phases: [
+      {
+        ...generated.phases[0],
+        id: "acknowledge_and_offer_replacement",
+        title: "Acknowledge and offer replacement",
+        learnerActions: ["Acknowledge", "Offer a no-cost replacement."],
+        chatAdvanceRequirements: [
+          { id: "opening_evidence", phrases: ["sorry", "torn bag"] },
+          { id: "replacement_evidence", phrases: ["no-cost replacement", "replacement bag"] },
+        ],
+        partnerResponse: "I just need a usable bag. If you can send a replacement, that's fine.",
+        coachGuidance: [
+          "Use a warm tone.",
+          "Maintain an empathetic tone.",
+          "Acknowledge empathetically.",
+          "Acknowledge the damaged bag and apologize.",
+          "Offer a no-cost replacement.",
+          "Do not offer store credit.",
+        ],
+      },
+      {
+        ...generated.phases[0],
+        id: "confirm_preference",
+        title: "Confirm preference",
+        learnerActions: ["Confirm"],
+        chatAdvanceRequirements: [
+          { id: "replacement_confirmation", phrases: ["want the replacement", "okay to send"] },
+        ],
+        partnerResponse: "Yes, that works.",
+        coachGuidance: [
+          "Confirm the customer wants the replacement before placing it.",
+          "Do not place the no-cost replacement before the customer confirms they want it.",
+        ],
+      },
+      {
+        ...generated.phases[0],
+        id: "set_expectation_and_close",
+        title: "Set expectation and close",
+        learnerActions: ["Explain Recap"],
+        chatAdvanceRequirements: [
+          { id: "replacement_timeline", phrases: ["2-3 business days", "within 3 business days"] },
+          { id: "return_guidance", phrases: ["no return needed", "keep the damaged bag"] },
+        ],
+        partnerResponse: "Okay, please send the replacement.",
+        coachGuidance: [
+          "State that the replacement should arrive within 2–3 business days.",
+          "Tell the customer they do not need to return the damaged bag.",
+          "Avoid offering a refund or store credit.",
+        ],
+      },
+    ],
+    objectives: [
+      {
+        id: "acknowledge_and_offer_replacement",
+        label: "Acknowledge and offer replacement",
+        description: "Respond to the damaged delivery with empathy and a no-cost replacement offer.",
+        criteria: [
+          "Acknowledge the frustration.",
+          "Apologize for the torn bag.",
+          "Offer a no-cost replacement.",
+        ],
+      },
+      {
+        id: "confirm_before_placing",
+        label: "Confirm before placing",
+        description: "Verify the customer wants the replacement before taking the final action.",
+        criteria: [
+          "Confirm the customer wants the replacement.",
+          "Avoid placing it before confirmation.",
+          "Do not place the no-cost replacement before the customer confirms they want it.",
+        ],
+      },
+      {
+        id: "set_timeline_and_no_return_guidance",
+        label: "Set timeline and no-return guidance",
+        description: "Close with the expected delivery window and return guidance.",
+        criteria: [
+          "Explain the 2–3 business-day window.",
+          "Confirm no return is needed.",
+          "Avoid offering a refund or store credit.",
+        ],
+      },
+    ],
+  };
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse(providerDraft),
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer received a torn dog food bag with food spilled in the box and needs a usable bag.",
+    learnerGoal: exactHandling,
+    correctProcess: exactHandling,
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.deepEqual(payload.draft.phases.map((phase: { learnerActions: string[] }) => phase.learnerActions), [
+    ["Acknowledge the damaged bag and apologize.", "Offer a no-cost replacement."],
+    ["Confirm the customer wants the replacement before placing it."],
+    [
+      "State that the replacement should arrive within 2–3 business days.",
+      "Tell the customer they do not need to return the damaged bag.",
+    ],
+  ]);
+  assert.equal(
+    payload.draft.phases.flatMap((phase: { learnerActions: string[] }) => phase.learnerActions)
+      .some((action: string) => /^(?:avoid|do not)\b/iu.test(action)),
+    false,
+  );
+
+  const authoring = normalizeStudioDraft(standaloneToAuthoringDraft(payload.draft, {
+    conversationAbout: "A fictional customer received a torn dog food bag with food spilled in the box and needs a usable bag.",
+    learnerApproach: exactHandling,
+    deidentificationConfirmed: true,
+  }));
+  const downloadableDraft = authoringToStandaloneDraft(authoring);
+  const validationResponse = await createValidateHandler()(new Request("http://localhost/api/builder/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      draft: downloadableDraft,
+      deidentificationConfirmed: true,
+      objectiveApproval: {
+        required: true,
+        approved: true,
+        fingerprint: objectiveFingerprint(downloadableDraft.objectives),
+      },
+    }),
+  }));
+  const validationPayload = await validationResponse.json();
+
+  assert.equal(validationResponse.status, 200, JSON.stringify(validationPayload.issues));
+  assert.equal(validationPayload.ok, true);
+  assert.deepEqual(validationPayload.files.map((file: { filename: string }) => file.filename), [
+    "damaged_dog_food_bag_replacement_chat.json",
+    "damaged_dog_food_bag_replacement_voice.json",
+  ]);
+
+  const negativeCriteria = downloadableDraft.objectives
+    .flatMap((objective: { criteria: string[] }) => objective.criteria)
+    .filter((criterion: string) => /^(?:avoid|do not)\b/iu.test(criterion));
+  assert.deepEqual(negativeCriteria, [
+    "Do not place the no-cost replacement before the customer confirms they want it.",
+    "Do not offer a refund or store credit.",
+  ]);
+
+  const chat = validationPayload.files.find((file: { scenario: { channels: string[] } }) =>
+    file.scenario.channels[0] === "chat"
+  ).scenario;
+  const voice = validationPayload.files.find((file: { scenario: { channels: string[] } }) =>
+    file.scenario.channels[0] === "voice"
+  ).scenario;
+  const sequencingBoundary = "Do not place the no-cost replacement before the customer confirms they want it.";
+  for (const scenario of [chat, voice]) {
+    const scoredCriteria = scenario.coaching.gradingModel.objectives
+      .flatMap((objective: { criteria: string[] }) => objective.criteria);
+    const guideSections = scenario.channels[0] === "chat"
+      ? scenario.frontend.chat.guideSections
+      : scenario.frontend.voice.guideSections;
+    const guideBullets = guideSections.flatMap((section: { bullets: string[] }) => section.bullets);
+    assert.equal(scenario.evaluationCriteria.filter((criterion: string) => criterion === sequencingBoundary).length, 1);
+    assert.equal(scoredCriteria.filter((criterion: string) => criterion === sequencingBoundary).length, 1);
+    assert.equal(guideBullets.filter((bullet: string) => bullet === sequencingBoundary).length, 1);
+  }
+  const currentRiseMatches = (message: string, step: {
+    match: { all: Array<{ op: string; phrases: string[] }>; any: Array<{ op: string; phrases: string[] }> };
+  }) => {
+    const normalized = message.toLowerCase();
+    const conditionMatches = (condition: { op: string; phrases: string[] }) =>
+      condition.op === "contains_any"
+      && condition.phrases.some((phrase) => normalized.includes(phrase.toLowerCase()));
+    return (!step.match.all.length || step.match.all.every(conditionMatches))
+      && (!step.match.any.length || step.match.any.some(conditionMatches));
+  };
+  const chatSteps = chat.chatConfig.stepProgression;
+  const naturalTurns = [
+    "I'm really sorry Biscuit's food arrived damaged. I can replace it at no charge.",
+    "Would you like me to send you a new bag?",
+    "It should arrive in a couple of business days, and you don’t need to return the damaged bag.",
+  ];
+  naturalTurns.forEach((message, index) => {
+    assert.equal(currentRiseMatches(message, chatSteps[index]), true, message);
+    assert.deepEqual(Object.keys(chatSteps[index].match).sort(), ["all", "any"]);
+  });
+  for (const [stepIndex, incompleteTurn] of [
+    [0, "I'm sorry about the torn bag. I can send a replacement."],
+    [0, "I'm really sorry the food arrived damaged. I can help at no charge."],
+    [1, "I can send a replacement."],
+    [1, "Would you like me to send it?"],
+    [2, "It should arrive in two to three business days."],
+    [2, "You don’t need to return the damaged bag."],
+  ] as const) {
+    assert.equal(currentRiseMatches(incompleteTurn, chatSteps[stepIndex]), false, incompleteTurn);
+  }
+  assert.equal(currentRiseMatches(
+    "I'm not really sorry, but I can replace it at no charge.",
+    chatSteps[0],
+  ), false);
+  assert.equal(currentRiseMatches(
+    "It should arrive in a couple of business days, and you don't need to return the damaged bag.",
+    chatSteps[2],
+  ), true);
+  assert.equal(
+    currentRiseMatches(`${naturalTurns[0]} I can also offer store credit.`, chatSteps[0]),
+    true,
+  );
+  assert.equal(negativeCriteria.some((criterion: string) => /refund or store credit/iu.test(criterion)), true);
+
+  const voiceSteps = voice.simulation.stateModel.voiceStepProgression;
+  const genericLabel = /:\s*(?:Acknowledge|Explain|Confirm|Recap)(?:\s+(?:Acknowledge|Explain|Confirm|Recap))*\s*$/u;
+  voiceSteps.forEach((step: { trigger: string }, index: number) => {
+    assert.doesNotMatch(step.trigger, genericLabel);
+    assert.match(step.trigger, new RegExp(downloadableDraft.phases[index].learnerActions[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"));
+  });
+  assert.deepEqual(
+    voice.simulation.approvedTranscript.slice(0, 3).map((turn: { idealAgentResponse: string }) => turn.idealAgentResponse),
+    downloadableDraft.phases.map((phase: { learnerActions: string[] }) => phase.learnerActions.join(" ")),
+  );
+
+  const generateVariant = async (learnerActions: string[], coachGuidance: string[], phaseIndex = 0) => {
+    const variantHandler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => providerResponse({
+        ...providerDraft,
+        phases: providerDraft.phases.map((phase, index) => index === phaseIndex
+          ? { ...phase, learnerActions, coachGuidance }
+          : phase),
+      }),
+    });
+    const variantResponse = await variantHandler(request({
+      ...validBody,
+      situation: "A fictional customer received a torn dog food bag with food spilled in the box and needs a usable bag.",
+      learnerGoal: exactHandling,
+      correctProcess: exactHandling,
+    }));
+    const variantPayload = await variantResponse.json();
+    assert.equal(variantResponse.status, 200, JSON.stringify(variantPayload.error));
+    return variantPayload.draft.phases[phaseIndex].learnerActions as string[];
+  };
+  assert.deepEqual(await generateVariant(
+    ["Offer a no-cost replacement.", "Acknowledge"],
+    ["Acknowledge the damaged bag and apologize.", "Offer a no-cost replacement."],
+  ), [
+    "Offer a no-cost replacement.",
+    "Acknowledge the damaged bag and apologize.",
+  ]);
+  assert.deepEqual(await generateVariant(
+    ["Acknowledge", "Offer"],
+    ["Acknowledge the damaged bag, apologize, and offer a no-cost replacement."],
+  ), [
+    "Acknowledge the damaged bag, apologize, and offer a no-cost replacement.",
+  ]);
+  assert.deepEqual(await generateVariant(
+    ["Offer", "Acknowledge"],
+    ["Acknowledge the damaged bag and apologize.", "Offer a no-cost replacement."],
+  ), [
+    "Offer a no-cost replacement.",
+    "Acknowledge the damaged bag and apologize.",
+  ]);
+  for (const genericLabel of ["Set expectations", "Explain next steps", "Close"]) {
+    assert.deepEqual(await generateVariant(
+      [genericLabel],
+      [
+        "State that the replacement should arrive within 2–3 business days.",
+        "Tell the customer they do not need to return the damaged bag.",
+      ],
+      2,
+    ), [
+      "State that the replacement should arrive within 2–3 business days.",
+      "Tell the customer they do not need to return the damaged bag.",
+    ], genericLabel);
+  }
+});
+
+test("fails closed when a generic provider phase has only style guidance", async () => {
+  let calls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      calls += 1;
+      return providerResponse({
+        ...generated,
+        phases: [{
+          ...generated.phases[0],
+          learnerActions: ["Acknowledge"],
+          coachGuidance: ["Use a warm tone."],
+        }],
+      });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.error.code, "generation_unavailable");
+  assert.equal(calls, 2);
+  assert.equal("draft" in payload, false);
 });
 
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {

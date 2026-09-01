@@ -734,7 +734,7 @@ const PROHIBITED_ACTION_NEGATIVE_POLARITY_PATTERN = new RegExp(
 );
 const VAGUE_PROCESS_REFERENCE_PATTERN = /\b(?:as\s+per|per|according\s+to)\s+(?:(?:the|an)\s+)?(?:(?:correct|approved)\s+)?(?:process|policy|procedure|guidance)\b/i;
 const IMPERATIVE_ACTIONS = new Set([
-  "acknowledge", "ask", "avoid", "check", "clarify", "communicate", "complete", "confirm", "connect", "continue",
+  "acknowledge", "apologize", "ask", "avoid", "check", "clarify", "communicate", "complete", "confirm", "connect", "continue",
   "describe", "determine", "direct", "distinguish", "do", "end", "explain", "express", "focus", "give", "highlight", "identify",
   "include", "introduce", "keep", "maintain", "mention", "never", "obtain", "offer", "pause", "personalize", "position",
   "present", "process", "protect", "provide", "read", "reassure", "recap", "recognize", "remain", "request", "require", "respond",

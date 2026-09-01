@@ -108,6 +108,8 @@ const BOUNDARY_STOP_WORDS = new Set([
 ]);
 const GENERIC_REPLACEMENT_NOUNS = new Set(["bag", "delivery", "item", "order", "product", "shipment"]);
 const BOUNDARY_ACTION_ALIASES = new Map([
+  ["place", "place"], ["placed", "place"], ["places", "place"], ["placing", "place"],
+  ["confirm", "confirm"], ["confirmation", "confirm"], ["confirmed", "confirm"], ["confirming", "confirm"], ["confirms", "confirm"],
   ["mention", "present"], ["mentioned", "present"], ["mentioning", "present"], ["mentions", "present"],
   ["offer", "present"], ["offered", "present"], ["offering", "present"], ["offers", "present"],
   ["present", "present"], ["presented", "present"], ["presenting", "present"], ["presents", "present"],

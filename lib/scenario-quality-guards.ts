@@ -75,8 +75,11 @@ type ChatRequirementConcept =
   | "closing"
   | "empathy"
   | "next_steps"
+  | "no_cost"
+  | "no_return"
   | "question_intent"
   | "preference"
+  | "replacement"
   | "refund";
 
 function chatRequirementConcept(requirementId: string): ChatRequirementConcept | undefined {
@@ -91,8 +94,12 @@ function chatRequirementConcept(requirementId: string): ChatRequirementConcept |
   if (/\b(?:close|closing|farewell)\b/u.test(id)) return "closing";
   if (/\b(?:acknowledge|acknowledgement|empathy|empathetic|inconvenience|recognize)\b/u.test(id)) return "empathy";
   if (/\b(?:next steps?|what happens next)\b/u.test(id)) return "next_steps";
+  if (/\b(?:no return|return not needed|return unnecessary|send back)\b/u.test(id)) return "no_return";
+  if (/\b(?:no cost|free of charge|no charge)\b/u.test(id)) return "no_cost";
   if (/\b(?:question|questioning)\b/u.test(id)) return "question_intent";
   if (/\b(?:choice|prefer|preference)\b/u.test(id)) return "preference";
+  if ((id === "replacement" || /\b(?:offer|evidence|confirmation|preference|resolution)\b/u.test(id))
+    && /\b(?:replacement|replace|reshipment|reship)\b/u.test(id)) return "replacement";
   if (id === "refund" || id === "refund action" || id === "refund resolution") return "refund";
   return undefined;
 }
@@ -126,6 +133,10 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
     return /\b(?:ask|can i|do you need|do you want|may i|need more help|what do you need|what outcome|what would you like|would you like|would you prefer)\b/u.test(normalized);
   }
   if (concept === "next_steps") return /\b(?:next steps?|what happens next|what will happen next)\b/u.test(normalized);
+  if (concept === "no_cost") return /\b(?:at no charge|free of charge|no cost)\b/u.test(normalized);
+  if (concept === "no_return") {
+    return /\b(?:do not return|dont need to return|dont send it back|keep the damaged bag|no need to return|no return needed|not need to return|dispose of the damaged bag)\b/u.test(normalized);
+  }
   if (concept === "preference") {
     if (/\b(?:choice|prefer\w*|request\w*|want|whether)\b/u.test(normalized)) return true;
     const optionConcepts = resolutionOptionConcepts(intentTokens(normalized));
@@ -135,6 +146,7 @@ function phraseExpressesRequirementConcept(requirementId: string, phrase: string
       || /\b(?:amount|business days?|card|completed|confirmed|destination|hours?|issued|method|payment|processed|timeline|timing|weeks?)\b/u.test(normalized);
     return !downstreamDetail;
   }
+  if (concept === "replacement") return /\b(?:new bag|replace it|replacement|reshipment)\b/u.test(normalized);
   if (concept === "refund") return /\brefund\w*\b/u.test(normalized);
   return /\brefund\b/u.test(normalized);
 }
@@ -684,7 +696,10 @@ export function findChatAdvanceRequirementQualityFindings(
       if (prohibitedRules.some((rule) =>
         overlapsByRiseSubstring(normalized, rule.concept)
         && !(rule.bareResolutionException !== undefined
-          && bareResolutionConcept(normalized) === rule.bareResolutionException)
+          && (
+            bareResolutionConcept(normalized) === rule.bareResolutionException
+            || resolutionOptionConcepts(intentTokens(normalized)).size === 0
+          ))
       )
         || prohibitionAllowlists.some((constraint) =>
           violatesProhibitionAllowlist(requirement.phrases[phraseIndex], constraint)
@@ -884,6 +899,9 @@ const NATURAL_EMPATHY_PHRASES = [
   "i'm sorry",
   "i’m sorry",
   "i am sorry",
+  "i'm really sorry",
+  "i’m really sorry",
+  "i am really sorry",
   "sorry your",
   "sorry the",
   "sorry about",
@@ -911,6 +929,18 @@ const QUESTION_INTENT_PHRASES = [
   "may i provide",
   "may i complete",
   "may i send",
+];
+const REPLACEMENT_PHRASES = ["replacement", "replacement order", "replacement bag", "new bag", "replace it"];
+const NO_COST_PHRASES = ["no cost", "no-cost", "at no charge", "free of charge"];
+const NO_RETURN_PHRASES = [
+  "not need to return",
+  "don't need to return",
+  "don’t need to return",
+  "no need to return",
+  "don't send it back",
+  "don’t send it back",
+  "keep the damaged bag",
+  "dispose of the damaged bag",
 ];
 const DISCOVERY_QUESTION_PHRASES = [
   "what happened",
@@ -999,7 +1029,10 @@ function compileTimelineRequirement(
     const lowerWord = NUMBER_WORDS[Number(businessDayRange[1])];
     const upperWord = NUMBER_WORDS[Number(businessDayRange[3])];
     const wordRange = lowerWord && upperWord ? `${lowerWord} to ${upperWord} ${unit}` : "";
-    return { id: timelineId, phrases: [asciiRange, enDashRange, toRange, wordRange].filter(Boolean) };
+    const colloquialRange = businessDayRange[1] === "2" && businessDayRange[3] === "3"
+      ? [`couple of ${unit}`]
+      : [];
+    return { id: timelineId, phrases: [asciiRange, enDashRange, toRange, wordRange, ...colloquialRange].filter(Boolean) };
   }
 
   const quantified = learnerText.match(/\b(\d+)\s+(business days?|days?|hours?|weeks?)\b/iu);
@@ -1074,6 +1107,9 @@ function inferredChatRequirementConceptFromPhrases(
   }
   if (candidates.every((phrase) => /^\$?\d+\.\d{2}$/u.test(phrase))) return "amount";
   if (candidates.every((phrase) => phrase === "refund")) return "refund";
+  if (candidates.every((phrase) => /\b(?:new bag|replace it|replacement|reshipment)\b/u.test(phrase))) return "replacement";
+  if (candidates.every((phrase) => /\b(?:at no charge|free of charge|no cost)\b/u.test(phrase))) return "no_cost";
+  if (candidates.every((phrase) => /\b(?:dont need to return|dont send it back|keep the damaged bag|no need to return|no return needed|not need to return|dispose of the damaged bag)\b/u.test(normalizeComparableText(phrase)))) return "no_return";
   return undefined;
 }
 
@@ -1096,8 +1132,50 @@ export function mergeSafeChatAdvanceRequirementAliases(
   };
 
   requirements.forEach((requirement) => {
-    const explicitConcept = chatRequirementConcept(requirement.id);
-    const inferredConcept = inferredChatRequirementConceptFromPhrases(requirement.phrases);
+    const normalizedId = normalizeComparableText(requirement.id);
+    const replacementConfirmationGroup = /^(?:replacement|reshipment|reship)(?: order)? (?:confirm|confirmation|preference)$/u.test(normalizedId)
+      || /^(?:confirm|confirmation|preference) (?:replacement|reshipment|reship)(?: order)?$/u.test(normalizedId);
+    const replacementConfirmationPhrase = (phrase: string) => {
+      const normalized = normalizeComparableText(phrase);
+      if (/\b(?:confirmation number|order number|tracking|status|completed|placed|submitted|sent)\b/u.test(normalized)) return false;
+      return /\b(?:can i|do you want|may i|okay to send|ok to send|prefer|preference|want|would you like|would you prefer)\b/u.test(normalized);
+    };
+    if (replacementConfirmationGroup
+      && requirement.phrases.length > 0
+      && requirement.phrases.every(replacementConfirmationPhrase)) {
+      appendRequirement({ id: "replacement_question_intent", phrases: QUESTION_INTENT_PHRASES });
+      appendRequirement({ id: "replacement_resolution", phrases: REPLACEMENT_PHRASES });
+      return;
+    }
+
+    const replacementDetailId = /\b(?:address|arrival|complete|completed|completion|confirmation number|delivery|email|order|order number|placed|sent|shipment|shipping|status|submitted|timeline|timing|tracking|window)\b/u;
+    const replacementDetailPhrase = /\b(?:arrival|complete|completed|confirmation email|confirmation number|confirmed|delivery|email confirmation|order confirmation|order number|placed|sent|shipment|shipped|shipping|status|submitted|timeline|timing|tracking|window)\b/u;
+    const requirementMentionsReplacement = /\b(?:replacement|replace|reshipment|reship)\b/u.test(normalizedId)
+      || requirement.phrases.some((phrase) => /\b(?:new bag|replace it|replacement|reshipment)\b/u.test(normalizeComparableText(phrase)));
+    if (requirementMentionsReplacement
+      && (replacementDetailId.test(normalizedId)
+        || requirement.phrases.some((phrase) => replacementDetailPhrase.test(normalizeComparableText(phrase))))) {
+      appendRequirement(requirement);
+      return;
+    }
+
+    const compoundNoCostReplacement = /^(?:(?:no cost|free of charge|no charge) (?:replacement|reshipment|reship)|(?:replacement|reshipment|reship) (?:no cost|free of charge|no charge))$/u.test(normalizedId);
+    if (compoundNoCostReplacement) {
+      appendRequirement({ id: "replacement_offer", phrases: REPLACEMENT_PHRASES });
+      appendRequirement({ id: "replacement_no_cost", phrases: NO_COST_PHRASES });
+      return;
+    }
+
+    const idConcept = chatRequirementConcept(requirement.id);
+    const explicitConcept = idConcept
+      && requirement.phrases.length > 0
+      && requirement.phrases.every((phrase) => phraseExpressesRequirementConcept(requirement.id, phrase))
+      ? idConcept
+      : undefined;
+    const phraseInferredConcept = inferredChatRequirementConceptFromPhrases(requirement.phrases);
+    const inferredConcept = phraseInferredConcept === "replacement"
+      ? undefined
+      : phraseInferredConcept;
     const concept = explicitConcept ?? inferredConcept;
     if (!concept) {
       appendRequirement(requirement);
@@ -1108,6 +1186,7 @@ export function mergeSafeChatAdvanceRequirementAliases(
     let retainedPhrases = requirement.phrases;
     let aliases: string[] = [];
     const before: ChatAdvanceRequirementDraft[] = [];
+    const after: ChatAdvanceRequirementDraft[] = [];
     if (concept === "empathy") {
       aliases = NATURAL_EMPATHY_PHRASES;
       if (!explicitConcept && inferredConcept === "empathy") retainedPhrases = [];
@@ -1132,6 +1211,15 @@ export function mergeSafeChatAdvanceRequirementAliases(
           phrases: QUESTION_INTENT_PHRASES,
         });
       }
+    } else if (concept === "replacement") {
+      aliases = REPLACEMENT_PHRASES;
+      if (/\b(?:at no charge|free of charge|no[- ]cost)\b/iu.test(requirementText)) {
+        after.push({ id: "replacement_no_cost", phrases: NO_COST_PHRASES });
+      }
+    } else if (concept === "no_cost") {
+      aliases = NO_COST_PHRASES;
+    } else if (concept === "no_return") {
+      aliases = NO_RETURN_PHRASES;
     } else if (concept === "destination") {
       const phraseText = normalizeComparableText(requirement.phrases.join(" "));
       aliases = /\boriginal (?:payment(?: card| method)?|card)\b/u.test(phraseText)
@@ -1160,6 +1248,7 @@ export function mergeSafeChatAdvanceRequirementAliases(
     const phrasesUnchanged = phrases.length === requirement.phrases.length
       && phrases.every((phrase, index) => phrase === requirement.phrases[index]);
     appendRequirement(phrasesUnchanged ? requirement : { ...requirement, phrases });
+    after.forEach(appendRequirement);
   });
   return merged;
 }
@@ -1167,6 +1256,7 @@ export function mergeSafeChatAdvanceRequirementAliases(
 function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
   const normalized = normalizeComparableText(clause);
   if (!normalized) return true;
+  if (/^plac\w* it\b/u.test(normalized)) return true;
   if (/\b(?:acknowledge\w*|apolog\w*|empath\w*|express understanding|recognize\w*)\b/u.test(normalized)) return true;
   if (/^(?:concern|frustration|inconvenience)\b/u.test(normalized)) return true;
   if (/\b(?:ask\w*|question\w*)\b/u.test(normalized)
@@ -1177,6 +1267,9 @@ function learnerActionClauseHasCompilableGateConcept(clause: string): boolean {
   if (/\b(?:explain\w* .{0,40}next steps?|next steps?|set\w* .{0,30}expectations?|accurate expectations?|what to expect)\b/u.test(normalized)) return true;
   if (/\b(?:recap\w*|summar\w*)\b/u.test(normalized)) return true;
   if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) return true;
+  if (/\b(?:offer\w*|provide\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(normalized)) return true;
+  if (/\b(?:do not|dont|no|not)\b.{0,30}\breturn\w*\b/u.test(normalized)
+    || /\b(?:dont send it back|keep the damaged bag|dispose of the damaged bag)\b/u.test(normalized)) return true;
   const option = detectedResolutionOption(clause);
   if (option && /\b(?:ask\w*|clarif\w*|confirm\w*|determin\w*|prefer\w*|verif\w*|want|whether)\b/u.test(normalized)) return true;
   if (/\$\s*\d+\.\d{2}\b/u.test(clause)) return true;
@@ -1255,9 +1348,18 @@ export function compileSafeChatAdvanceRequirements(
           ? ["refund"]
           : option === "credit"
             ? ["store credit", "credit"]
-            : [option, `${option} order`],
+            : option === "replacement"
+              ? REPLACEMENT_PHRASES
+              : [option, `${option} order`],
       });
     }
+  }
+
+  if (option === "replacement" && /\b(?:offer\w*|provide\w*)\b.{0,80}\b(?:replac\w*|reship\w*)\b/u.test(normalized)) {
+    compiled.push({ id: "replacement_offer", phrases: REPLACEMENT_PHRASES });
+  }
+  if (option === "replacement" && /\b(?:at no charge|free of charge|no[- ]cost)\b/u.test(normalized)) {
+    compiled.push({ id: "replacement_no_cost", phrases: NO_COST_PHRASES });
   }
 
   if (amount) {
@@ -1284,6 +1386,10 @@ export function compileSafeChatAdvanceRequirements(
   if (/\b(?:anything else|anything more|else .{0,20}help)\b/u.test(normalized)) {
     compiled.push({ id: "additional_help_question", phrases: ADDITIONAL_HELP_QUESTION_PHRASES });
     compiled.push({ id: "closing", phrases: CLOSING_PHRASES });
+  }
+  if (/\b(?:do not|dont|no|not)\b.{0,30}\breturn\w*\b/u.test(normalized)
+    || /\b(?:dont send it back|keep the damaged bag|dispose of the damaged bag)\b/u.test(normalized)) {
+    compiled.push({ id: "no_return", phrases: NO_RETURN_PHRASES });
   }
 
   const actionClauses = phase.learnerActions.flatMap((action) =>

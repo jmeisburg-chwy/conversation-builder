@@ -2,6 +2,7 @@ import { BodyTooLargeError, readBodyBounded } from "./bounded-body";
 import { findPrivacyIssues, redactPrivacyText, redactPrivacyValues } from "./privacy";
 import type {
   Channel,
+  ChatAdvanceRequirementDraft,
   CustomerDraft,
   ObjectiveDraft,
   PhaseDraft,
@@ -341,7 +342,145 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
 }
 
 function sanitizeProviderOutput(content: GeneratedContent): GeneratedContent {
-  return sanitizeProviderValue(content) as GeneratedContent;
+  return repairGenericPhaseLearnerActions(sanitizeProviderValue(content) as GeneratedContent);
+}
+
+const GENERIC_PHASE_ACTION_WORDS = new Set([
+  "acknowledge", "apologize", "ask", "clarify", "confirm", "explain", "offer", "recap", "state", "summarize",
+  "and", "then",
+]);
+
+function isGenericPhaseActionLabel(value: string): boolean {
+  const words = value.toLowerCase().match(/[a-z]+/gu) ?? [];
+  if (words.length > 0 && words.every((word) => GENERIC_PHASE_ACTION_WORDS.has(word))) return true;
+  const normalized = words.join(" ");
+  return /^(?:set (?:clear )?expectations?|explain (?:the )?next steps?|close(?: the conversation)?|wrap up(?: the conversation)?)$/u.test(normalized);
+}
+
+const STYLE_ONLY_PHASE_GUIDANCE_WORDS = new Set([
+  "a", "an", "the", "acknowledge", "apologize", "care", "compassion", "empathetically", "empathically",
+  "empathize", "empathy", "genuinely", "kindly", "manner", "professionally", "recognize", "respectfully",
+  "sincerely", "sincerity", "tone", "warmly", "warmth", "with",
+]);
+
+function isStyleOnlyPhaseGuidance(value: string): boolean {
+  const words = value.toLowerCase().match(/[a-z]+/gu) ?? [];
+  return words.some((word) => /^(?:acknowledge|apologize|empathize|recognize)$/u.test(word))
+    && words.some((word) => /^(?:empathetically|empathically|genuinely|kindly|professionally|respectfully|sincerely|warmly)$/u.test(word))
+    && words.every((word) => STYLE_ONLY_PHASE_GUIDANCE_WORDS.has(word));
+}
+
+type GenericPhaseActionConcept = "empathy" | "explain" | "offer" | "question";
+
+function genericPhaseActionConcepts(
+  value: string,
+  requirements: ChatAdvanceRequirementDraft[] = [],
+): Set<GenericPhaseActionConcept> {
+  const normalized = value.toLowerCase();
+  const concepts = new Set<GenericPhaseActionConcept>();
+  if (/\b(?:acknowledge|apologize|empathize|recognize)\b/u.test(normalized)) concepts.add("empathy");
+  if (/\b(?:ask|clarify|confirm)\b/u.test(normalized)) concepts.add("question");
+  if (/\b(?:close|closing|communicate|expectation|expectations|explain|inform|next steps|recap|state|summarize|tell|wrap up)\b/u.test(normalized)) concepts.add("explain");
+  if (/\b(?:offer|provide)\b/u.test(normalized)) concepts.add("offer");
+  requirements.forEach((requirement) => {
+    const id = requirement.id.toLowerCase();
+    if (/empathy|acknowledge/u.test(id)) concepts.add("empathy");
+    if (/question|preference/u.test(id)) concepts.add("question");
+    if (/timeline|no_return|next_steps|closing|completion/u.test(id)) concepts.add("explain");
+    if (/replacement_offer|refund_offer/u.test(id)) concepts.add("offer");
+  });
+  return concepts;
+}
+
+function repairGenericPhaseLearnerActions(content: GeneratedContent): GeneratedContent {
+  return {
+    ...content,
+    phases: content.phases.map((phase) => {
+      const genericActions = phase.learnerActions.filter(isGenericPhaseActionLabel);
+      if (!genericActions.length) return phase;
+      const detailedActions = phase.learnerActions.filter((action) => !isGenericPhaseActionLabel(action));
+      const detailedActionCompilations = new Map(detailedActions.map((action) => [
+        action,
+        compileSafeChatAdvanceRequirements(
+          { ...phase, learnerActions: [action], chatAdvanceRequirements: [] },
+          content.prohibitedActions,
+          content.customer.name,
+        ) ?? [],
+      ]));
+      const coveredRequirementIds = new Set(
+        [...detailedActionCompilations.values()].flatMap((compiled) => compiled.map((requirement) => requirement.id)),
+      );
+      const coveredConcepts = new Set<GenericPhaseActionConcept>(
+        detailedActions.flatMap((action) => [...genericPhaseActionConcepts(
+          action,
+          detailedActionCompilations.get(action),
+        )]),
+      );
+      const guidanceCandidates: Array<{
+        guidance: string;
+        compiled: ChatAdvanceRequirementDraft[];
+        concepts: Set<GenericPhaseActionConcept>;
+      }> = [];
+      for (const guidance of uniqueStrings(phase.coachGuidance)) {
+        if (generatedNegativeAction(guidance)
+          || isGenericPhaseActionLabel(guidance)
+          || isStyleOnlyPhaseGuidance(guidance)
+          || !APPROVED_PROCESS_ACTION_START.test(guidance)) continue;
+        const compiled = compileSafeChatAdvanceRequirements(
+          { ...phase, learnerActions: [guidance], chatAdvanceRequirements: [] },
+          content.prohibitedActions,
+          content.customer.name,
+        );
+        if (!compiled?.length) continue;
+        guidanceCandidates.push({
+          guidance,
+          compiled,
+          concepts: genericPhaseActionConcepts(guidance, compiled),
+        });
+      }
+      const phaseTitleConcepts = genericActions.length === 1
+        ? genericPhaseActionConcepts(phase.title)
+        : new Set<GenericPhaseActionConcept>();
+      const usedGuidance = new Set<string>();
+      const learnerActions: string[] = [];
+      let unrepairable = false;
+      phase.learnerActions.forEach((action) => {
+        if (!isGenericPhaseActionLabel(action)) {
+          learnerActions.push(action);
+          return;
+        }
+        const desiredConcepts = genericPhaseActionConcepts(action);
+        const allowedConcepts = new Set([...desiredConcepts, ...phaseTitleConcepts]);
+        const alreadyCovered = [...desiredConcepts].some((concept) => coveredConcepts.has(concept));
+        const replacements = guidanceCandidates.filter((candidate) => {
+          if (usedGuidance.has(candidate.guidance)
+            || ![...candidate.concepts].some((concept) => allowedConcepts.has(concept))
+            || candidate.compiled.every((requirement) => coveredRequirementIds.has(requirement.id))) return false;
+          usedGuidance.add(candidate.guidance);
+          candidate.compiled.forEach((requirement) => coveredRequirementIds.add(requirement.id));
+          candidate.concepts.forEach((concept) => coveredConcepts.add(concept));
+          return true;
+        });
+        if (!alreadyCovered
+          && !replacements.some((candidate) =>
+            [...candidate.concepts].some((concept) => desiredConcepts.has(concept)))) {
+          unrepairable = true;
+          return;
+        }
+        learnerActions.push(...replacements.map((candidate) => candidate.guidance));
+      });
+      if (unrepairable) return phase;
+      const uniqueLearnerActions = uniqueStrings(learnerActions);
+      const chatAdvanceRequirements = compileSafeChatAdvanceRequirements(
+        { ...phase, learnerActions: uniqueLearnerActions, chatAdvanceRequirements: [] },
+        content.prohibitedActions,
+        content.customer.name,
+      );
+      return chatAdvanceRequirements
+        ? { ...phase, learnerActions: uniqueLearnerActions, chatAdvanceRequirements }
+        : phase;
+    }),
+  };
 }
 
 function sanitizeProviderValue(value: unknown): unknown {
@@ -834,6 +973,12 @@ function assertGeneratedContent(value: GeneratedContent): void {
   );
   const repairCorrections: string[] = [];
   const repairCodes: string[] = [];
+  if (value.phases.some((phase) => phase.learnerActions.some(isGenericPhaseActionLabel))) {
+    repairCodes.push("generic_phase_learner_actions");
+    repairCorrections.push(
+      "Replace generic phase learnerActions such as Acknowledge, Confirm, Explain, or Recap with complete observable behaviors that state what the Learner must say or do.",
+    );
+  }
   if (!nonempty(repairedOpeningLine)) {
     repairCodes.push("opening_preanswers_preference");
     repairCorrections.push(
@@ -1026,7 +1171,7 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
 }
 
 const GENERATED_IMPERATIVE_FORMS = new Map([
-  ["acknowledges", "Acknowledge"], ["asks", "Ask"], ["avoids", "Avoid"], ["checks", "Check"],
+  ["acknowledges", "Acknowledge"], ["apologizes", "Apologize"], ["asks", "Ask"], ["avoids", "Avoid"], ["checks", "Check"],
   ["clarifies", "Clarify"], ["communicates", "Communicate"], ["completes", "Complete"], ["confirms", "Confirm"],
   ["connects", "Connect"], ["continues", "Continue"], ["describes", "Describe"], ["determines", "Determine"],
   ["directs", "Direct"], ["distinguishes", "Distinguish"], ["does", "Do"], ["ends", "End"],
@@ -1043,7 +1188,7 @@ const GENERATED_IMPERATIVE_FORMS = new Map([
 ]);
 
 const GENERATED_GERUND_FORMS = new Map([
-  ["acknowledging", "Acknowledge"], ["asking", "Ask"], ["avoiding", "Avoid"], ["checking", "Check"],
+  ["acknowledging", "Acknowledge"], ["apologizing", "Apologize"], ["asking", "Ask"], ["avoiding", "Avoid"], ["checking", "Check"],
   ["clarifying", "Clarify"], ["communicating", "Communicate"], ["confirming", "Confirm"], ["explaining", "Explain"], ["expressing", "Express"],
   ["identifying", "Identify"], ["informing", "Inform"], ["issuing", "Issue"], ["offering", "Offer"],
   ["processing", "Process"], ["providing", "Provide"], ["recapping", "Recap"], ["stating", "State"],

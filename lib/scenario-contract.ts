@@ -1,7 +1,4 @@
-import {
-  mergeSafeChatAdvanceRequirementAliases,
-  prohibitedResolutionAlternativeGatePhrases,
-} from "./scenario-quality-guards";
+import { mergeSafeChatAdvanceRequirementAliases } from "./scenario-quality-guards";
 
 export type Channel = "chat" | "voice";
 export type ImportMode = "improve" | "similar";
@@ -288,37 +285,28 @@ function buildChatMatchPhrases(learnerActions: string[]): string[] {
 function buildChatMatch(
   chatAdvanceRequirements: ChatAdvanceRequirementDraft[] | undefined,
   learnerActions: string[],
-  prohibitedActions: string[],
-  customerName: string,
 ): Record<string, unknown> {
-  const prohibitedPhrases = prohibitedResolutionAlternativeGatePhrases(
-    prohibitedActions,
-    customerName,
-  );
-  const none = prohibitedPhrases.length ? [{ op: "contains_any", phrases: prohibitedPhrases }] : [];
   const requiredConditions = (chatAdvanceRequirements ?? []).flatMap((requirement) => {
     const phrases = uniqueStrings(requirement.phrases).map((phrase) => phrase.toLowerCase());
     return phrases.length ? [{ op: "contains_any", phrases }] : [];
   });
   if (requiredConditions.length) {
-    return { all: requiredConditions, any: [], none };
+    return { all: requiredConditions, any: [] };
   }
   return {
     all: [],
     any: [{ op: "contains_any", phrases: buildChatMatchPhrases(learnerActions) }],
-    none,
   };
 }
 
 function isRiseChatMatch(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const match = value as Record<string, unknown>;
+  if (Object.keys(match).some((key) => key !== "all" && key !== "any")) return false;
   const all = Array.isArray(match.all) ? match.all : [];
   const any = Array.isArray(match.any) ? match.any : [];
-  const none = Array.isArray(match.none) ? match.none : [];
-  if (match.none !== undefined && !Array.isArray(match.none)) return false;
   if (!all.length && !any.length) return false;
-  return [...all, ...any, ...none].every((condition) => {
+  return [...all, ...any].every((condition) => {
     if (!condition || typeof condition !== "object" || Array.isArray(condition)) return false;
     const entry = condition as Record<string, unknown>;
     return entry.op === "contains_any"
@@ -453,8 +441,6 @@ function composeScenario(draft: StudioDraft, channel: Channel, id: string, baseI
     match: buildChatMatch(
       phase.chatAdvanceRequirements,
       phase.learnerActions,
-      draft.prohibitedActions,
-      draft.customer.name,
     ),
     customerResponse: phase.partnerResponse,
     scenarioPathHint: `chatConfig.stepProgression[${index}]`,

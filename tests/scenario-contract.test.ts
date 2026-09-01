@@ -9,7 +9,9 @@ import {
 } from "../lib/scenario-contract";
 
 const expectedEmpathyPhrases = [
-  "i'm sorry", "i’m sorry", "i am sorry", "sorry your", "sorry the", "sorry about",
+  "i'm sorry", "i’m sorry", "i am sorry",
+  "i'm really sorry", "i’m really sorry", "i am really sorry",
+  "sorry your", "sorry the", "sorry about",
   "i understand", "we understand", "i see your", "i see the", "i see how", "i see why",
   "i see that", "that sounds frustrating", "sounds frustrating",
 ];
@@ -169,7 +171,7 @@ test("composes Rise-compatible Chat step match conditions", () => {
 });
 
 type RiseMatchCondition = { op: string; phrases: string[] };
-type RiseStep = { match?: { all?: RiseMatchCondition[]; any?: RiseMatchCondition[]; none?: RiseMatchCondition[] } };
+type RiseStep = { match?: { all?: RiseMatchCondition[]; any?: RiseMatchCondition[] } };
 
 function riseStepMatches(message: string, step: RiseStep): boolean {
   const normalized = message.toLowerCase();
@@ -178,10 +180,8 @@ function riseStepMatches(message: string, step: RiseStep): boolean {
       && condition.phrases.some((phrase: string) => normalized.includes(phrase.toLowerCase()));
   const all = Array.isArray(step.match?.all) ? step.match.all : [];
   const any = Array.isArray(step.match?.any) ? step.match.any : [];
-  const none = Array.isArray(step.match?.none) ? step.match.none : [];
   return (!all.length || all.every(conditionMatches))
-    && (!any.length || any.some(conditionMatches))
-    && !none.some(conditionMatches);
+    && (!any.length || any.some(conditionMatches));
 }
 
 test("requires every positive concept before advancing a Chat phase", () => {
@@ -240,7 +240,7 @@ test("requires every positive concept before advancing a Chat phase", () => {
   assert.equal(riseStepMatches("Thank you.", steps[2]), false);
 });
 
-test("blocks prohibited refund alternatives without rejecting complete natural responses", () => {
+test("keeps prohibited refund alternatives in scoring without exporting unsupported Chat gates", () => {
   const refundDraft = focusedDraft();
   refundDraft.channels = ["chat"];
   refundDraft.prohibitedActions = [
@@ -248,6 +248,13 @@ test("blocks prohibited refund alternatives without rejecting complete natural r
     "Do not issue a refund for an amount other than $24.99.",
     "Do not state a timeline other than 3-5 business days.",
   ];
+  refundDraft.objectives = [{
+    ...refundDraft.objectives[0],
+    criteria: [
+      "Acknowledge the torn bag and complete the approved refund.",
+      ...refundDraft.prohibitedActions,
+    ],
+  }];
   refundDraft.phases = [{
     id: "complete_refund",
     title: "Complete the refund",
@@ -267,10 +274,9 @@ test("blocks prohibited refund alternatives without rejecting complete natural r
   const [file] = composeScenarioFiles(refundDraft);
   const step = file.scenario.chatConfig!.stepProgression[0] as RiseStep;
 
-  assert.deepEqual(step.match?.none, [{
-    op: "contains_any",
-    phrases: ["store credit", "replace", "exchange"],
-  }]);
+  assert.deepEqual(file.scenario.evaluationCriteria, refundDraft.objectives[0].criteria);
+  assert.deepEqual(file.scenario.coaching.gradingModel.objectives[0].criteria, refundDraft.objectives[0].criteria);
+  assert.deepEqual(Object.keys(step.match ?? {}).sort(), ["all", "any"]);
   assert.equal(riseStepMatches(
     "I understand the frustration. I've processed the $24.99 refund to your original card. It should appear in 3 to 5 business days.",
     step,
@@ -287,11 +293,11 @@ test("blocks prohibited refund alternatives without rejecting complete natural r
     assert.equal(riseStepMatches(
       `I understand the frustration. I've processed the $24.99 refund to your original card. It should appear in 3 to 5 business days.${prohibitedAddition}`,
       step,
-    ), false);
+    ), true);
   }
 });
 
-test("accepts concept-complete refund paraphrases while rejecting incomplete or prohibited turns", () => {
+test("accepts complete refund paraphrases, rejects incomplete turns, and leaves prohibitions to scoring", () => {
   const refundDraft = focusedDraft();
   refundDraft.channels = ["chat"];
   refundDraft.customer.facts = [
@@ -375,7 +381,7 @@ test("accepts concept-complete refund paraphrases while rejecting incomplete or 
 
   for (const prohibited of ["store credit", "a replacement", "an exchange"]) {
     const message = `I see your bag arrived damaged. Would you prefer a full refund or ${prohibited}?`;
-    assert.equal(riseStepMatches(message, steps[0]), false, message);
+    assert.equal(riseStepMatches(message, steps[0]), true, message);
   }
 });
 
@@ -480,9 +486,9 @@ test("safely enriches persisted v31 Chat requirements while preserving specific 
   ];
   validMessages.forEach((message, index) => {
     assert.equal(riseStepMatches(message, steps[index]), true);
-    assert.equal(riseStepMatches(`${message} I can also offer store credit.`, steps[index]), false);
-    assert.equal(riseStepMatches(`${message} I can also send a replacement.`, steps[index]), false);
-    assert.equal(riseStepMatches(`${message} I can arrange an exchange instead.`, steps[index]), false);
+    assert.equal(riseStepMatches(`${message} I can also offer store credit.`, steps[index]), true);
+    assert.equal(riseStepMatches(`${message} I can also send a replacement.`, steps[index]), true);
+    assert.equal(riseStepMatches(`${message} I can arrange an exchange instead.`, steps[index]), true);
   });
   assert.equal(
     riseStepMatches("I understand the issue. I want a refund.", steps[0]),
@@ -552,11 +558,11 @@ test("enriches v31 Chat requirements after a JSON pair is imported and recompose
   assert.equal(riseStepMatches(
     "I'm sorry about the torn bag. Would you prefer a full refund? I've processed the $32.49 refund to your original card. It should post in 3 to 5 business days. I can also offer store credit.",
     step,
-  ), false);
+  ), true);
   assert.equal(riseStepMatches(
     "I'm sorry about the torn bag. Would you prefer a full refund? I've processed the $32.49 refund to your original card. It should post in 3 to 5 business days. I can also send a replacement.",
     step,
-  ), false);
+  ), true);
 });
 
 test("marks legacy any-only Chat gates as needing explicit review after import", () => {
@@ -698,12 +704,12 @@ test("rejects Chat step matching that the Rise runtime cannot evaluate", () => {
   );
 });
 
-test("rejects malformed negative Chat match conditions", () => {
+test("rejects unsupported negative Chat match conditions", () => {
   const files = composeScenarioFiles({ ...focusedDraft(), channels: ["chat"] });
   const match = files[0].scenario.chatConfig!.stepProgression[0].match as {
     none: Array<{ op: string; phrases: string[] }>;
   };
-  match.none = [{ op: "contains_any", phrases: [] }];
+  match.none = [{ op: "contains_any", phrases: ["store credit"] }];
 
   assert.deepEqual(
     validateScenarioFiles(files).find((issue) => issue.code === "invalid_chat_step_match"),

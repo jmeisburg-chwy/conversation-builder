@@ -104,101 +104,31 @@ test("accepts Set as an observable imperative criterion", async () => {
   );
 });
 
-test("composes Rise none gates from prohibited operations without blocking detail-only references", () => {
-  const runtimeNonePhrases = (prohibitedActions: string[]): string[] => {
-    const candidate = draft();
-    candidate.channels = ["chat"];
-    candidate.customer.name = "Jamie";
-    candidate.prohibitedActions = prohibitedActions;
-    const chat = composeScenarioFiles(candidate, { now: "2026-09-01T00:00:00.000Z" })[0].scenario;
-    const progression = chat.simulation.stateModel.chatStepProgression as Array<{
-      match: { none: Array<{ phrases: string[] }> };
-    }>;
-    return progression[0].match.none.flatMap((condition) => condition.phrases);
-  };
+test("accepts Apologize as an observable imperative criterion", async () => {
+  const valid = draft();
+  valid.objectives[0].criteria[0] = "Apologize for the torn bag.";
 
-  for (const directOperation of [
-    "Do not replace the item.",
-    "Do not set up a replacement.",
-    "Do not arrange a replacement.",
-    "Do not arrange for a replacement.",
-    "Do not replace the item and provide store credit.",
-    "Do not provide store credit and arrange the approved replacement order.",
-    "Do not arrange a replacement for Jamie via OMS.",
-    "Do not submit a replacement for Jamie through OMS.",
-    "Do not submit a replacement for Jamie using OMS.",
-    "Do not submit a replacement for Jamie via the OMS.",
-  ]) {
-    const none = runtimeNonePhrases([directOperation]);
-    assert.equal(none.includes("replace"), true, directOperation);
-  }
-  assert.deepEqual(runtimeNonePhrases(["Do not reship the item."]), ["reship"]);
+  const response = await createValidateHandler()(request({ draft: valid }));
+  const payload = await response.json();
 
-  assert.deepEqual(
-    runtimeNonePhrases(["Do not replace the item and provide store credit."]),
-    ["replace", "store credit"],
-  );
-  const promiseNone = runtimeNonePhrases(["Do not promise a refund."]);
-  for (const phrase of [
-    "promise refund",
-    "promise a refund",
-    "promise the refund",
-    "promise a full refund",
-    "promise you a refund",
-    "promise you the refund",
-  ]) assert.equal(promiseNone.includes(phrase), true, phrase);
-  const guaranteeNone = runtimeNonePhrases(["Do not guarantee the refund."]);
-  for (const phrase of [
-    "guarantee refund",
-    "guarantee a refund",
-    "guarantee the refund",
-    "guarantee a full refund",
-    "guarantee you a refund",
-  ]) assert.equal(guaranteeNone.includes(phrase), true, phrase);
-  const trackingNone = runtimeNonePhrases(["Do not provide replacement tracking."]);
-  assert.equal(trackingNone.includes("provide replacement tracking"), true);
-  assert.equal(trackingNone.includes("provide the replacement tracking"), true);
+  assert.equal(response.status, 200, JSON.stringify(payload.issues));
   assert.equal(
-    trackingNone.some((phrase) =>
-      "I submitted the replacement order and will provide the replacement tracking."
-        .toLowerCase()
-        .includes(phrase)
-    ),
-    true,
+    payload.issues.some((issue: { code: string }) => issue.code === "non_imperative_criterion"),
+    false,
   );
-  assert.deepEqual(
-    runtimeNonePhrases(["Do not mention the replacement status."]),
-    ["mention the replacement status", "mention replacement status"],
-  );
-  assert.deepEqual(
-    runtimeNonePhrases(["Do not process the approved refund to Jamie's original payment card."]),
-    ["refund"],
-  );
-  assert.deepEqual(
-    runtimeNonePhrases(["Do not submit the replacement order via OMS."]),
-    ["replace"],
-  );
-  assert.deepEqual(
-    runtimeNonePhrases(["Do not issue the refund before the customer confirms they want it."]),
-    [],
-  );
+});
 
-  const behavioralNone = runtimeNonePhrases([
-    "Do not blame the delivery carrier.",
-    "Do not guarantee delivery.",
-    "Do not offer or add compensation.",
-  ]);
-  for (const unsafeTurn of [
-    "The delivery carrier clearly lost your package.",
-    "I guarantee delivery tomorrow.",
-    "I will add compensation.",
-  ]) {
-    assert.equal(
-      behavioralNone.some((phrase) => unsafeTurn.toLowerCase().includes(phrase)),
-      true,
-      unsafeTurn,
-    );
-  }
+test("exports only Chat match fields the current Rise runtime evaluates", () => {
+  const candidate = draft();
+  candidate.channels = ["chat"];
+  candidate.prohibitedActions = ["Do not offer a refund or store credit."];
+  const chat = composeScenarioFiles(candidate, { now: "2026-09-01T00:00:00.000Z" })[0].scenario;
+  const progression = chat.simulation.stateModel.chatStepProgression as Array<{
+    match: { all: unknown[]; any: unknown[]; none?: unknown[] };
+  }>;
+
+  assert.deepEqual(Object.keys(progression[0].match).sort(), ["all", "any"]);
+  assert.deepEqual(chat.evaluationCriteria, candidate.objectives.flatMap((objective) => objective.criteria));
 });
 
 test("rejects a final Conversation Partner question that has no Learner response", async () => {

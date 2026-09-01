@@ -277,7 +277,9 @@ test("preserves Review/Edit scoring, opening, phase evaluation, and approved-res
     imported.draft.phases[0].chatAdvanceRequirements?.map((requirement) => requirement.phrases),
     [
       [
-        "i'm sorry", "i’m sorry", "i am sorry", "sorry your", "sorry the", "sorry about",
+        "i'm sorry", "i’m sorry", "i am sorry",
+        "i'm really sorry", "i’m really sorry", "i am really sorry",
+        "sorry your", "sorry the", "sorry about",
         "i understand", "we understand", "i see your", "i see the", "i see how", "i see why",
         "i see that", "that sounds frustrating", "sounds frustrating",
       ],
@@ -574,6 +576,54 @@ test("replaces split boundary criteria and cautions with one authoritative compo
   ]);
   assert.deepEqual(cautions.map((caution: { text: string }) => caution.text), [
     "Do not offer store credit or a replacement.",
+  ]);
+});
+
+test("deduplicates equivalent confirmation sequencing boundaries", () => {
+  const authoritativeBoundary = "Do not place the no-cost replacement before the customer confirms they want it.";
+  const authoring = standaloneToAuthoringDraft({
+    baseId: "replacement_confirmation_boundary",
+    prohibitedActions: [authoritativeBoundary],
+    phases: [{
+      id: "confirm_replacement",
+      title: "Confirm the replacement",
+      learnerActions: ["Confirm the customer wants the replacement before placing it."],
+      partnerResponse: "Yes, please send the replacement.",
+      coachGuidance: [
+        "Confirm the customer wants the replacement before placing it.",
+        authoritativeBoundary,
+      ],
+    }],
+    objectives: [{
+      id: "confirm_before_placing",
+      label: "Confirm before placing",
+      description: "Confirm the approved replacement before taking action.",
+      criteria: [
+        "Confirm the customer wants the replacement.",
+        "Avoid placing it before confirmation.",
+        authoritativeBoundary,
+      ],
+    }],
+  });
+  const negativeCriteria = authoring.evaluation.objectives
+    .flatMap((objective: { criteria: Array<{ text: string }> }) => objective.criteria)
+    .filter((criterion: { text: string }) => /^(?:avoid|do not)\b/iu.test(criterion.text));
+  const allCriteria = authoring.evaluation.objectives
+    .flatMap((objective: { criteria: Array<{ text: string }> }) => objective.criteria)
+    .map((criterion: { text: string }) => criterion.text);
+  const cautions = authoring.flow.phases[0].coachGuidance.bullets
+    .flatMap((bullet: { children?: Array<{ text: string; kind: string }> }) => bullet.children ?? [])
+    .filter((child: { kind: string }) => child.kind === "caution");
+
+  assert.deepEqual(negativeCriteria.map((criterion: { text: string }) => criterion.text), [
+    authoritativeBoundary,
+  ]);
+  assert.deepEqual(allCriteria, [
+    "Confirm the customer wants the replacement.",
+    authoritativeBoundary,
+  ]);
+  assert.deepEqual(cautions.map((caution: { text: string }) => caution.text), [
+    authoritativeBoundary,
   ]);
 });
 

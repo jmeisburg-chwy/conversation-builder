@@ -45,27 +45,29 @@ function compose(canonicalMatch: Match, generatedMatch: Match = { ...positiveMat
   })[0];
 }
 
-test("preserves newly composed negative Chat gates when canonical fidelity has no none field", () => {
+test("strips unsupported generated negative Chat gates", () => {
   const output = compose(positiveMatch);
 
-  assert.deepEqual(output.chatConfig.stepProgression[0].match.none, generatedNegative);
-  assert.deepEqual(output.simulation.stateModel.chatStepProgression[0].match.none, generatedNegative);
+  assert.deepEqual(output.chatConfig.stepProgression[0].match, positiveMatch);
+  assert.deepEqual(output.simulation.stateModel.chatStepProgression[0].match, positiveMatch);
 });
 
-test("preserves a valid optional canonical none field when generated output omits it", () => {
+test("strips unsupported canonical negative Chat gates", () => {
   const canonicalNegative = [{ op: "contains_any", phrases: ["store credit"] }];
   const output = compose({ ...positiveMatch, none: canonicalNegative }, positiveMatch);
 
-  assert.deepEqual(output.chatConfig.stepProgression[0].match.none, canonicalNegative);
+  assert.deepEqual(output.chatConfig.stepProgression[0].match, positiveMatch);
+  assert.deepEqual(output.simulation.stateModel.chatStepProgression[0].match, positiveMatch);
 });
 
-test("rejects canonical fidelity when its optional none field is malformed", () => {
+test("ignores malformed unsupported canonical negative Chat gates", () => {
   const invalidCanonical = {
     ...positiveMatch,
     none: [{ op: "contains_any", phrases: [] }],
   };
   const output = compose(invalidCanonical);
 
-  assert.equal(output.chatConfig.stepProgression[0].label, "Generated phase");
-  assert.deepEqual(output.chatConfig.stepProgression[0].match.none, generatedNegative);
+  assert.equal(output.chatConfig.stepProgression[0].label, "Canonical phase");
+  assert.deepEqual(output.chatConfig.stepProgression[0].match, positiveMatch);
+  assert.deepEqual(output.simulation.stateModel.chatStepProgression[0].match, positiveMatch);
 });
