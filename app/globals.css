@@ -27,7 +27,7 @@ body {
   min-height: 70px;
   display: flex;
   align-items: center;
-  padding-inline: max(20px, calc((100vw - 920px) / 2));
+  padding-inline: max(20px, calc((100vw - 1040px) / 2));
   background: var(--chewy-blue);
   color: white;
 }

@@ -142,6 +142,12 @@ legend,
 body[data-builder-view="workflow"] .studio-header {
   min-height: 68px;
   padding-block: 10px;
+  padding-inline: 0;
+}
+
+body[data-builder-view="workflow"] .studio-brand {
+  width: min(1040px, calc(100% - 40px));
+  margin-inline: auto;
 }
 
 body[data-builder-view="workflow"] .studio-brand h1 {
@@ -238,7 +244,7 @@ body[data-builder-view="workflow"] .studio-brand p {
 .stage-navigation ol {
   display: grid;
   grid-template-columns: repeat(4, minmax(150px, 1fr));
-  width: min(1240px, calc(100% - 40px));
+  width: min(1040px, calc(100% - 40px));
   margin: 0 auto;
   padding: 14px 0;
   list-style: none;
@@ -4700,4 +4706,14 @@ body[data-builder-view="workflow"] .stage-navigation ol {
 
 .download-return-button {
   width: 100%;
+}
+
+@media (min-width: 1081px) {
+  /* Keep centered Builder surfaces aligned with the outer shell across the iframe scrollbar gutter. */
+  body[data-builder-view="workflow"] .studio-brand,
+  body[data-builder-view="workflow"] .stage-navigation ol,
+  body[data-builder-view="workflow"] .studio-main {
+    position: relative;
+    left: calc((100vw - 100%) / 2);
+  }
 }
