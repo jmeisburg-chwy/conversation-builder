@@ -246,6 +246,35 @@ test("accepts a concrete approved outcome and calls the provider", async () => {
   assert.equal(called, true);
 });
 
+test("retries instruction-style strong responses until they are learner-facing", async () => {
+  let calls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      calls += 1;
+      return providerResponse({
+        ...generated,
+        phases: [{
+          ...generated.phases[0],
+          strongLearnerResponse: calls === 1
+            ? "Acknowledge the concern and confirm the delayed order."
+            : "I understand how concerning this delay is. Let me confirm the order details with you.",
+        }],
+      });
+    },
+  });
+
+  const response = await handler(request(validBody));
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+  assert.equal(
+    payload.draft.phases[0].strongLearnerResponse,
+    "I understand how concerning this delay is. Let me confirm the order details with you.",
+  );
+});
+
 test("accepts behavior-focused handling guidance before calling the provider", async () => {
   let called = false;
   const handler = createGenerateHandler({

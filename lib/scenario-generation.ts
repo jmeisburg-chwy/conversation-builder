@@ -895,7 +895,11 @@ function compileBlueprintPhase(
   prohibitedActions: string[],
   customerName: string,
 ): PhaseDraft | undefined {
-  const provisional = { ...phase, chatAdvanceRequirements: [] };
+  const provisional = {
+    ...phase,
+    strongLearnerResponse: phase.strongLearnerResponse || learnerFacingStrongResponse(phase.learnerActions),
+    chatAdvanceRequirements: [],
+  };
   const chatAdvanceRequirements = compileSafeChatAdvanceRequirements(
     provisional,
     prohibitedActions,
@@ -1105,6 +1109,38 @@ function safeGeneratedRepairDetails(content: GeneratedContent): NonNullable<Gene
   };
 }
 
+const INSTRUCTION_STYLE_STRONG_RESPONSE = /^(?:acknowledge|apologize|ask|avoid|check|clarify|complete|confirm|describe|determine|document|explain|identify|inform|issue|offer|place|process|provide|recap|reassure|replace|request|resolve|review|share|state|tell|thank|transfer|update|verify)\b/iu;
+
+function isLearnerFacingStrongResponse(value: string): boolean {
+  const response = value.trim();
+  if (!response || INSTRUCTION_STYLE_STRONG_RESPONSE.test(response)) return false;
+  return /\b(?:i|i['’]m|i['’]ll|i['’]ve|i['’]d|me|my|we|we['’]re|we['’]ll|we['’]ve|our)\b/iu.test(response)
+    || (/^(?:can|could|did|do|does|how|is|may|what|when|where|which|would)\b/iu.test(response)
+      && /\b(?:you|your)\b/iu.test(response));
+}
+
+function learnerFacingSentence(action: string): string {
+  const body = action.trim().replace(/[.!?]+$/u, "");
+  let match = body.match(/^ask whether .+? wants? (.+)$/iu);
+  if (match) return `Would you like ${match[1]}?`;
+  match = body.match(/^offer (.+)$/iu);
+  if (match) return `I can offer you ${match[1]}.`;
+  match = body.match(/^place (.+)$/iu);
+  if (match) return `I’ve placed ${match[1]} for you.`;
+  match = body.match(/^issue (.+)$/iu);
+  if (match) return `I’ve issued ${match[1]} for you.`;
+  match = body.match(/^explain that (.+)$/iu);
+  if (match) return `${match[1][0].toUpperCase()}${match[1].slice(1)}.`;
+  match = body.match(/^tell .+? they do not need to (.+)$/iu);
+  if (match) return `You do not need to ${match[1]}.`;
+  if (/^acknowledge\b/iu.test(body)) return "I’m sorry this happened, and I understand your concern.";
+  return `I’ll ${body.charAt(0).toLowerCase()}${body.slice(1)}.`;
+}
+
+function learnerFacingStrongResponse(actions: string[]): string {
+  return actions.map(learnerFacingSentence).join(" ");
+}
+
 function assertGeneratedContent(value: GeneratedContent): void {
   if (!value || typeof value !== "object") throw new Error("invalid_generated_content");
   const strings = [value.title, value.description, value.learnerGoal, value.topic, value.subtopic, value.teamAudience];
@@ -1131,6 +1167,15 @@ function assertGeneratedContent(value: GeneratedContent): void {
   );
   const repairCorrections: string[] = [];
   const repairCodes: string[] = [];
+  if (value.phases.some((phase) =>
+    nonempty(phase.strongLearnerResponse)
+    && !isLearnerFacingStrongResponse(phase.strongLearnerResponse)
+  )) {
+    repairCodes.push("learner_facing_strong_response");
+    repairCorrections.push(
+      "Rewrite every strongLearnerResponse as natural first-person words the Learner could say directly to the Conversation Partner. Do not use coaching instructions or imperative labels.",
+    );
+  }
   if (value.phases.some((phase) => phase.learnerActions.some(isGenericPhaseActionLabel))) {
     repairCodes.push("generic_phase_learner_actions");
     repairCorrections.push(
