@@ -94,12 +94,18 @@ const guidanceImageObjectUrls = new Set();
 const portableDownloadObjectUrls = new Map();
 
 const elements = {
+  skipLink: $("#skipLink"),
   stageNavigation: $("#stageNavigation"),
   stageButtons: $$(".stage-button"),
   stagePanels: $$("[data-stage-panel]"),
   globalStatus: $("#globalStatus"),
   builderLandingView: $("#builderLandingView"),
   builderLandingHeading: $("#builderLandingHeading"),
+  builderChoicePanel: $("#builderChoicePanel"),
+  builderImportPanel: $("#builderImportPanel"),
+  editExistingConversationButton: $("#editExistingConversationButton"),
+  backToBuilderChoiceButton: $("#backToBuilderChoiceButton"),
+  studioContent: $("#studioContent"),
   backToConversationLibraryButton: $("#backToConversationLibraryButton"),
   createNewConversationButton: $("#createNewConversationButton"),
   conversationLibrary: $("#conversationLibrary"),
@@ -1561,6 +1567,8 @@ function setBuilderView(view, { focus = true } = {}) {
   const landing = next === "landing";
   if (elements.builderLandingView) elements.builderLandingView.hidden = !landing;
   if (elements.stageNavigation) elements.stageNavigation.hidden = landing;
+  if (elements.studioContent) elements.studioContent.hidden = landing;
+  if (elements.skipLink) elements.skipLink.href = landing ? "#builderLandingHeading" : "#studioContent";
   if (elements.backToConversationLibraryButton) elements.backToConversationLibraryButton.hidden = landing;
   if (landing) {
     elements.stagePanels.forEach((panel) => {
@@ -1573,6 +1581,17 @@ function setBuilderView(view, { focus = true } = {}) {
     setStage(state.stage, { preserveScroll: true });
   }
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function setBuilderStartPanel(panel, { focus = true } = {}) {
+  const importing = panel === "import";
+  elements.builderChoicePanel.hidden = importing;
+  elements.builderImportPanel.hidden = !importing;
+  if (!focus) return;
+  const heading = importing
+    ? elements.builderImportPanel.querySelector("h2")
+    : elements.builderLandingHeading;
+  heading?.focus({ preventScroll: true });
 }
 
 export function performReviewStageNavigation({
@@ -3576,6 +3595,7 @@ function startNewConversation() {
     "Start a new conversation? This replaces the current in-tab draft."
   )) return;
   initializeFreshConversation();
+  setBuilderStartPanel("choice", { focus: false });
   setGlobalStatus("");
   setBuilderView("workflow", { focus: false });
   setStage("create");
@@ -3587,6 +3607,7 @@ async function returnToConversationLibrary() {
   closePreview("");
   if (state.currentDraftActive && state.reviewStarted) await saveDraft({ quiet: true });
   renderConversationLibrary();
+  setBuilderStartPanel("choice", { focus: false });
   setBuilderView("landing");
   return true;
 }
@@ -9439,6 +9460,13 @@ function wireControls() {
     elements.buildImportInput.value = "";
     await importScenarioJsonUploads(files);
   });
+  elements.editExistingConversationButton?.addEventListener("click", () => {
+    setBuilderStartPanel("import");
+  });
+  elements.backToBuilderChoiceButton?.addEventListener("click", () => {
+    setBuildImportStatus("");
+    setBuilderStartPanel("choice");
+  });
   elements.addSetupObjectiveButton.addEventListener("click", () => {
     const added = addObjective(state.draft, {
       objectiveId: guidanceItemId("learning_objective"),
@@ -9924,8 +9952,8 @@ async function bootstrap() {
   } else {
     setStandardTextMode("none");
     updateSavedState({ draftId: state.draftId });
-    setBuilderView("workflow", { focus: false });
-    setStage("create", { preserveScroll: true });
+    setBuilderStartPanel("choice", { focus: false });
+    setBuilderView("landing", { focus: false });
   }
   if (elements.noApiNotice) elements.noApiNotice.hidden = true;
   setGlobalStatus("");

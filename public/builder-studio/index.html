@@ -6,11 +6,11 @@
     <meta name="color-scheme" content="light" />
     <title>Conversation Builder</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/builder-studio/styles.css?revision=2026-09-02-json-import" />
+    <link rel="stylesheet" href="/builder-studio/styles.css?revision=2026-09-02-start-choice" />
     <link rel="stylesheet" href="/shared/action-tooltips.css?revision=2026-08-31-standalone-direct-port" />
   </head>
-  <body data-builder-view="workflow">
-    <a class="skip-link" href="#studioContent">Skip to Studio content</a>
+  <body data-builder-view="landing">
+    <a id="skipLink" class="skip-link" href="#builderLandingHeading">Skip to Builder content</a>
 
     <header class="studio-header">
       <div class="studio-brand">
@@ -19,7 +19,51 @@
       </div>
     </header>
 
-    <nav id="stageNavigation" class="stage-navigation" aria-label="Conversation creation stages">
+    <main id="builderLandingView" class="builder-start-view" aria-labelledby="builderLandingHeading">
+      <section class="page-card builder-start-card">
+        <div id="builderChoicePanel">
+          <div class="builder-start-heading">
+            <h2 id="builderLandingHeading" tabindex="-1">What would you like to do?</h2>
+          </div>
+          <div class="build-intake-coach builder-start-coach" data-coach-state="question">
+            <div class="build-coach-mascot" aria-hidden="true">
+              <span class="build-coach-sprite"></span>
+            </div>
+            <div class="build-coach-speech">
+              <strong>Coach Chewy</strong>
+              <p>Would you like to create a new conversation or edit an existing one?</p>
+            </div>
+          </div>
+          <div class="builder-start-actions">
+            <button id="createNewConversationButton" class="button primary" type="button">Create a new conversation</button>
+            <button id="editExistingConversationButton" class="button secondary" type="button">Edit an existing conversation</button>
+          </div>
+        </div>
+
+        <div id="builderImportPanel" class="builder-import-panel" hidden>
+          <button id="backToBuilderChoiceButton" class="text-button builder-start-back" type="button">← Back</button>
+          <div class="builder-start-heading">
+            <h2 tabindex="-1">Edit an existing conversation</h2>
+          </div>
+          <div class="build-intake-coach builder-start-coach" data-coach-state="question">
+            <div class="build-coach-mascot" aria-hidden="true">
+              <span class="build-coach-sprite"></span>
+            </div>
+            <div class="build-coach-speech">
+              <strong>Coach Chewy</strong>
+              <p>Upload one Chat or Voice JSON file, or upload both matching files together.</p>
+            </div>
+          </div>
+          <div class="builder-import-actions">
+            <button id="buildImportButton" class="button primary" type="button">Upload JSON</button>
+            <input id="buildImportInput" type="file" accept=".json,application/json" multiple />
+            <p id="buildImportStatus" class="build-import-status" role="status" aria-live="polite" hidden></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav id="stageNavigation" class="stage-navigation" aria-label="Conversation creation stages" hidden>
       <ol>
         <li>
           <button type="button" class="stage-button active" data-stage="create" aria-current="step">
@@ -42,27 +86,14 @@
       </ol>
     </nav>
 
-    <main id="studioContent" class="studio-main">
+    <main id="studioContent" class="studio-main" hidden>
       <div id="globalStatus" class="global-status" role="status" aria-live="polite" hidden></div>
 
       <section id="createStage" class="stage-panel active" data-stage-panel="create">
         <div class="page-card create-card">
           <div class="page-heading">
+            <button id="backToConversationLibraryButton" class="text-button build-back-button" type="button">← Back</button>
             <h2>Build</h2>
-          </div>
-
-          <section class="build-import" aria-labelledby="buildImportHeading">
-            <div>
-              <h3 id="buildImportHeading">Update an existing conversation</h3>
-              <p>Upload one Chat or Voice JSON file, or upload both matching files together.</p>
-            </div>
-            <button id="buildImportButton" class="button secondary" type="button">Upload JSON</button>
-            <input id="buildImportInput" type="file" accept=".json,application/json" multiple />
-            <p id="buildImportStatus" class="build-import-status" role="status" aria-live="polite" hidden></p>
-          </section>
-
-          <div class="build-option-divider" role="separator">
-            <span>or start from scratch</span>
           </div>
 
           <div id="buildConversationStep" class="build-intake-step">
@@ -521,6 +552,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-    <script type="module" src="/builder-studio/app.js?revision=2026-09-02-json-import"></script>
+    <script type="module" src="/builder-studio/app.js?revision=2026-09-02-start-choice"></script>
   </body>
 </html>

@@ -101,7 +101,8 @@ test("creates a draft without asking the author for a de-identification confirma
   assert.deepEqual(statuses, []);
 });
 
-test("starts at a blank Build screen unless the URL explicitly requests a saved draft", () => {
+test("starts at the author choice screen unless the URL explicitly requests a saved draft", () => {
+  const html = readFileSync(new URL("public/builder-studio/index.html", root), "utf8");
   const shouldRestoreStandaloneDraftOnLaunch = (builderApp as unknown as {
     shouldRestoreStandaloneDraftOnLaunch?: (search: string) => boolean;
   }).shouldRestoreStandaloneDraftOnLaunch;
@@ -110,6 +111,13 @@ test("starts at a blank Build screen unless the URL explicitly requests a saved 
   assert.equal(shouldRestoreStandaloneDraftOnLaunch!(""), false);
   assert.equal(shouldRestoreStandaloneDraftOnLaunch!("?standalone=1"), false);
   assert.equal(shouldRestoreStandaloneDraftOnLaunch!("?standalone=1&resume=1"), true);
+  assert.match(html, /<body data-builder-view="landing">/);
+  assert.match(html, /id="builderLandingView"/);
+  assert.match(html, /What would you like to do\?/);
+  assert.match(html, /id="createNewConversationButton"/);
+  assert.match(html, /id="editExistingConversationButton"/);
+  assert.match(html, /id="stageNavigation"[^>]*hidden/);
+  assert.match(html, /id="studioContent"[^>]*hidden/);
 });
 
 test("uses 100 as the missing-score baseline in Review/Edit", () => {
@@ -117,11 +125,13 @@ test("uses 100 as the missing-score baseline in Review/Edit", () => {
   assert.equal(stepPassingScore("", -1), 99);
 });
 
-test("offers JSON import in Build and only downloads in the final stage", () => {
+test("offers JSON import from the existing-conversation path and only downloads in the final stage", () => {
   const html = readFileSync(new URL("public/builder-studio/index.html", root), "utf8");
 
   assert.match(html, /id="buildImportInput"[^>]*multiple/);
+  assert.match(html, /id="builderImportPanel"[^>]*hidden/);
   assert.match(html, /Upload one Chat or Voice JSON file/);
+  assert.doesNotMatch(html, /id="createStage"[\s\S]*Update an existing conversation/);
   assert.match(html, /Step 3[\s\S]*Download/);
   assert.doesNotMatch(html, /Save Draft/);
   assert.match(html, /Download JSON/);
