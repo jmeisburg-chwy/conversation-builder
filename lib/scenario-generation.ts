@@ -236,13 +236,17 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
             && caught.repairCodes.every((code) =>
               code === "chat_advance_requirements"
               || code === "generic_phase_learner_actions"
+              || code === "learner_facing_strong_response"
               || code === "operational_criterion_coverage"
               || code === "overlapping_resolution_prohibitions"
             )) {
             const candidate = sanitizeProviderOutput(parseProviderOutput(providerRaw));
-            const resolutionRepaired = caught.repairCodes.includes("overlapping_resolution_prohibitions")
-              ? repairGeneratedResolutionProhibitions(candidate)
+            const learnerResponseRepaired = caught.repairCodes.includes("learner_facing_strong_response")
+              ? repairLearnerFacingStrongResponses(candidate)
               : candidate;
+            const resolutionRepaired = caught.repairCodes.includes("overlapping_resolution_prohibitions")
+              ? repairGeneratedResolutionProhibitions(learnerResponseRepaired)
+              : learnerResponseRepaired;
             const operationallyRepaired = caught.repairCodes.includes("operational_criterion_coverage")
               ? repairGeneratedMissingOperationalCriteria(resolutionRepaired)
               : resolutionRepaired;
@@ -1139,6 +1143,17 @@ function learnerFacingSentence(action: string): string {
 
 function learnerFacingStrongResponse(actions: string[]): string {
   return actions.map(learnerFacingSentence).join(" ");
+}
+
+function repairLearnerFacingStrongResponses(content: GeneratedContent): GeneratedContent {
+  return {
+    ...content,
+    phases: content.phases.map((phase) =>
+      isLearnerFacingStrongResponse(phase.strongLearnerResponse || "")
+        ? phase
+        : { ...phase, strongLearnerResponse: learnerFacingStrongResponse(phase.learnerActions) }
+    ),
+  };
 }
 
 function assertGeneratedContent(value: GeneratedContent): void {

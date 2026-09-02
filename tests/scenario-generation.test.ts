@@ -256,9 +256,7 @@ test("retries instruction-style strong responses until they are learner-facing",
         ...generated,
         phases: [{
           ...generated.phases[0],
-          strongLearnerResponse: calls === 1
-            ? "Acknowledge the concern and confirm the delayed order."
-            : "I understand how concerning this delay is. Let me confirm the order details with you.",
+          strongLearnerResponse: "Acknowledge the concern and confirm the delayed order.",
         }],
       });
     },
@@ -269,9 +267,9 @@ test("retries instruction-style strong responses until they are learner-facing",
 
   assert.equal(response.status, 200);
   assert.equal(calls, 2);
-  assert.equal(
+  assert.match(
     payload.draft.phases[0].strongLearnerResponse,
-    "I understand how concerning this delay is. Let me confirm the order details with you.",
+    /I’m sorry this happened, and I understand your concern\./,
   );
 });
 
