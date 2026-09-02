@@ -2543,6 +2543,7 @@ test("does not copy prohibited-alternative facts into a rebuilt approved outcome
 
   assert.equal(response.status, 200, JSON.stringify(payload.error));
   assert.deepEqual(payload.draft.phases[0].learnerActions, ["Issue the refund."]);
+  assert.equal(payload.draft.objectives[0].description, "Apply the approved refund process accurately.");
   assert.doesNotMatch(JSON.stringify(payload.draft.phases), /10\.00|tomorrow|store credit|replacement/i);
 });
 
@@ -3856,6 +3857,90 @@ test("rebuilds repeated generic corrective output from the exact creator-approve
   assert.equal(learnerActions.includes("Offer a no-cost replacement."), true);
   assert.equal(learnerActions.includes("Place a no-cost replacement order."), true);
   assert.equal(learnerActions.includes("Tell the Conversation Partner they do not need to return the item."), true);
+});
+
+test("drops stray provider objectives when rebuilding from the exact creator-approved process", async () => {
+  const exactHandling = "Acknowledge the frustration and apologize. Offer a no-cost replacement. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement, explain that it should arrive within 2-3 business days, and tell the customer they do not need to return the damaged bag. Do not offer a refund or store credit.";
+  const prohibitedActions = ["Do not offer a refund or store credit."];
+  const duplicateOutcomePhase = (id: string) => {
+    const phase = {
+      ...generated.phases[0],
+      id,
+      learnerActions: ["Process the replacement order."],
+      chatAdvanceRequirements: [],
+      partnerResponse: "Thank you.",
+    };
+    return {
+      ...phase,
+      chatAdvanceRequirements: compileSafeChatAdvanceRequirements(
+        phase,
+        prohibitedActions,
+        generated.customer.name,
+      )!,
+    };
+  };
+  const providerDraft = {
+    ...generated,
+    learnerGoal: exactHandling,
+    correctProcess: [exactHandling],
+    prohibitedActions,
+    phases: [duplicateOutcomePhase("first_outcome"), duplicateOutcomePhase("second_outcome")],
+    objectives: [
+      {
+        ...generated.objectives[0],
+        id: "unapproved_transfer",
+        label: "Transfer to a supervisor",
+        description: "Escalate the conversation.",
+        criteria: ["Transfer the conversation to a supervisor."],
+      },
+      {
+        ...generated.objectives[0],
+        id: "complete_action",
+        criteria: ["Complete the approved action."],
+      },
+      {
+        ...generated.objectives[0],
+        id: "acknowledge_concern",
+        criteria: ["Acknowledge the concern."],
+      },
+    ],
+  };
+  let calls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      calls += 1;
+      return providerResponse(providerDraft);
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer received a torn dog food bag and needs a usable replacement.",
+    learnerGoal: exactHandling,
+    correctProcess: exactHandling,
+  }));
+  const payload = await response.json();
+  const criteria = payload.draft?.objectives
+    .flatMap((objective: { criteria: string[] }) => objective.criteria) ?? [];
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(calls, 2);
+  assert.equal(payload.draft.objectives.length, 1);
+  assert.deepEqual({
+    id: payload.draft.objectives[0].id,
+    label: payload.draft.objectives[0].label,
+    description: payload.draft.objectives[0].description,
+  }, {
+    id: "complete_approved_replacement",
+    label: "Complete the approved replacement",
+    description: "Apply the approved replacement process accurately.",
+  });
+  assert.equal(criteria.includes("Transfer the conversation to a supervisor."), false);
+  assert.deepEqual(criteria, [
+    ...payload.draft.phases.flatMap((phase: { learnerActions: string[] }) => phase.learnerActions),
+    ...payload.draft.prohibitedActions,
+  ]);
 });
 
 test("fails closed when a generic fallback would drop an unsupported creator behavior", async () => {

@@ -989,6 +989,15 @@ function rebuildGeneratedResolutionPhases(
       ...authoritativeContent,
       prohibitedActions: effectiveProhibitedActions,
       phases,
+      objectives: [{
+        id: `complete_approved_${blueprint.option}`,
+        label: `Complete the approved ${blueprint.option}`,
+        description: `Apply the approved ${blueprint.option} process accurately.`,
+        criteria: uniqueStrings([
+          ...phases.flatMap((phase) => phase.learnerActions),
+          ...effectiveProhibitedActions,
+        ]),
+      }],
     },
   };
 }
