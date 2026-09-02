@@ -20,6 +20,7 @@ import {
   duplicatePhase,
   editChatAdvanceRequirementPhrases,
   reviewFindingTargets,
+  readScenarioJsonUploads,
   runCreateDraftBuild,
   finalCheckDisplayState,
   saveDraft,
@@ -116,16 +117,50 @@ test("uses 100 as the missing-score baseline in Review/Edit", () => {
   assert.equal(stepPassingScore("", -1), 99);
 });
 
-test("adapts the original final stage to local save and download without Test or Publish", () => {
+test("offers JSON import in Build and only downloads in the final stage", () => {
   const html = readFileSync(new URL("public/builder-studio/index.html", root), "utf8");
 
+  assert.match(html, /id="buildImportInput"[^>]*multiple/);
+  assert.match(html, /Upload one Chat or Voice JSON file/);
   assert.match(html, /Step 3[\s\S]*Download/);
-  assert.match(html, /Save Draft/);
+  assert.doesNotMatch(html, /Save Draft/);
   assert.match(html, /Download JSON/);
   assert.doesNotMatch(html, />Test</);
   assert.doesNotMatch(html, /simulatorPreviewFrame/);
   assert.doesNotMatch(html, /Publish conversation/);
   assert.doesNotMatch(html, /Conversation Library/);
+});
+
+test("reads one JSON upload or a matching pair payload", async () => {
+  const chat = { name: "conversation_chat.json", size: 20, text: async () => '{"channels":["chat"]}' };
+  const voice = { name: "conversation_voice.json", size: 21, text: async () => '{"channels":["voice"]}' };
+
+  assert.deepEqual(await readScenarioJsonUploads([chat]), { channels: ["chat"] });
+  assert.deepEqual(await readScenarioJsonUploads([chat, voice]), [
+    { channels: ["chat"] },
+    { channels: ["voice"] },
+  ]);
+  await assert.rejects(() => readScenarioJsonUploads([chat, voice, chat]), /one matching Chat and Voice pair/);
+  await assert.rejects(() => readScenarioJsonUploads([{ ...chat, name: "notes.txt" }]), /not a JSON file/);
+});
+
+test("uses the generated direct learner wording for the strong response", () => {
+  const authoring = standaloneToAuthoringDraft({
+    phases: [{
+      id: "acknowledge",
+      title: "Acknowledge",
+      learnerActions: ["Acknowledge the concern."],
+      strongLearnerResponse: "I’m sorry this happened, Jordan. I can help.",
+      coachGuidance: [],
+      partnerResponse: "Thank you.",
+    }],
+    objectives: [],
+  });
+
+  assert.equal(
+    authoring.flow.phases[0].strongLearnerResponse,
+    "I’m sorry this happened, Jordan. I can help.",
+  );
 });
 
 test("bridges the original UI to standalone persistence and the existing backend", () => {
@@ -411,6 +446,7 @@ test("clears stale Chat advance requirements when the strong response changes", 
     {
       ...phase,
       strongLearnerResponse: "Confirm the expected delivery date.",
+      learnerActions: ["Confirm the expected delivery date."],
       chatAdvanceRequirements: [],
     },
   );

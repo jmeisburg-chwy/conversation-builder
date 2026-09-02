@@ -126,6 +126,9 @@ const elements = {
   buildCreatingCoach: $("#buildCreatingCoach"),
   buildCreatingCoachMessage: $("#buildCreatingCoachMessage"),
   buildIntakeStatus: $("#buildIntakeStatus"),
+  buildImportButton: $("#buildImportButton"),
+  buildImportInput: $("#buildImportInput"),
+  buildImportStatus: $("#buildImportStatus"),
   customerSituationInput: $("#customerSituationInput"),
   learnerApproachInput: $("#learnerApproachInput"),
   sourceGroundingMount: $("#sourceGroundingMount"),
@@ -210,7 +213,6 @@ const elements = {
   releaseNoteInput: $("#releaseNoteInput"),
   releaseNoteCount: $("#releaseNoteCount"),
   publishChecksList: $("#publishChecksList"),
-  savePersistentDraftButton: $("#savePersistentDraftButton"),
   downloadJsonMenu: $("#downloadJsonMenu"),
   downloadChatJsonButton: $("#downloadChatJsonButton"),
   downloadVoiceJsonButton: $("#downloadVoiceJsonButton"),
@@ -1438,6 +1440,60 @@ function setBuildIntakeStatus(message = "", state = "") {
   elements.buildIntakeStatus.hidden = !text;
 }
 
+const MAX_SCENARIO_JSON_BYTES = 500_000;
+
+export async function readScenarioJsonUploads(files) {
+  const selected = [...(files || [])];
+  if (selected.length < 1 || selected.length > 2) {
+    throw new Error("Choose one JSON file, or one matching Chat and Voice pair.");
+  }
+  const invalid = selected.find((file) =>
+    !String(file?.name || "").toLowerCase().endsWith(".json")
+  );
+  if (invalid) throw new Error(`${invalid.name || "That file"} is not a JSON file.`);
+  const oversized = selected.find((file) => Number(file?.size || 0) > MAX_SCENARIO_JSON_BYTES);
+  if (oversized) throw new Error(`${oversized.name} is too large. Choose a JSON file smaller than 500 KB.`);
+  const parsed = await Promise.all(selected.map(async (file) => {
+    try {
+      return JSON.parse(await file.text());
+    } catch {
+      throw new Error(`${file.name} is not valid JSON. Fix the file and upload it again.`);
+    }
+  }));
+  return parsed.length === 1 ? parsed[0] : parsed;
+}
+
+function setBuildImportStatus(message = "", state = "") {
+  const text = String(message || "").trim();
+  elements.buildImportStatus.textContent = text;
+  elements.buildImportStatus.dataset.state = text ? state : "";
+  elements.buildImportStatus.hidden = !text;
+}
+
+async function importScenarioJsonUploads(files) {
+  const selected = [...(files || [])];
+  if (!selected.length) return;
+  if ((state.currentDraftActive || hasBuildInputWork()) && !window.confirm(
+    "Open the uploaded JSON? This replaces the current in-tab draft."
+  )) return;
+  elements.buildImportButton.disabled = true;
+  setBuildImportStatus(`Opening ${selected.length === 1 ? selected[0].name : "the Chat and Voice files"}…`);
+  try {
+    const payload = await readScenarioJsonUploads(selected);
+    const imported = importStudioScenarios(payload);
+    applyDraftToWorkflow({
+      draft: imported.draft,
+      canonicalScenarios: imported.scenarios,
+      authoringDraft: true
+    });
+    showToast(`${imported.draft.scenario?.title || "Conversation"} is ready to update.`);
+  } catch (error) {
+    setBuildImportStatus(String(error?.message || error), "error");
+  } finally {
+    elements.buildImportButton.disabled = false;
+  }
+}
+
 async function playBuildCoachAcknowledgement({
   coach,
   message,
@@ -1451,6 +1507,7 @@ async function playBuildCoachAcknowledgement({
 
 function setBuildIntakeControlsDisabled(disabled) {
   [
+    elements.buildImportButton,
     elements.customerSituationInput,
     elements.learnerApproachInput,
     elements.buildConversationContinueButton,
@@ -3504,6 +3561,7 @@ function initializeFreshConversation() {
   elements.customerSituationInput.value = "";
   elements.learnerApproachInput.value = "";
   setBuildIntakeStatus("");
+  setBuildImportStatus("");
   setBuildIntakeStep("conversation");
   renderSourceGrounding();
   renderSourceUpdateProposal();
@@ -4389,6 +4447,7 @@ export function updatePhaseStrongLearnerResponse(phase, response) {
   const nextResponse = String(response ?? "");
   if (String(next.strongLearnerResponse ?? "") === nextResponse) return next;
   next.strongLearnerResponse = nextResponse;
+  next.learnerActions = [nextResponse].filter((value) => value.trim());
   next.chatAdvanceRequirements = [];
   return next;
 }
@@ -8859,7 +8918,6 @@ function renderPendingPublishInteractionLock() {
     lockedControls: [
       elements.validateButton,
       elements.validationIssues,
-      elements.savePersistentDraftButton,
       elements.downloadJsonMenu,
       elements.draftConflictNotice,
       elements.nothingToPublish,
@@ -9373,6 +9431,14 @@ function wireControls() {
   ensureSourceGroundingControls();
   wireSelectTitleSynchronization();
   wireTaxonomyControls();
+  elements.buildImportButton.addEventListener("click", () => {
+    elements.buildImportInput.click();
+  });
+  elements.buildImportInput.addEventListener("change", async () => {
+    const files = [...(elements.buildImportInput.files || [])];
+    elements.buildImportInput.value = "";
+    await importScenarioJsonUploads(files);
+  });
   elements.addSetupObjectiveButton.addEventListener("click", () => {
     const added = addObjective(state.draft, {
       objectiveId: guidanceItemId("learning_objective"),
@@ -9761,15 +9827,6 @@ function wireControls() {
     });
   });
   elements.validateButton.addEventListener("click", runValidation);
-  elements.savePersistentDraftButton.addEventListener("click", async () => {
-    elements.savePersistentDraftButton.disabled = true;
-    elements.publishStatus.textContent = "Saving draft…";
-    const result = await persistCurrentDraft({ status: "draft" });
-    if (!result.saved && !result.conflict && result.error) {
-      showToast("Draft could not be saved. Try again.");
-    }
-    elements.savePersistentDraftButton.disabled = false;
-  });
   elements.downloadChatJsonButton.addEventListener("click", () => downloadPortableScenario("chat"));
   elements.downloadVoiceJsonButton.addEventListener("click", () => downloadPortableScenario("voice"));
   elements.copyJsonButton.addEventListener("click", copyPortableScenarioJson);

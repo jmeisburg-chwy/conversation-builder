@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light" />
     <title>Conversation Builder</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/builder-studio/styles.css?revision=2026-09-02-content-alignment" />
+    <link rel="stylesheet" href="/builder-studio/styles.css?revision=2026-09-02-json-import" />
     <link rel="stylesheet" href="/shared/action-tooltips.css?revision=2026-08-31-standalone-direct-port" />
   </head>
   <body data-builder-view="workflow">
@@ -49,6 +49,20 @@
         <div class="page-card create-card">
           <div class="page-heading">
             <h2>Build</h2>
+          </div>
+
+          <section class="build-import" aria-labelledby="buildImportHeading">
+            <div>
+              <h3 id="buildImportHeading">Update an existing conversation</h3>
+              <p>Upload one Chat or Voice JSON file, or upload both matching files together.</p>
+            </div>
+            <button id="buildImportButton" class="button secondary" type="button">Upload JSON</button>
+            <input id="buildImportInput" type="file" accept=".json,application/json" multiple />
+            <p id="buildImportStatus" class="build-import-status" role="status" aria-live="polite" hidden></p>
+          </section>
+
+          <div class="build-option-divider" role="separator">
+            <span>or start from scratch</span>
           </div>
 
           <div id="buildConversationStep" class="build-intake-step">
@@ -426,14 +440,13 @@
             <h2>Download</h2>
             <div class="coach-line stage-coach-line">
               <img src="/builder-studio/assets/coach-chewy.png" width="1024" height="1023" alt="" aria-hidden="true" />
-              <p><span class="visually-hidden">Coach Chewy says: </span>Save your draft, download the JSON, and test it in your external simulator. Return to Review/Edit to make changes, then download the final version for Articulate Rise.</p>
+              <p><span class="visually-hidden">Coach Chewy says: </span>Download the JSON and test it in your external simulator. Return to Review/Edit to make changes, then download the final version for Articulate Rise.</p>
             </div>
           </div>
 
           <section class="publish-section" aria-labelledby="publishHeading">
-            <h3 id="publishHeading">Save and download conversation JSON</h3>
+            <h3 id="publishHeading">Download conversation JSON</h3>
             <div class="publish-secondary-actions">
-              <button id="savePersistentDraftButton" class="button secondary" type="button">Save Draft</button>
               <details id="downloadJsonMenu" class="download-json-menu">
                 <summary class="button secondary">Download JSON</summary>
                 <div class="download-json-options" aria-label="Validated JSON downloads">
@@ -508,6 +521,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-    <script type="module" src="/builder-studio/app.js?revision=2026-08-31-standalone-direct-port-7"></script>
+    <script type="module" src="/builder-studio/app.js?revision=2026-09-02-json-import"></script>
   </body>
 </html>

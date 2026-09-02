@@ -504,6 +504,10 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
     : dedupeGeneratedBoundaryCriteria(mappedObjectives, authoritativeProhibitedActions);
   const phases = sourcePhases.map((phase, index) => {
     const phaseId = slug(phase?.id, `phase_${index + 1}`);
+    const strongLearnerResponse = text(
+      phase?.strongLearnerResponse,
+      list(phase?.learnerActions).join(" ")
+    );
     const hierarchy = canonicalPhaseGuidance(
       mergedPhaseGuidance(phase, phaseId),
       phaseId,
@@ -517,7 +521,8 @@ export function standaloneToAuthoringDraft(draft, creatorInput = {}) {
       partnerTurn: index === 0
         ? text(draft?.customer?.openingLine, phase?.partnerResponse)
         : text(sourcePhases[index - 1]?.partnerResponse),
-      strongLearnerResponse: list(phase?.learnerActions).join(" "),
+      strongLearnerResponse,
+      learnerActions: list(phase?.learnerActions),
       chatAdvanceRequirements: chatAdvanceRequirements(phase?.chatAdvanceRequirements, phaseId),
       coachGuidance: {
         title: text(phase?.guideTitle, phase?.title),
@@ -680,7 +685,10 @@ export function authoringToStandaloneDraft(draft) {
       conditionalFollowUps,
       closingLine: text(draft?.flow?.closingPartnerTurn, draft?.facts?.closingLine),
     },
-    correctProcess: phases.map((phase) => text(phase?.strongLearnerResponse)).filter(Boolean),
+    correctProcess: phases.flatMap((phase) => {
+      const learnerActions = list(phase?.learnerActions);
+      return learnerActions.length ? learnerActions : [text(phase?.strongLearnerResponse)].filter(Boolean);
+    }),
     prohibitedActions: cautions,
     phases: phases.map((phase, index) => {
       const phaseId = slug(phase?.id, `phase_${index + 1}`);
@@ -688,7 +696,10 @@ export function authoringToStandaloneDraft(draft) {
       return {
         id: phaseId,
         title: text(phase?.title, `Phase ${index + 1}`),
-        learnerActions: [text(phase?.strongLearnerResponse)].filter(Boolean),
+        learnerActions: (() => {
+          const learnerActions = list(phase?.learnerActions);
+          return learnerActions.length ? learnerActions : [text(phase?.strongLearnerResponse)].filter(Boolean);
+        })(),
         chatAdvanceRequirements: chatAdvanceRequirements(phase?.chatAdvanceRequirements, phaseId),
         partnerResponse: text(phases[index + 1]?.partnerTurn, draft?.flow?.closingPartnerTurn),
         coachGuidance: flattenedGuidance(hierarchy),

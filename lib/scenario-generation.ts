@@ -1297,6 +1297,9 @@ function normalizeDraft(content: GeneratedContent, input: GenerateRequest): Stud
       return {
         ...phase,
         learnerActions: phase.learnerActions.map(normalizeProhibitedEcho),
+        strongLearnerResponse: nonempty(phase.strongLearnerResponse)
+          ? phase.strongLearnerResponse.trim()
+          : phase.learnerActions.join(" "),
         coachGuidance: phase.coachGuidance.map(normalizeProhibitedEcho),
         ...(sourcePhase?.guideSourceLabel !== undefined ? { guideSourceLabel: sourcePhase.guideSourceLabel } : {}),
         ...(sourcePhase?.guideSource !== undefined ? { guideSource: sourcePhase.guideSource } : {}),
@@ -1705,6 +1708,7 @@ When a street address is needed, use the visibly fictional placeholder 123 Examp
 Treat supplied correct-process details as the authority. Surface uncertainty in assumptions.
 If the supplied correct-process details do not state one exact authorized action and expected outcome, do not guess. Add exactly MISSING_POLICY as a standalone item in assumptions.
 Make each objective observable and each phase response-ordered. Keep customer responses natural and concise.
+For every phase, write strongLearnerResponse as a complete, natural response the Learner could say directly to the Conversation Partner. Use first-person, customer-facing language—not an instruction such as “Acknowledge the concern” or “Explain the next step.” Keep learnerActions as concise observable instructions describing what that response accomplishes.
 Each phase.partnerResponse is the new Conversation Partner turn after the Learner completes that phase. It must never repeat customer.openingLine.
 If a Learner phase asks, confirms, or discovers a customer fact or preference, do not reveal that answer in customer.openingLine. Reveal it once in that phase.partnerResponse.
 Keep an unresolved preference question in its own phase. Let the Conversation Partner answer before a later phase issues, processes, completes, recaps, or closes the outcome.
@@ -1757,11 +1761,12 @@ const GENERATED_CONTENT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "title", "learnerActions", "chatAdvanceRequirements", "partnerResponse", "coachGuidance", "customerRemainsSilent"],
+        required: ["id", "title", "learnerActions", "strongLearnerResponse", "chatAdvanceRequirements", "partnerResponse", "coachGuidance", "customerRemainsSilent"],
         properties: {
           id: { type: "string", pattern: "^[a-z0-9]+(?:_[a-z0-9]+)*$" },
           title: { type: "string" },
           learnerActions: stringArray,
+          strongLearnerResponse: { type: "string" },
           chatAdvanceRequirements: {
             type: "array",
             minItems: 1,

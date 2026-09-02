@@ -1129,6 +1129,7 @@ function normalizeConversationPhases(value, fallback, openingLine) {
       purpose: cleanText(candidate.purpose),
       partnerTurn: cleanText(candidate.partnerTurn, fallbackPartnerTurn),
       strongLearnerResponse,
+      learnerActions: cleanList(candidate.learnerActions, strongLearnerResponse ? [strongLearnerResponse] : []),
       chatAdvanceRequirements: normalizeChatAdvanceRequirements(candidate.chatAdvanceRequirements, id),
       coachGuidance: normalizePhaseGuidance(
         candidate.coachGuidance,

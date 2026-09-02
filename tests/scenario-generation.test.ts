@@ -96,6 +96,7 @@ const generated = {
       id: "acknowledge_and_clarify",
       title: "Acknowledge and clarify",
       learnerActions: ["Acknowledge the concern and confirm the delayed order."],
+      strongLearnerResponse: "I understand how concerning this delay is, Jordan. Let me confirm the order details with you.",
       chatAdvanceRequirements: [
         { id: "acknowledgement", phrases: ["sorry", "understand", "concern"] },
         { id: "delayed_order", phrases: ["delayed order", "late order"] },
@@ -1255,12 +1256,15 @@ test("sends one strict, tool-free, non-stored request and returns a normalized d
   assert.equal(sent.tools, undefined);
   assert.equal(sent.text.format.strict, true);
   assert.equal(sent.text.format.type, "json_schema");
+  assert.equal(sent.text.format.schema.properties.phases.items.required.includes("strongLearnerResponse"), true);
+  assert.match(sent.input[0].content[0].text, /complete, natural response the Learner could say directly/);
   assert.equal(payload.draft.baseId, "late_dog_food_order");
   assert.deepEqual(payload.draft.channels, ["chat", "voice"]);
   assert.equal(payload.draft.chat.hotkeyProfile, "core");
   assert.equal(payload.draft.chat.standardTextRecommendations.length > 0, true);
   assert.equal(payload.draft.chat.standardTextRecommendations.length <= 3, true);
   assert.equal(payload.draft.voice.selectedVoice, "marin");
+  assert.equal(payload.draft.phases[0].strongLearnerResponse, generated.phases[0].strongLearnerResponse);
   assert.deepEqual(payload.assumptions, generated.assumptions);
 });
 

@@ -346,6 +346,74 @@ body[data-builder-view="workflow"] .studio-brand p {
   margin: 0 auto;
 }
 
+.build-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  width: min(900px, 100%);
+  margin: 0 auto 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--blue-200);
+  border-radius: 10px;
+  background: var(--blue-50);
+  gap: 8px 20px;
+}
+
+.build-import h3,
+.build-import p {
+  margin: 0;
+}
+
+.build-import h3 {
+  color: var(--blue-900);
+  font-size: 1rem;
+}
+
+.build-import p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+#buildImportInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.build-import-status {
+  grid-column: 1 / -1;
+  color: var(--blue-800) !important;
+  font-weight: 750;
+}
+
+.build-import-status[data-state="error"] {
+  color: var(--danger) !important;
+}
+
+.build-option-divider {
+  display: flex;
+  align-items: center;
+  width: min(900px, 100%);
+  margin: 0 auto 24px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  gap: 12px;
+  text-transform: uppercase;
+}
+
+.build-option-divider::before,
+.build-option-divider::after {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  content: "";
+}
+
 .build-intake-step {
   display: grid;
   width: min(900px, 100%);
@@ -4303,6 +4371,14 @@ input[type="range"] {
 }
 
 @media (max-width: 700px) {
+  .build-import {
+    grid-template-columns: 1fr;
+  }
+
+  .build-import .button {
+    width: 100%;
+  }
+
   .studio-header {
     align-items: stretch;
     flex-direction: column;

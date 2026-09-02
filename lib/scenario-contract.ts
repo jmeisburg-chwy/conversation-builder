@@ -39,6 +39,7 @@ export interface PhaseDraft {
   id: string;
   title: string;
   learnerActions: string[];
+  strongLearnerResponse?: string;
   chatAdvanceRequirements?: ChatAdvanceRequirementDraft[];
   partnerResponse: string;
   coachGuidance: string[];
