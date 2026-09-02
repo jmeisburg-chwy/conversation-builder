@@ -119,7 +119,8 @@ legend,
   justify-content: space-between;
   gap: 16px;
   min-height: 92px;
-  padding: 18px clamp(20px, 4vw, 52px);
+  padding-block: 18px;
+  padding-inline: max(20px, calc((100vw - 920px) / 2));
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -140,7 +141,7 @@ legend,
 
 body[data-builder-view="workflow"] .studio-header {
   min-height: 68px;
-  padding: 10px clamp(20px, 4vw, 52px);
+  padding-block: 10px;
 }
 
 body[data-builder-view="workflow"] .studio-brand h1 {
