@@ -3807,6 +3807,127 @@ test("fails closed when a generic provider phase has only style guidance", async
   assert.equal("draft" in payload, false);
 });
 
+test("rebuilds repeated generic corrective output from the exact creator-approved replacement process", async () => {
+  const exactHandling = "Acknowledge the frustration and apologize. Offer a no-cost replacement. Confirm the customer wants the replacement before placing it. After confirmation, place the replacement, explain that it should arrive within 2-3 business days, and tell the customer they do not need to return the damaged bag. Do not offer a refund or store credit.";
+  const genericDraft = {
+    ...generated,
+    title: "Damaged Dog Food Bag Replacement",
+    learnerGoal: exactHandling,
+    customer: {
+      ...generated.customer,
+      name: "Maya",
+      openingLine: "My dog food bag arrived torn and unusable.",
+    },
+    correctProcess: [exactHandling],
+    prohibitedActions: ["Do not offer a refund or store credit."],
+    phases: [{
+      ...generated.phases[0],
+      learnerActions: ["Acknowledge"],
+      chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["acknowledge"] }],
+      coachGuidance: ["Use a warm tone."],
+    }],
+    objectives: [{
+      ...generated.objectives[0],
+      id: "replacement_resolution",
+      criteria: ["Acknowledge the concern."],
+    }],
+  };
+  let calls = 0;
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      calls += 1;
+      return providerResponse(genericDraft);
+    },
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    situation: "A fictional customer received a torn dog food bag and needs a usable replacement.",
+    learnerGoal: exactHandling,
+    correctProcess: exactHandling,
+  }));
+  const payload = await response.json();
+  const learnerActions = payload.draft?.phases
+    .flatMap((phase: { learnerActions: string[] }) => phase.learnerActions) ?? [];
+
+  assert.equal(response.status, 200, JSON.stringify(payload.error));
+  assert.equal(calls, 2);
+  assert.equal(learnerActions.includes("Offer a no-cost replacement."), true);
+  assert.equal(learnerActions.includes("Place a no-cost replacement order."), true);
+  assert.equal(learnerActions.includes("Tell the Conversation Partner they do not need to return the item."), true);
+});
+
+test("fails closed when a generic fallback would drop an unsupported creator behavior", async () => {
+  const handler = createGenerateHandler({
+    apiKey: "test-key",
+    fetchImpl: async () => providerResponse({
+      ...generated,
+      phases: [{
+        ...generated.phases[0],
+        learnerActions: ["Acknowledge"],
+        chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["acknowledge"] }],
+        coachGuidance: ["Use a warm tone."],
+      }],
+      objectives: [{
+        ...generated.objectives[0],
+        criteria: ["Acknowledge the concern."],
+      }],
+    }),
+  });
+
+  const response = await handler(request({
+    ...validBody,
+    learnerGoal: "Acknowledge the concern and use the approved escalation.",
+    correctProcess: "Acknowledge the concern. Escalate the case to a supervisor.",
+  }));
+  const payload = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(payload.error.code, "generation_unavailable");
+  assert.equal("draft" in payload, false);
+});
+
+test("preserves an Avoid colon guardrail during the generic behavior fallback", async () => {
+  for (const correctProcess of [
+    "Acknowledge the concern. Avoid: Do not guarantee a delivery date.",
+    "Acknowledge the concern.\n- Avoid: Do not guarantee a delivery date.",
+  ]) {
+    let calls = 0;
+    const handler = createGenerateHandler({
+      apiKey: "test-key",
+      fetchImpl: async () => {
+        calls += 1;
+        return providerResponse({
+          ...generated,
+          prohibitedActions: [],
+          phases: [{
+            ...generated.phases[0],
+            learnerActions: ["Acknowledge"],
+            chatAdvanceRequirements: [{ id: "acknowledgement", phrases: ["acknowledge"] }],
+            coachGuidance: ["Use a warm tone."],
+          }],
+          objectives: [{
+            ...generated.objectives[0],
+            criteria: ["Acknowledge the concern."],
+          }],
+        });
+      },
+    });
+
+    const response = await handler(request({
+      ...validBody,
+      learnerGoal: "Acknowledge the concern without making an unconfirmed delivery promise.",
+      correctProcess,
+    }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 200, JSON.stringify(payload.error));
+    assert.equal(calls, 2);
+    assert.deepEqual(payload.draft.prohibitedActions, ["Do not guarantee a delivery date."]);
+  }
+});
+
 test("validates normalized refund criteria through the complete generated Review/Edit download path", async () => {
   const generate = createGenerateHandler({
     apiKey: "test-key",

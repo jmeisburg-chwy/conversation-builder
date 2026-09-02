@@ -235,6 +235,7 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
           if (caught instanceof RepairableGeneratedContentError
             && caught.repairCodes.every((code) =>
               code === "chat_advance_requirements"
+              || code === "generic_phase_learner_actions"
               || code === "operational_criterion_coverage"
               || code === "overlapping_resolution_prohibitions"
             )) {
@@ -264,7 +265,9 @@ export function createGenerateHandler(options: GenerateHandlerOptions = {}) {
             } catch (repairFailure) {
               const rebuildResult = repairFailure instanceof RepairableGeneratedContentError
                 && repairFailure.repairCodes.every((code) =>
-                  code === "chat_advance_requirements" || code === "operational_criterion_coverage"
+                  code === "chat_advance_requirements"
+                  || code === "generic_phase_learner_actions"
+                  || code === "operational_criterion_coverage"
                 )
                 ? rebuildGeneratedPhases(resolutionRepaired, input.correctProcess)
                 : undefined;
@@ -706,7 +709,7 @@ function authoritativeProhibitedActions(correctProcess: string | undefined): str
   if (!correctProcess) return [];
   return uniqueStrings(correctProcess
     .split(/(?<=[.!?])\s+|\n+/u)
-    .map((sentence) => sentence.trim())
+    .map((sentence) => sentence.trim().replace(/^[-*]\s+/u, ""))
     .map((sentence) => !/^no\b/iu.test(sentence) && generatedNegativeAction(sentence)
       ? normalizeGeneratedProhibitedAction(sentence)
       : "")
@@ -1007,11 +1010,14 @@ function rebuildGeneratedBehaviorPhases(
   correctProcess: string | undefined,
 ): GeneratedContent | undefined {
   if (!correctProcess || approvedResolutionBlueprint(correctProcess)) return undefined;
-  const actions = correctProcess
+  const processClauses = correctProcess
     .split(/\n+|(?<=[.!?])\s+/u)
     .map((entry) => entry.trim().replace(/^[-*]\s+/u, ""))
-    .filter((entry) => APPROVED_PROCESS_ACTION_START.test(entry) && !generatedNegativeAction(entry));
-  if (!actions.length) return undefined;
+    .filter(nonempty);
+  const actions = processClauses.filter((entry) =>
+    !generatedNegativeAction(entry) && !/^avoid\s*:/iu.test(entry)
+  );
+  if (!actions.length || actions.some((entry) => !APPROVED_PROCESS_ACTION_START.test(entry))) return undefined;
   if (/\$\s*\d+\.\d{2}\b|\b(?:refund\w*|replac\w*|reship\w*|store credit|transfer\w*)\b/iu.test(actions.join(" "))) {
     return undefined;
   }
@@ -1343,7 +1349,7 @@ const GENERATED_IMPERATIVE_BASES = new Set(
 );
 
 const GENERATED_DIRECT_NEGATIVE_ACTION_PATTERN = /^\s*(?:do\s+not|don['’]t|must\s+not|never|refrain(?:\s+from)?)\s+(.+?)\s*$/iu;
-const GENERATED_DIRECT_AVOID_ACTION_PATTERN = /^\s*(?:avoid|no)\s+(.+?)\s*$/iu;
+const GENERATED_DIRECT_AVOID_ACTION_PATTERN = /^\s*(?:avoid\b\s*:?\s*|no\s+)(.+?)\s*$/iu;
 const GENERATED_SUBJECT_NEGATIVE_ACTION_PATTERN = new RegExp(
   String.raw`^\s*(?:(?:the|a)\s+)?(?:learner|agent|representative|chewy (?:agent|representative))\s+(?:(?:(?:must|should|will|can|could|would|may|shall|does?)\s+(?:not|never))|cannot|can['’]t|doesn['’]t|won['’]t|(?:could|would|should|must|shall)n['’]t|never)\s+(.+?)\s*$`,
   "iu",
@@ -1364,7 +1370,10 @@ function generatedNegativeAction(value: string): { action: string; style: "avoid
   if (directNegative) return { action: directNegative[1], style: "do_not" };
 
   const directAvoid = value.match(GENERATED_DIRECT_AVOID_ACTION_PATTERN);
-  if (directAvoid) return { action: directAvoid[1], style: "avoid" };
+  if (directAvoid) {
+    const nestedNegative = generatedNegativeAction(directAvoid[1]);
+    return nestedNegative ?? { action: directAvoid[1], style: "avoid" };
+  }
 
   return null;
 }
