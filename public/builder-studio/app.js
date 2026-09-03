@@ -1355,19 +1355,37 @@ export async function requestGeneratedStudioDraftFromInputs({
     learnerApproach: String(learnerApproachInput?.value || ""),
     deidentificationConfirmed: true
   };
-  const response = await request("/api/builder/generate", {
-    method: "POST",
-    body: JSON.stringify({
-      mode: "new",
-      channels,
-      situation: creatorInput.conversationAbout,
-      learnerGoal: creatorInput.learnerApproach,
-      correctProcess: creatorInput.learnerApproach,
-      deidentificationConfirmed: true
-    })
-  });
-  if (!response?.draft) throw new Error("We couldn’t create a safe draft this time. Try again.");
-  return normalizeStudioDraft(standaloneToAuthoringDraft(response.draft, creatorInput));
+  try {
+    const response = await request("/api/builder/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "new",
+        channels,
+        situation: creatorInput.conversationAbout,
+        learnerGoal: creatorInput.learnerApproach,
+        correctProcess: creatorInput.learnerApproach,
+        deidentificationConfirmed: true
+      })
+    });
+    if (!response?.draft) throw new Error("We couldn’t create a safe draft this time. Try again.");
+    return normalizeStudioDraft(standaloneToAuthoringDraft(response.draft, creatorInput));
+  } catch (error) {
+    const code = String(error?.code || "").trim().toLowerCase();
+    if (![
+      "approved_resolution_required",
+      "generation_not_configured",
+      "generation_timeout",
+      "generation_unavailable",
+      "unsafe_provider_output"
+    ].includes(code)) {
+      throw error;
+    }
+    return createMinimumInputDraft({
+      conversationAbout: creatorInput.conversationAbout,
+      learnerApproach: creatorInput.learnerApproach,
+      channels
+    });
+  }
 }
 
 export async function waitForGeneratedStudioDraft(
@@ -2870,9 +2888,9 @@ export function createMinimumInputDraft({
   }
   const isAvoidance = (item) => /^(?:avoid|do not|don't|never)\b/iu.test(item);
   const correct = approach.filter((item) => !isAvoidance(item));
-  if (!correct.length) {
-    throw new Error("Describe at least one thing the Learner should do.");
-  }
+  const draftSteps = correct.length
+    ? correct
+    : ["Add the Learner's approved action and expected outcome before downloading."];
   const avoided = approach
     .filter(isAvoidance)
     .map((item) => item.replace(/^avoid:\s*/iu, ""));
@@ -2899,20 +2917,20 @@ export function createMinimumInputDraft({
   if (situation) next.scenario.description = situation;
   next.scenario.channels = selectedChannels;
   next.evaluation.mode = "focused_learning_objectives";
-  if (correct.length) next.handling.correct = correct;
+  next.handling.correct = draftSteps;
   if (avoided.length) next.handling.avoid = avoided;
-  next.evaluation.criteria = [...correct];
+  next.evaluation.criteria = [...draftSteps];
   const objectiveId = "approved_conversation_path";
   next.evaluation.objectives = [{
     id: objectiveId,
     label: "Lead the conversation effectively",
     description: "Demonstrate the expected approach and outcome for this conversation.",
-    criteria: correct.map((text, index) => ({
+    criteria: draftSteps.map((text, index) => ({
       id: `${objectiveId}_criterion_${index + 1}`,
       text
     }))
   }];
-  next.guidance.sections = next.handling.correct.map((step, index) => ({
+  next.guidance.sections = draftSteps.map((step, index) => ({
     title: `${index + 1}. Conversation Phase`,
     body: step,
     bullets: [step]

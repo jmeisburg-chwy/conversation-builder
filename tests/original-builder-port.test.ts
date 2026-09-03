@@ -21,7 +21,9 @@ import {
   editChatAdvanceRequirementPhrases,
   reviewFindingTargets,
   readScenarioJsonUploads,
+  requestGeneratedStudioDraftFromInputs,
   runCreateDraftBuild,
+  createMinimumInputDraft,
   finalCheckDisplayState,
   saveDraft,
   stepPassingScore,
@@ -99,6 +101,68 @@ test("creates a draft without asking the author for a de-identification confirma
   assert.equal(created.status, "created");
   assert.equal(requestCount, 1);
   assert.deepEqual(statuses, []);
+});
+
+test("opens Review/Edit with an editable draft when AI cannot interpret a nonempty answer", async () => {
+  const inputs = {
+    conversationAboutInput: { value: "A fictional customer needs help with a delayed pet food delivery." },
+    learnerApproachInput: { value: "Help the customer." }
+  };
+  const createDraftButton = { disabled: false, textContent: "Create draft" };
+  let reviewDraft: StudioDraft | null = null;
+
+  const created = await runCreateDraftBuild({
+    ...inputs,
+    createDraftButton,
+    requestDraft: (requestInputs: {
+      conversationAboutInput: { value: string };
+      learnerApproachInput: { value: string };
+    }) => requestGeneratedStudioDraftFromInputs({
+      ...requestInputs,
+      request: async () => {
+        throw Object.assign(new Error("Describe the exact approved action."), {
+          code: "approved_resolution_required",
+          status: 422
+        });
+      }
+    }),
+    completeDraftCreation: async (draft: StudioDraft) => {
+      reviewDraft = draft;
+    }
+  });
+
+  assert.equal(created.status, "created");
+  assert.ok(reviewDraft);
+  assert.equal(reviewDraft.scenario.description, inputs.conversationAboutInput.value);
+  assert.equal(reviewDraft.handling.correct[0], inputs.learnerApproachInput.value);
+  assert.ok(reviewDraft.flow.phases.length > 0);
+});
+
+test("keeps an avoid-only answer editable instead of blocking draft creation", () => {
+  const draft = createMinimumInputDraft({
+    conversationAbout: "A fictional customer needs help with a delayed pet food delivery.",
+    learnerApproach: "Do not promise a delivery date."
+  });
+
+  assert.deepEqual(draft.handling.avoid, ["Do not promise a delivery date."]);
+  assert.equal(draft.flow.phases.length, 1);
+  assert.match(draft.flow.phases[0].strongLearnerResponse, /Add the Learner's approved action/);
+});
+
+test("does not use the editable fallback for privacy failures", async () => {
+  await assert.rejects(
+    () => requestGeneratedStudioDraftFromInputs({
+      conversationAboutInput: { value: "A fictional customer needs help." },
+      learnerApproachInput: { value: "Help the customer." },
+      request: async () => {
+        throw Object.assign(new Error("Remove personal details."), {
+          code: "privacy_blocked",
+          status: 400
+        });
+      }
+    }),
+    (error: unknown) => (error as { code?: string })?.code === "privacy_blocked"
+  );
 });
 
 test("starts at the author choice screen unless the URL explicitly requests a saved draft", () => {
